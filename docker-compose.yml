@@ -1,0 +1,24 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: tbot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tbot_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - tbot_network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  tbot_network:
+    driver: bridge 

@@ -1,0 +1,1115 @@
+// Основные переменные
+let currentSection = 'dashboard';
+let portfolioChart = null;
+let accountId = null;
+let tradingMode = 'sandbox';
+let currentInstrumentType = 'shares';
+let currentPage = 0;
+let pageSize = 50;
+let totalInstruments = 0;
+let allInstruments = [];
+let filteredInstruments = [];
+
+// Инициализация приложения
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Trading Bot Web Interface initialized');
+    setupEventListeners();
+    loadTradingModeStatus();
+    loadAccountId();
+    loadDashboard();
+});
+
+// Настройка обработчиков событий
+function setupEventListeners() {
+    // Обработчик формы ордера
+    document.getElementById('orderForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        placeOrder();
+    });
+    
+    // Показать/скрыть поле цены в зависимости от типа ордера
+    document.getElementById('orderType').addEventListener('change', function() {
+        const priceField = document.getElementById('priceField');
+        if (this.value === 'limit') {
+            priceField.style.display = 'block';
+            document.getElementById('price').required = true;
+        } else {
+            priceField.style.display = 'none';
+            document.getElementById('price').required = false;
+        }
+    });
+}
+
+// Переключение между разделами
+function showSection(sectionName) {
+    // Скрыть все разделы
+    document.querySelectorAll('.section').forEach(section => {
+        section.style.display = 'none';
+    });
+    
+    // Показать выбранный раздел
+    document.getElementById(sectionName + '-section').style.display = 'block';
+    
+    // Обновить активную ссылку в навигации
+    document.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    currentSection = sectionName;
+    
+    // Загрузить данные для раздела
+    switch(sectionName) {
+        case 'dashboard':
+            loadDashboard();
+            break;
+        case 'instruments':
+            loadInstruments();
+            break;
+        case 'portfolio':
+            loadPortfolio();
+            break;
+        case 'orders':
+            loadOrders();
+            break;
+    }
+}
+
+// Загрузка accountId
+async function loadAccountId() {
+    try {
+        const response = await fetch('/api/accounts');
+        if (response.ok) {
+            const accounts = await response.json();
+            if (accounts && accounts.length > 0) {
+                accountId = accounts[0].id;
+                console.log('AccountId loaded:', accountId);
+                // Обновить отображение accountId на странице
+                const accountIdElement = document.getElementById('accountId');
+                if (accountIdElement) {
+                    accountIdElement.textContent = accountId;
+                }
+                // Обновить поле в форме пополнения баланса
+                updateTopUpAccountIdField();
+            } else {
+                console.log('No accounts found, creating sandbox account...');
+                await createSandboxAccount();
+            }
+        } else {
+            console.error('Failed to load accounts');
+        }
+    } catch (error) {
+        console.error('Error loading accountId:', error);
+    }
+}
+
+// Создание аккаунта в песочнице
+async function createSandboxAccount() {
+    if (tradingMode !== 'sandbox') {
+        console.log('Cannot create sandbox account in production mode');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/accounts/sandbox/open', {
+            method: 'POST'
+        });
+        if (response.ok) {
+            accountId = await response.text();
+            console.log('Sandbox account created:', accountId);
+            // Обновить отображение accountId на странице
+            const accountIdElement = document.getElementById('accountId');
+            if (accountIdElement) {
+                accountIdElement.textContent = accountId;
+            }
+            // Обновить поле в форме пополнения баланса
+            updateTopUpAccountIdField();
+        } else {
+            console.error('Failed to create sandbox account');
+        }
+    } catch (error) {
+        console.error('Error creating sandbox account:', error);
+    }
+}
+
+// Обновление поля accountId в форме пополнения баланса
+function updateTopUpAccountIdField() {
+    const topUpAccountIdField = document.getElementById('topUpAccountId');
+    if (topUpAccountIdField && accountId) {
+        topUpAccountIdField.value = accountId;
+    }
+}
+
+// Загрузка статуса режима торговли
+async function loadTradingModeStatus() {
+    try {
+        const response = await fetch('/api/trading-mode/status');
+        if (response.ok) {
+            const status = await response.json();
+            tradingMode = status.mode;
+            
+            // Обновить отображение в сайдбаре
+            const tradingModeElement = document.getElementById('tradingMode');
+            if (tradingModeElement) {
+                tradingModeElement.textContent = status.displayName;
+                tradingModeElement.className = `badge ${status.badgeClass}`;
+            }
+            
+            // Обновить отображение в настройках
+            const tradingModeStatusElement = document.getElementById('tradingModeStatus');
+            if (tradingModeStatusElement) {
+                tradingModeStatusElement.textContent = status.displayName;
+                tradingModeStatusElement.className = `badge ${status.badgeClass}`;
+            }
+            
+            // Обновить радио-кнопки
+            const sandboxRadio = document.getElementById('sandboxMode');
+            const productionRadio = document.getElementById('productionMode');
+            if (sandboxRadio && productionRadio) {
+                sandboxRadio.checked = status.isSandbox;
+                productionRadio.checked = status.isProduction;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading trading mode status:', error);
+    }
+}
+
+// Переключение режима торговли
+async function switchTradingMode() {
+    const selectedMode = document.querySelector('input[name="tradingMode"]:checked').value;
+    
+    if (selectedMode === tradingMode) {
+        showNotification('Режим уже активен', 'info');
+        return;
+    }
+    
+    if (selectedMode === 'production') {
+        if (!confirm('ВНИМАНИЕ! Вы переключаетесь в режим реальной торговли. Это может привести к реальным финансовым потерям. Продолжить?')) {
+            return;
+        }
+    }
+    
+    try {
+        // Здесь можно добавить API вызов для переключения режима
+        // Пока просто обновляем локально
+        tradingMode = selectedMode;
+        await loadTradingModeStatus();
+        showSuccess(`Режим переключен на: ${selectedMode === 'sandbox' ? 'Песочница' : 'Реальная торговля'}`);
+        
+        // Перезагрузить данные
+        loadAccountId();
+        loadDashboard();
+    } catch (error) {
+        console.error('Error switching trading mode:', error);
+        showError('Ошибка переключения режима');
+    }
+}
+
+// Проверка статуса API
+async function checkApiStatus() {
+    try {
+        const response = await fetch('/api/accounts');
+        if (response.ok) {
+            document.getElementById('apiStatus').textContent = 'Online';
+            document.getElementById('apiStatusBadge').textContent = 'Online';
+            document.getElementById('apiStatusBadge').className = 'badge bg-success';
+        } else {
+            document.getElementById('apiStatus').textContent = 'Error';
+            document.getElementById('apiStatusBadge').textContent = 'Error';
+            document.getElementById('apiStatusBadge').className = 'badge bg-danger';
+        }
+    } catch (error) {
+        console.error('API check failed:', error);
+        document.getElementById('apiStatus').textContent = 'Offline';
+        document.getElementById('apiStatusBadge').textContent = 'Offline';
+        document.getElementById('apiStatusBadge').className = 'badge bg-danger';
+    }
+}
+
+// Загрузка данных для дашборда
+async function loadDashboard() {
+    try {
+        // Загрузить портфель
+        if (!accountId) {
+            showError('AccountId не найден');
+            return;
+        }
+        const portfolioResponse = await fetch(`/api/portfolio?accountId=${accountId}`);
+        if (portfolioResponse.ok) {
+            const portfolio = await portfolioResponse.json();
+            updateDashboardStats(portfolio);
+        }
+        
+        // Загрузить ордера
+        const ordersResponse = await fetch(`/api/orders?accountId=${accountId}`);
+        if (ordersResponse.ok) {
+            const orders = await ordersResponse.json();
+            updateActiveOrdersCount(orders);
+        }
+        
+        // Загрузить инструменты
+        const instrumentsResponse = await fetch('/api/instruments/shares');
+        if (instrumentsResponse.ok) {
+            const instruments = await instrumentsResponse.json();
+            updateInstrumentsCount(instruments);
+        }
+        
+    } catch (error) {
+        console.error('Dashboard loading failed:', error);
+        showError('Ошибка загрузки данных дашборда');
+    }
+}
+
+// Обновление статистики дашборда
+function updateDashboardStats(portfolio) {
+    if (portfolio && portfolio.totalAmountShares) {
+        const totalValue = portfolio.totalAmountShares.units + portfolio.totalAmountShares.nano / 1000000000;
+        document.getElementById('totalValue').textContent = `₽${totalValue.toLocaleString()}`;
+        
+        if (portfolio.expectedYield) {
+            const profit = portfolio.expectedYield.units + portfolio.expectedYield.nano / 1000000000;
+            document.getElementById('totalProfit').textContent = `₽${profit.toLocaleString()}`;
+        }
+    }
+}
+
+// Обновление количества активных ордеров
+function updateActiveOrdersCount(orders) {
+    if (orders && orders.length) {
+        const activeCount = orders.filter(order => 
+            order.executionReportStatus === 'EXECUTION_REPORT_STATUS_NEW' || 
+            order.executionReportStatus === 'EXECUTION_REPORT_STATUS_PARTIALLY_FILLED'
+        ).length;
+        document.getElementById('activeOrders').textContent = activeCount;
+    }
+}
+
+// Обновление количества инструментов
+function updateInstrumentsCount(instruments) {
+    if (instruments && instruments.length) {
+        document.getElementById('instrumentsCount').textContent = instruments.length;
+    }
+}
+
+// Загрузка инструментов
+async function loadInstruments() {
+    // По умолчанию загружаем акции
+    await loadShares();
+}
+
+async function loadShares() {
+    currentInstrumentType = 'shares';
+    currentPage = 0;
+    await loadInstrumentsData();
+}
+
+async function loadBonds() {
+    currentInstrumentType = 'bonds';
+    currentPage = 0;
+    await loadInstrumentsData();
+}
+
+async function loadEtfs() {
+    currentInstrumentType = 'etfs';
+    currentPage = 0;
+    await loadInstrumentsData();
+}
+
+async function loadCurrencies() {
+    currentInstrumentType = 'currencies';
+    currentPage = 0;
+    await loadInstrumentsData();
+}
+
+async function loadInstrumentsData() {
+    const loadingElement = document.getElementById('instrumentsLoading');
+    const listElement = document.getElementById('instrumentsList');
+    
+    if (loadingElement) loadingElement.style.display = 'block';
+    if (listElement) listElement.style.display = 'none';
+    
+    try {
+        const searchQuery = document.getElementById('instrumentSearch')?.value || '';
+        const statusFilter = document.getElementById('statusFilter')?.value || '';
+        let url = `/api/instruments/${currentInstrumentType}?page=${currentPage}&size=${pageSize}&search=${encodeURIComponent(searchQuery)}`;
+        if (statusFilter) {
+            url += `&status=${encodeURIComponent(statusFilter)}`;
+        }
+        const response = await fetch(url);
+        if (response.ok) {
+            const data = await response.json();
+            allInstruments = data;
+            filteredInstruments = data;
+            
+            // Загружаем общее количество
+            await loadInstrumentsCount();
+            
+            displayInstruments(data, currentInstrumentType);
+            updatePagination();
+        } else {
+            showError('Ошибка загрузки инструментов');
+        }
+    } catch (error) {
+        console.error('Error loading instruments:', error);
+        showError('Ошибка загрузки инструментов');
+    } finally {
+        if (loadingElement) loadingElement.style.display = 'none';
+        if (listElement) listElement.style.display = 'block';
+    }
+}
+
+async function loadInstrumentsCount() {
+    try {
+        const searchQuery = document.getElementById('instrumentSearch')?.value || '';
+        const statusFilter = document.getElementById('statusFilter')?.value || '';
+        
+        let url = `/api/instruments/count?type=${currentInstrumentType}`;
+        if (searchQuery) {
+            url += `&search=${encodeURIComponent(searchQuery)}`;
+        }
+        if (statusFilter) {
+            url += `&status=${encodeURIComponent(statusFilter)}`;
+        }
+        
+        const response = await fetch(url);
+        if (response.ok) {
+            const data = await response.json();
+            totalInstruments = data.count;
+            const countElement = document.getElementById('instrumentsCount');
+            if (countElement) {
+                countElement.textContent = `Всего: ${totalInstruments}`;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading instruments count:', error);
+    }
+}
+
+function filterInstruments() {
+    const searchQuery = document.getElementById('instrumentSearch')?.value || '';
+    currentPage = 0;
+    loadInstrumentsData();
+}
+
+function changePageSize() {
+    const pageSizeSelect = document.getElementById('pageSize');
+    if (pageSizeSelect) {
+        pageSize = parseInt(pageSizeSelect.value);
+        currentPage = 0;
+        loadInstrumentsData();
+    }
+}
+
+function goToPage(page) {
+    currentPage = page;
+    loadInstrumentsData();
+}
+
+function updatePagination() {
+    const paginationElement = document.getElementById('pagination');
+    if (!paginationElement) return;
+    
+    const totalPages = Math.ceil(totalInstruments / pageSize);
+    if (totalPages <= 1) {
+        paginationElement.innerHTML = '';
+        return;
+    }
+    
+    let html = '';
+    
+    // Кнопка "Предыдущая"
+    html += `
+        <li class="page-item ${currentPage === 0 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="goToPage(${currentPage - 1})" ${currentPage === 0 ? 'tabindex="-1"' : ''}>
+                <i class="fas fa-chevron-left"></i>
+            </a>
+        </li>
+    `;
+    
+    // Номера страниц
+    const startPage = Math.max(0, currentPage - 2);
+    const endPage = Math.min(totalPages - 1, currentPage + 2);
+    
+    if (startPage > 0) {
+        html += `
+            <li class="page-item">
+                <a class="page-link" href="#" onclick="goToPage(0)">1</a>
+            </li>
+        `;
+        if (startPage > 1) {
+            html += `
+                <li class="page-item disabled">
+                    <span class="page-link">...</span>
+                </li>
+            `;
+        }
+    }
+    
+    for (let i = startPage; i <= endPage; i++) {
+        html += `
+            <li class="page-item ${i === currentPage ? 'active' : ''}">
+                <a class="page-link" href="#" onclick="goToPage(${i})">${i + 1}</a>
+            </li>
+        `;
+    }
+    
+    if (endPage < totalPages - 1) {
+        if (endPage < totalPages - 2) {
+            html += `
+                <li class="page-item disabled">
+                    <span class="page-link">...</span>
+                </li>
+            `;
+        }
+        html += `
+            <li class="page-item">
+                <a class="page-link" href="#" onclick="goToPage(${totalPages - 1})">${totalPages}</a>
+            </li>
+        `;
+    }
+    
+    // Кнопка "Следующая"
+    html += `
+        <li class="page-item ${currentPage === totalPages - 1 ? 'disabled' : ''}">
+            <a class="page-link" href="#" onclick="goToPage(${currentPage + 1})" ${currentPage === totalPages - 1 ? 'tabindex="-1"' : ''}>
+                <i class="fas fa-chevron-right"></i>
+            </a>
+        </li>
+    `;
+    
+    paginationElement.innerHTML = html;
+}
+
+// Загрузка портфеля
+async function loadPortfolio() {
+    const loading = document.getElementById('portfolioLoading');
+    const list = document.getElementById('portfolioList');
+    
+    loading.style.display = 'block';
+    list.innerHTML = '';
+    
+    try {
+        if (!accountId) {
+            showError('AccountId не найден');
+            return;
+        }
+        const response = await fetch(`/api/portfolio?accountId=${accountId}`);
+        if (response.ok) {
+            const data = await response.json();
+            displayPortfolio(data);
+        } else {
+            showError('Ошибка загрузки портфеля');
+        }
+    } catch (error) {
+        console.error('Portfolio loading failed:', error);
+        showError('Ошибка загрузки портфеля');
+    } finally {
+        loading.style.display = 'none';
+    }
+}
+
+// Отображение портфеля
+function displayPortfolio(data) {
+    const portfolioList = document.getElementById('portfolioList');
+    
+    if (!data || !data.positions || data.positions.length === 0) {
+        portfolioList.innerHTML = '<p class="text-muted">Портфель пуст</p>';
+        return;
+    }
+    
+    let html = `
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card bg-primary text-white">
+                    <div class="card-body">
+                        <h5 class="card-title">Акции</h5>
+                        <h3>${data.totalAmountShares?.displayValue || '₽0.00'}</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-success text-white">
+                    <div class="card-body">
+                        <h5 class="card-title">Облигации</h5>
+                        <h3>${data.totalAmountBonds?.displayValue || '₽0.00'}</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-info text-white">
+                    <div class="card-body">
+                        <h5 class="card-title">ETF</h5>
+                        <h3>${data.totalAmountEtfs?.displayValue || '₽0.00'}</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card bg-warning text-white">
+                    <div class="card-body">
+                        <h5 class="card-title">Валюты</h5>
+                        <h3>${data.totalAmountCurrencies?.displayValue || '₽0.00'}</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>Тикер</th>
+                        <th>Название</th>
+                        <th>Тип</th>
+                        <th>Количество</th>
+                        <th>Текущая цена</th>
+                        <th>Средняя цена</th>
+                        <th>НКД</th>
+                        <th>Доходность</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    data.positions.forEach(position => {
+        html += `
+            <tr>
+                <td><strong>${position.ticker || 'N/A'}</strong></td>
+                <td>${position.name || 'N/A'}</td>
+                <td><span class="badge bg-secondary">${position.instrumentType || 'N/A'}</span></td>
+                <td>${position.quantity ? position.quantity.toFixed(2) : 'N/A'}</td>
+                <td>${position.displayValue || 'N/A'}</td>
+                <td>${position.displayValue || 'N/A'}</td>
+                <td>N/A</td>
+                <td>N/A</td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-3">
+            <p><strong>Всего позиций:</strong> ${data.positions.length}</p>
+        </div>
+    `;
+    
+    portfolioList.innerHTML = html;
+}
+
+function calculateTotalValue(data) {
+    let total = 0;
+    if (data.totalAmountShares?.value) total += data.totalAmountShares.value;
+    if (data.totalAmountBonds?.value) total += data.totalAmountBonds.value;
+    if (data.totalAmountEtfs?.value) total += data.totalAmountEtfs.value;
+    if (data.totalAmountCurrencies?.value) total += data.totalAmountCurrencies.value;
+    return total;
+}
+
+// Загрузка ордеров
+async function loadOrders() {
+    const loading = document.getElementById('ordersLoading');
+    const list = document.getElementById('ordersList');
+    
+    loading.style.display = 'block';
+    list.innerHTML = '';
+    
+    try {
+        if (!accountId) {
+            showError('AccountId не найден');
+            return;
+        }
+        const response = await fetch(`/api/orders?accountId=${accountId}`);
+        if (response.ok) {
+            const data = await response.json();
+            displayOrders(data);
+        } else {
+            showError('Ошибка загрузки ордеров');
+        }
+    } catch (error) {
+        console.error('Orders loading failed:', error);
+        showError('Ошибка загрузки ордеров');
+    } finally {
+        loading.style.display = 'none';
+    }
+}
+
+// Отображение ордеров
+function displayOrders(data) {
+    const list = document.getElementById('ordersList');
+    
+    if (!data || data.length === 0) {
+        list.innerHTML = '<p class="text-muted">Активных ордеров нет</p>';
+        return;
+    }
+    
+    const table = `
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th>ID ордера</th>
+                        <th>FIGI</th>
+                        <th>Операция</th>
+                        <th>Статус</th>
+                        <th>Запрошено</th>
+                        <th>Исполнено</th>
+                        <th>Цена</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.map(order => `
+                        <tr>
+                            <td><small>${order.orderId}</small></td>
+                            <td>${order.figi}</td>
+                            <td>
+                                <span class="badge ${order.direction === 'ORDER_DIRECTION_BUY' ? 'bg-success' : 'bg-danger'}">
+                                    ${order.direction === 'ORDER_DIRECTION_BUY' ? 'Покупка' : 'Продажа'}
+                                </span>
+                            </td>
+                            <td>
+                                <span class="badge ${getStatusBadgeClass(order.executionReportStatus)}">
+                                    ${getStatusDisplayName(order.executionReportStatus)}
+                                </span>
+                            </td>
+                            <td>${order.lotsRequested}</td>
+                            <td>${order.lotsExecuted}</td>
+                            <td>₽${parseFloat(order.initialOrderPrice?.units || 0).toFixed(2)}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-danger" onclick="cancelOrder('${order.orderId}')">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    list.innerHTML = table;
+}
+
+// Получение класса для статуса ордера
+function getStatusBadgeClass(status) {
+    switch(status) {
+        case 'EXECUTION_REPORT_STATUS_NEW': return 'bg-warning';
+        case 'EXECUTION_REPORT_STATUS_FILL': return 'bg-success';
+        case 'EXECUTION_REPORT_STATUS_PARTIALLY_FILLED': return 'bg-info';
+        case 'EXECUTION_REPORT_STATUS_CANCELLED': return 'bg-secondary';
+        case 'EXECUTION_REPORT_STATUS_REPLACED': return 'bg-info';
+        case 'EXECUTION_REPORT_STATUS_REJECTED': return 'bg-danger';
+        default: return 'bg-secondary';
+    }
+}
+
+// Получение отображаемого имени статуса
+function getStatusDisplayName(status) {
+    switch(status) {
+        case 'EXECUTION_REPORT_STATUS_NEW': return 'Новый';
+        case 'EXECUTION_REPORT_STATUS_FILL': return 'Исполнен';
+        case 'EXECUTION_REPORT_STATUS_PARTIALLY_FILLED': return 'Частично';
+        case 'EXECUTION_REPORT_STATUS_CANCELLED': return 'Отменен';
+        case 'EXECUTION_REPORT_STATUS_REPLACED': return 'Заменен';
+        case 'EXECUTION_REPORT_STATUS_REJECTED': return 'Отклонен';
+        default: return status;
+    }
+}
+
+// Размещение ордера
+async function placeOrder() {
+    // Предупреждение для реальной торговли
+    if (tradingMode === 'production') {
+        if (!confirm('ВНИМАНИЕ! Вы размещаете ордер в режиме реальной торговли. Это может привести к реальным финансовым потерям. Продолжить?')) {
+            return;
+        }
+    }
+    
+    const formData = new FormData(document.getElementById('orderForm'));
+    const orderData = {
+        figi: document.getElementById('figi').value,
+        lots: parseInt(document.getElementById('lots').value),
+        accountId: accountId, // Используем accountId
+        orderType: document.getElementById('orderType').value,
+        direction: document.getElementById('direction').value
+    };
+    
+    if (orderData.orderType === 'limit') {
+        orderData.price = parseFloat(document.getElementById('price').value);
+    }
+    
+    try {
+        let url = '';
+        if (orderData.orderType === 'market') {
+            url = '/api/orders/market';
+        } else {
+            url = '/api/orders/limit';
+        }
+        
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams(orderData)
+        });
+        
+        if (response.ok) {
+            const result = await response.json();
+            showSuccess('Ордер успешно размещен');
+            document.getElementById('orderForm').reset();
+            document.getElementById('priceField').style.display = 'none';
+        } else {
+            showError('Ошибка размещения ордера');
+        }
+    } catch (error) {
+        console.error('Order placement failed:', error);
+        showError('Ошибка размещения ордера');
+    }
+}
+
+// Отмена ордера
+async function cancelOrder(orderId) {
+    if (!confirm('Вы уверены, что хотите отменить этот ордер?')) {
+        return;
+    }
+    
+    // Предупреждение для реальной торговли
+    if (tradingMode === 'production') {
+        if (!confirm('ВНИМАНИЕ! Вы отменяете ордер в режиме реальной торговли. Продолжить?')) {
+            return;
+        }
+    }
+    
+    try {
+        const response = await fetch('/api/orders/cancel', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                orderId: orderId,
+                accountId: accountId // Используем accountId
+            })
+        });
+        
+        if (response.ok) {
+            showSuccess('Ордер успешно отменен');
+            loadOrders(); // Перезагрузить список ордеров
+        } else {
+            showError('Ошибка отмены ордера');
+        }
+    } catch (error) {
+        console.error('Order cancellation failed:', error);
+        showError('Ошибка отмены ордера');
+    }
+}
+
+// Загрузка рыночных данных
+async function loadMarketData() {
+    const figi = document.getElementById('marketDataFigi').value;
+    if (!figi) {
+        showError('Введите FIGI инструмента');
+        return;
+    }
+    
+    const result = document.getElementById('marketDataResult');
+    result.innerHTML = '<div class="text-center"><div class="spinner-border text-primary" role="status"></div></div>';
+    
+    try {
+        // Используем новый эндпоинт для поиска инструмента по FIGI
+        const response = await fetch(`/api/instruments/search/${figi}`);
+        if (response.ok) {
+            const instrument = await response.json();
+            displayMarketData(instrument);
+        } else if (response.status === 404) {
+            result.innerHTML = '<p class="text-muted">Инструмент с таким FIGI не найден</p>';
+        } else {
+            showError('Ошибка загрузки рыночных данных');
+        }
+    } catch (error) {
+        console.error('Market data loading failed:', error);
+        showError('Ошибка загрузки рыночных данных');
+    }
+}
+
+// Отображение рыночных данных
+function displayMarketData(data) {
+    const result = document.getElementById('marketDataResult');
+    
+    if (!data) {
+        result.innerHTML = '<p class="text-muted">Данные не найдены</p>';
+        return;
+    }
+    
+    const html = `
+        <div class="row">
+            <div class="col-md-6">
+                <h6>Основная информация</h6>
+                <ul class="list-unstyled">
+                    <li><strong>FIGI:</strong> ${data.figi || 'N/A'}</li>
+                    <li><strong>Название:</strong> ${data.name || 'N/A'}</li>
+                    <li><strong>Тикер:</strong> ${data.ticker || 'N/A'}</li>
+                    <li><strong>Биржа:</strong> ${data.exchange || 'N/A'}</li>
+                    <li><strong>Валюта:</strong> ${data.currency || 'N/A'}</li>
+                    <li><strong>Сектор:</strong> ${data.sector || 'N/A'}</li>
+                </ul>
+            </div>
+            <div class="col-md-6">
+                <h6>Статус торгов</h6>
+                <ul class="list-unstyled">
+                    <li><strong>Статус:</strong> 
+                        <span class="badge ${data.tradingStatus === 'SECURITY_TRADING_STATUS_NORMAL_TRADING' ? 'bg-success' : 'bg-secondary'}">
+                            ${getTradingStatusDisplay(data.tradingStatus)}
+                        </span>
+                    </li>
+                    <li><strong>Страна риска:</strong> ${data.countryOfRiskName || 'N/A'}</li>
+                </ul>
+                <div class="mt-3">
+                    <button class="btn btn-sm btn-outline-primary" onclick="placeOrderFromInstrument('${data.figi}', '${data.ticker}')" 
+                            ${data.tradingStatus !== 'SECURITY_TRADING_STATUS_NORMAL_TRADING' ? 'disabled' : ''}>
+                        <i class="fas fa-shopping-cart"></i> Торговать
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    result.innerHTML = html;
+}
+
+// Показать уведомление об успехе
+function showSuccess(message) {
+    showNotification(message, 'success');
+}
+
+// Показать уведомление об ошибке
+function showError(message) {
+    showNotification(message, 'danger');
+}
+
+// Показать уведомление
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+    notification.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    notification.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Автоматически удалить через 5 секунд
+    setTimeout(() => {
+        if (notification.parentNode) {
+            notification.remove();
+        }
+    }, 5000);
+}
+
+// Пополнение баланса в песочнице
+async function topUpSandboxAccount() {
+    const currency = document.getElementById('topUpCurrency').value;
+    const amount = parseFloat(document.getElementById('topUpAmount').value);
+    
+    if (!accountId) {
+        showError('Нет активного аккаунта. Создайте аккаунт в песочнице.');
+        return;
+    }
+    
+    if (!currency || !amount || amount <= 0) {
+        showError('Пожалуйста, заполните все поля корректно');
+        return;
+    }
+    
+    // Конвертируем сумму в units и nano
+    const units = Math.floor(amount);
+    const nano = Math.round((amount - units) * 1000000000);
+    
+    try {
+        const response = await fetch('/api/accounts/sandbox/topup', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                accountId: accountId,
+                currency: currency,
+                units: units,
+                nano: nano
+            })
+        });
+        
+        if (response.ok) {
+            const result = await response.text();
+            showSuccess(`Баланс успешно пополнен: ${result}`);
+            document.getElementById('topUpForm').reset();
+            // Обновить поле accountId после сброса формы
+            updateTopUpAccountIdField();
+            // Перезагружаем портфель для отображения нового баланса
+            await loadPortfolio();
+        } else {
+            const error = await response.text();
+            showError(`Ошибка пополнения баланса: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error topping up account:', error);
+        showError('Ошибка при пополнении баланса');
+    }
+}
+
+// Инициализация формы пополнения баланса
+document.addEventListener('DOMContentLoaded', function() {
+    const topUpForm = document.getElementById('topUpForm');
+    if (topUpForm) {
+        topUpForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            topUpSandboxAccount();
+        });
+    }
+    
+    // Автозаполнение accountId в форме пополнения
+    updateTopUpAccountIdField();
+});
+
+// Закрытие аккаунта в песочнице
+async function closeSandboxAccount() {
+    if (tradingMode !== 'sandbox') {
+        showError('Можно закрывать только песочные аккаунты');
+        return;
+    }
+    
+    if (!accountId) {
+        showError('Нет активного аккаунта для закрытия');
+        return;
+    }
+    
+    if (!confirm('Вы уверены, что хотите закрыть песочный аккаунт? Это действие нельзя отменить.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/accounts/sandbox/close', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `accountId=${encodeURIComponent(accountId)}`
+        });
+        
+        if (response.ok) {
+            showSuccess('Песочный аккаунт успешно закрыт');
+            accountId = null;
+            // Обновить отображение accountId на странице
+            const accountIdElement = document.getElementById('accountId');
+            if (accountIdElement) {
+                accountIdElement.textContent = 'Аккаунт закрыт';
+            }
+            // Перезагрузить данные
+            await loadAccountId();
+        } else {
+            const error = await response.text();
+            showError(`Ошибка закрытия аккаунта: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error closing sandbox account:', error);
+        showError('Ошибка при закрытии аккаунта');
+    }
+} 
+
+// Отображение инструментов
+function displayInstruments(data, type) {
+    const list = document.getElementById('instrumentsList');
+    
+    if (!data || data.length === 0) {
+        list.innerHTML = '<p class="text-muted">Инструменты не найдены</p>';
+        return;
+    }
+    
+    const typeNames = {
+        'shares': 'Акции',
+        'bonds': 'Облигации',
+        'etfs': 'ETF',
+        'currencies': 'Валюты'
+    };
+    
+    const typeName = typeNames[type] || type;
+    
+    const table = `
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Тикер</th>
+                        <th>Название</th>
+                        <th>FIGI</th>
+                        <th>Валюта</th>
+                        <th>Биржа</th>
+                        <th>Статус</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${data.map(instrument => `
+                        <tr>
+                            <td><strong>${instrument.ticker || 'N/A'}</strong></td>
+                            <td>${instrument.name || 'N/A'}</td>
+                            <td><small class="text-muted">${instrument.figi || 'N/A'}</small></td>
+                            <td>${instrument.currency || 'N/A'}</td>
+                            <td>${instrument.exchange || 'N/A'}</td>
+                            <td>
+                                <span class="badge ${instrument.tradingStatus === 'SECURITY_TRADING_STATUS_NORMAL_TRADING' ? 'bg-success' : 'bg-secondary'}">
+                                    ${getTradingStatusDisplay(instrument.tradingStatus)}
+                                </span>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary" onclick="placeOrderFromInstrument('${instrument.figi}', '${instrument.ticker}')" 
+                                        ${instrument.tradingStatus !== 'SECURITY_TRADING_STATUS_NORMAL_TRADING' ? 'disabled' : ''}>
+                                    <i class="fas fa-shopping-cart"></i> Торговать
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+        <div class="row mt-3">
+            <div class="col-md-6">
+                <p class="text-muted">Показано ${data.length} из ${totalInstruments} ${typeName}</p>
+            </div>
+            <div class="col-md-6 text-end">
+                <p class="text-muted">Страница ${currentPage + 1} из ${Math.ceil(totalInstruments / pageSize)}</p>
+            </div>
+        </div>
+    `;
+    
+    list.innerHTML = table;
+}
+
+function getTradingStatusDisplay(status) {
+    const statusMap = {
+        'SECURITY_TRADING_STATUS_NORMAL_TRADING': 'Доступно',
+        'SECURITY_TRADING_STATUS_NOT_AVAILABLE_FOR_TRADING': 'Недоступно',
+        'SECURITY_TRADING_STATUS_BREAK_IN_TRADING': 'Перерыв',
+        'SECURITY_TRADING_STATUS_CLOSING_AUCTION': 'Закрытие',
+        'SECURITY_TRADING_STATUS_OPENING_AUCTION': 'Открытие'
+    };
+    return statusMap[status] || status;
+}
+
+function placeOrderFromInstrument(figi, ticker) {
+    // Переключаемся на раздел торговли и заполняем форму
+    showSection('trading');
+    
+    // Заполняем форму ордера
+    const figiField = document.getElementById('figi');
+    const tickerField = document.getElementById('ticker');
+    
+    if (figiField) figiField.value = figi;
+    if (tickerField) tickerField.value = ticker;
+    
+    showSuccess(`Выбран инструмент: ${ticker} (${figi})`);
+} 

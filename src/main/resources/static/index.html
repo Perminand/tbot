@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tinkoff Trading Bot</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="/css/style.css" rel="stylesheet">
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .main-content {
+            background-color: #f8f9fa;
+        }
+        .card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px 15px 0 0 !important;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+        }
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+        }
+        .nav-link {
+            color: rgba(255, 255, 255, 0.8);
+            transition: all 0.3s;
+        }
+        .nav-link:hover, .nav-link.active {
+            color: white;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+        .status-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-online {
+            background-color: #28a745;
+        }
+        .status-offline {
+            background-color: #dc3545;
+        }
+        .loading {
+            display: none;
+        }
+        .table-responsive {
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-3 col-lg-2 sidebar p-3">
+                <div class="d-flex flex-column h-100">
+                    <div class="text-center mb-4">
+                        <h4 class="text-white">
+                            <i class="fas fa-chart-line me-2"></i>
+                            Trading Bot
+                        </h4>
+                        <div class="text-white-50 small">
+                            <span class="status-indicator status-online"></span>
+                            <span id="apiStatus">Online</span>
+                        </div>
+                        <div class="text-white-50 small mt-2">
+                            <i class="fas fa-user me-1"></i>
+                            Account: <span id="accountId" class="text-white">Загрузка...</span>
+                        </div>
+                        <div class="text-white-50 small mt-2">
+                            <i class="fas fa-shield-alt me-1"></i>
+                            Режим: <span id="tradingMode" class="badge bg-warning">Песочница</span>
+                        </div>
+                    </div>
+                    
+                    <nav class="nav flex-column">
+                        <a class="nav-link active" href="#" onclick="showSection('dashboard')">
+                            <i class="fas fa-tachometer-alt me-2"></i>
+                            Dashboard
+                        </a>
+                        <a class="nav-link" href="#" onclick="showSection('instruments')">
+                            <i class="fas fa-list me-2"></i>
+                            Инструменты
+                        </a>
+                        <a class="nav-link" href="#" onclick="showSection('portfolio')">
+                            <i class="fas fa-briefcase me-2"></i>
+                            Портфель
+                        </a>
+                        <a class="nav-link" href="#" onclick="showSection('orders')">
+                            <i class="fas fa-exchange-alt me-2"></i>
+                            Ордера
+                        </a>
+                        <a class="nav-link" href="#" onclick="showSection('trading')">
+                            <i class="fas fa-chart-bar me-2"></i>
+                            Торговля
+                        </a>
+                        <a class="nav-link" href="#" onclick="showSection('settings')">
+                            <i class="fas fa-cog me-2"></i>
+                            Настройки
+                        </a>
+                    </nav>
+                    
+                    <div class="mt-auto">
+                        <div class="text-white-50 small">
+                            <i class="fas fa-info-circle me-2"></i>
+                            API Status: <span id="apiStatus">Checking...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Main Content -->
+            <div class="col-md-9 col-lg-10 main-content p-4">
+                <!-- Dashboard Section -->
+                <div id="dashboard-section" class="section">
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h2><i class="fas fa-tachometer-alt me-2"></i>Dashboard</h2>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-chart-line fa-2x text-primary mb-2"></i>
+                                    <h5 class="card-title">Общая стоимость</h5>
+                                    <h3 class="text-primary" id="totalValue">₽0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-arrow-up fa-2x text-success mb-2"></i>
+                                    <h5 class="card-title">Прибыль</h5>
+                                    <h3 class="text-success" id="totalProfit">₽0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-list fa-2x text-info mb-2"></i>
+                                    <h5 class="card-title">Инструменты</h5>
+                                    <h3 class="text-info" id="instrumentsCount">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-clock fa-2x text-warning mb-2"></i>
+                                    <h5 class="card-title">Активные ордера</h5>
+                                    <h3 class="text-warning" id="activeOrders">0</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>Распределение портфеля</h5>
+                                </div>
+                                <div class="card-body">
+                                    <canvas id="portfolioChart" width="400" height="200"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-history me-2"></i>Последние операции</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="recentOperations">
+                                        <p class="text-muted">Нет данных</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Instruments Section -->
+                <div id="instruments-section" class="section" style="display: none;">
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h2><i class="fas fa-list me-2"></i>Инструменты</h2>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="row align-items-center">
+                                <div class="col">
+                                    <h5 class="mb-0">Список инструментов</h5>
+                                </div>
+                                <div class="col-auto">
+                                    <div class="btn-group" role="group">
+                                        <button class="btn btn-outline-primary btn-sm" onclick="loadShares()">
+                                            <i class="fas fa-chart-line me-1"></i>Акции
+                                        </button>
+                                        <button class="btn btn-outline-primary btn-sm" onclick="loadBonds()">
+                                            <i class="fas fa-handshake me-1"></i>Облигации
+                                        </button>
+                                        <button class="btn btn-outline-primary btn-sm" onclick="loadEtfs()">
+                                            <i class="fas fa-chart-pie me-1"></i>ETF
+                                        </button>
+                                        <button class="btn btn-outline-primary btn-sm" onclick="loadCurrencies()">
+                                            <i class="fas fa-dollar-sign me-1"></i>Валюты
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <!-- Фильтрация -->
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <div class="input-group">
+                                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                        <input type="text" class="form-control" id="instrumentSearch" 
+                                               placeholder="Поиск по тикеру или названию..." 
+                                               onkeyup="filterInstruments()">
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <select class="form-select" id="statusFilter" onchange="filterInstruments()">
+                                        <option value="">Все статусы</option>
+                                        <option value="SECURITY_TRADING_STATUS_NORMAL_TRADING">Доступно</option>
+                                        <option value="SECURITY_TRADING_STATUS_NOT_AVAILABLE_FOR_TRADING">Недоступно</option>
+                                        <option value="SECURITY_TRADING_STATUS_BREAK_IN_TRADING">Перерыв</option>
+                                        <option value="SECURITY_TRADING_STATUS_CLOSING_AUCTION">Закрытие</option>
+                                        <option value="SECURITY_TRADING_STATUS_OPENING_AUCTION">Открытие</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <select class="form-select" id="pageSize" onchange="changePageSize()">
+                                        <option value="20">20 на странице</option>
+                                        <option value="50" selected>50 на странице</option>
+                                        <option value="100">100 на странице</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <span class="text-muted" id="instrumentsCount">Всего: 0</span>
+                                </div>
+                            </div>
+                            
+                            <div class="loading" id="instrumentsLoading">
+                                <div class="text-center">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="instrumentsList">
+                                <p class="text-muted">Выберите тип инструментов для загрузки</p>
+                            </div>
+                            
+                            <!-- Пагинация -->
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <nav aria-label="Навигация по страницам">
+                                        <ul class="pagination justify-content-center" id="pagination">
+                                            <!-- Пагинация будет добавлена динамически -->
+                                        </ul>
+                                    </nav>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Portfolio Section -->
+                <div id="portfolio-section" class="section" style="display: none;">
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h2><i class="fas fa-briefcase me-2"></i>Портфель</h2>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="row align-items-center">
+                                <div class="col">
+                                    <h5 class="mb-0">Позиции в портфеле</h5>
+                                </div>
+                                <div class="col-auto">
+                                    <button class="btn btn-primary btn-sm" onclick="loadPortfolio()">
+                                        <i class="fas fa-sync-alt me-1"></i>Обновить
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="loading" id="portfolioLoading">
+                                <div class="text-center">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="portfolioList">
+                                <p class="text-muted">Нажмите "Обновить" для загрузки портфеля</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Orders Section -->
+                <div id="orders-section" class="section" style="display: none;">
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h2><i class="fas fa-exchange-alt me-2"></i>Ордера</h2>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <div class="row align-items-center">
+                                <div class="col">
+                                    <h5 class="mb-0">Активные ордера</h5>
+                                </div>
+                                <div class="col-auto">
+                                    <button class="btn btn-primary btn-sm" onclick="loadOrders()">
+                                        <i class="fas fa-sync-alt me-1"></i>Обновить
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="loading" id="ordersLoading">
+                                <div class="text-center">
+                                    <div class="spinner-border text-primary" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div id="ordersList">
+                                <p class="text-muted">Нажмите "Обновить" для загрузки ордеров</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Trading Section -->
+                <div id="trading-section" class="section" style="display: none;">
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h2><i class="fas fa-chart-bar me-2"></i>Торговля</h2>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-plus me-2"></i>Новый ордер</h5>
+                                </div>
+                                <div class="card-body">
+                                    <form id="orderForm">
+                                        <div class="mb-3">
+                                            <label for="figi" class="form-label">FIGI инструмента</label>
+                                            <input type="text" class="form-control" id="figi" placeholder="BBG000B9XRY4" required>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="orderType" class="form-label">Тип ордера</label>
+                                            <select class="form-select" id="orderType" required>
+                                                <option value="market">Рыночный</option>
+                                                <option value="limit">Лимитный</option>
+                                            </select>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="direction" class="form-label">Направление</label>
+                                            <select class="form-select" id="direction" required>
+                                                <option value="buy">Покупка</option>
+                                                <option value="sell">Продажа</option>
+                                            </select>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="lots" class="form-label">Количество лотов</label>
+                                            <input type="number" class="form-control" id="lots" min="1" value="1" required>
+                                        </div>
+                                        <div class="mb-3" id="priceField" style="display: none;">
+                                            <label for="price" class="form-label">Цена</label>
+                                            <input type="number" class="form-control" id="price" step="0.01" placeholder="150.00">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="accountId" class="form-label">ID аккаунта</label>
+                                            <input type="text" class="form-control" id="accountId" placeholder="your_account_id" required>
+                                        </div>
+                                        <button type="submit" class="btn btn-primary">
+                                            <i class="fas fa-paper-plane me-1"></i>Разместить ордер
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Рыночные данные</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="marketDataFigi" class="form-label">FIGI для получения данных</label>
+                                        <div class="input-group">
+                                            <input type="text" class="form-control" id="marketDataFigi" placeholder="BBG000B9XRY4">
+                                            <button class="btn btn-outline-primary" onclick="loadMarketData()">
+                                                <i class="fas fa-search"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="marketDataResult">
+                                        <p class="text-muted">Введите FIGI и нажмите поиск</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Settings Section -->
+                <div id="settings-section" class="section" style="display: none;">
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h2><i class="fas fa-cog me-2"></i>Настройки</h2>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Конфигурация API</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">API Status</label>
+                                        <div>
+                                            <span class="badge bg-success" id="apiStatusBadge">Online</span>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Режим работы</label>
+                                        <div>
+                                            <span class="badge bg-warning" id="tradingModeStatus">Песочница</span>
+                                        </div>
+                                        <div class="mt-2">
+                                            <div class="form-check form-check-inline">
+                                                <input class="form-check-input" type="radio" name="tradingMode" id="sandboxMode" value="sandbox" checked>
+                                                <label class="form-check-label" for="sandboxMode">Песочница</label>
+                                            </div>
+                                            <div class="form-check form-check-inline">
+                                                <input class="form-check-input" type="radio" name="tradingMode" id="productionMode" value="production">
+                                                <label class="form-check-label" for="productionMode">Реальная торговля</label>
+                                            </div>
+                                        </div>
+                                        <button class="btn btn-sm btn-primary mt-2" onclick="switchTradingMode()">
+                                            <i class="fas fa-sync-alt me-1"></i>Переключить режим
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label class="form-label">База данных</label>
+                                        <div>
+                                            <span class="badge bg-info" id="dbStatus">Connected</span>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Версия приложения</label>
+                                        <div>
+                                            <span class="text-muted">1.0.0</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Sandbox Account Management -->
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-piggy-bank me-2"></i>Управление песочницей</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>Пополнение баланса</h6>
+                                    <form id="topUpForm">
+                                        <div class="mb-3">
+                                            <label for="topUpAccountId" class="form-label">ID аккаунта</label>
+                                            <input type="text" class="form-control" id="topUpAccountId" placeholder="66881038-1e18-4b77-989f-35d05558cd07" readonly>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="topUpCurrency" class="form-label">Валюта</label>
+                                            <select class="form-select" id="topUpCurrency" required>
+                                                <option value="rub">Рубли (RUB)</option>
+                                                <option value="usd">Доллары (USD)</option>
+                                                <option value="eur">Евро (EUR)</option>
+                                            </select>
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="topUpAmount" class="form-label">Сумма</label>
+                                            <input type="number" class="form-control" id="topUpAmount" step="0.01" min="0.01" placeholder="100000.00" required>
+                                        </div>
+                                        <button type="submit" class="btn btn-success">
+                                            <i class="fas fa-plus me-1"></i>Пополнить баланс
+                                        </button>
+                                    </form>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Управление аккаунтом</h6>
+                                    <div class="mb-3">
+                                        <button class="btn btn-primary btn-sm" onclick="createSandboxAccount()">
+                                            <i class="fas fa-plus me-1"></i>Создать аккаунт
+                                        </button>
+                                        <button class="btn btn-danger btn-sm ms-2" onclick="closeSandboxAccount()">
+                                            <i class="fas fa-trash me-1"></i>Закрыть аккаунт
+                                        </button>
+                                    </div>
+                                    <div class="alert alert-info">
+                                        <small>
+                                            <i class="fas fa-info-circle me-1"></i>
+                                            В песочнице можно пополнять баланс для тестирования торговли. 
+                                            Создайте аккаунт и пополните его для начала торговли.
+                                        </small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html> 
