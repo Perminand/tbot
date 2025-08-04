@@ -71,4 +71,28 @@ public class InstrumentService {
         log.info("Найдено {} ETF, доступных для торговли", tradableEtfs.size());
         return tradableEtfs;
     }
+
+    public Share getShareByFigi(String figi) throws ExecutionException, InterruptedException {
+        List<Share> shares = getAllShares();
+        return shares.stream()
+                .filter(share -> share.getFigi().equals(figi))
+                .findFirst()
+                .orElse(null);
+    }
+
+    public Bond getBondByFigi(String figi) throws ExecutionException, InterruptedException {
+        List<Bond> bonds = getAllBonds();
+        return bonds.stream()
+                .filter(bond -> bond.getFigi().equals(figi))
+                .findFirst()
+                .orElse(null);
+    }
+
+    public Etf getEtfByFigi(String figi) throws ExecutionException, InterruptedException {
+        List<Etf> etfs = getAllEtfs();
+        return etfs.stream()
+                .filter(etf -> etf.getFigi().equals(figi))
+                .findFirst()
+                .orElse(null);
+    }
 } 

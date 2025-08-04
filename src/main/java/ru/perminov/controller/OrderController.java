@@ -114,4 +114,54 @@ public class OrderController {
                     .body("Error canceling order: " + e.getMessage());
         }
     }
+
+    @GetMapping("/info/{orderId}")
+    public ResponseEntity<?> getOrderInfo(@PathVariable String orderId, @RequestParam("accountId") String accountId) {
+        try {
+            log.info("Получение информации об ордере: orderId={}, accountId={}", orderId, accountId);
+            
+            // Получаем все ордера и ищем нужный
+            List<OrderState> orders = orderService.getOrders(accountId);
+            OrderState order = orders.stream()
+                    .filter(o -> o.getOrderId().equals(orderId))
+                    .findFirst()
+                    .orElse(null);
+            
+            if (order != null) {
+                Map<String, Object> orderInfo = new HashMap<>();
+                orderInfo.put("orderId", order.getOrderId());
+                orderInfo.put("figi", order.getFigi());
+                orderInfo.put("direction", order.getDirection().name());
+                orderInfo.put("orderType", order.getOrderType().name());
+                orderInfo.put("lotsRequested", order.getLotsRequested());
+                orderInfo.put("lotsExecuted", order.getLotsExecuted());
+                orderInfo.put("executionReportStatus", order.getExecutionReportStatus().name());
+                // Убираем несуществующие методы
+                // orderInfo.put("message", order.getMessage());
+                
+                if (order.hasInitialOrderPrice()) {
+                    orderInfo.put("initialOrderPrice", order.getInitialOrderPrice().getUnits() + "." + 
+                        String.format("%09d", order.getInitialOrderPrice().getNano()));
+                }
+                
+                if (order.hasExecutedOrderPrice()) {
+                    orderInfo.put("executedOrderPrice", order.getExecutedOrderPrice().getUnits() + "." + 
+                        String.format("%09d", order.getExecutedOrderPrice().getNano()));
+                }
+                
+                // Убираем несуществующие методы
+                // orderInfo.put("createdAt", order.getCreatedAt());
+                // orderInfo.put("updatedAt", order.getUpdatedAt());
+                
+                return ResponseEntity.ok(orderInfo);
+            } else {
+                return ResponseEntity.notFound().build();
+            }
+        } catch (Exception e) {
+            log.error("Ошибка при получении информации об ордере: orderId={}, accountId={}, error={}", 
+                    orderId, accountId, e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при получении информации об ордере: " + e.getMessage());
+        }
+    }
 } 

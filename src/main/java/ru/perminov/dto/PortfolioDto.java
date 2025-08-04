@@ -20,12 +20,28 @@ public class PortfolioDto {
         private BigDecimal quantity;
         private String currency;
         private String displayValue;
+        private BigDecimal currentPrice;
+        // Убираем проблемные поля
+        // private BigDecimal averagePrice;
+        // private BigDecimal accumulatedCouponYield;
+        // private BigDecimal yield;
         
         public static PositionDto from(ru.tinkoff.piapi.core.models.Position position) {
             PositionDto dto = new PositionDto();
             dto.setFigi(position.getFigi());
             dto.setInstrumentType(position.getInstrumentType());
             dto.setQuantity(position.getQuantity());
+            
+            // Упрощенная обработка currentPrice
+            if (position.getCurrentPrice() != null) {
+                try {
+                    // Пытаемся получить значение как строку и конвертировать
+                    String priceStr = position.getCurrentPrice().toString();
+                    dto.setCurrentPrice(new BigDecimal(priceStr));
+                } catch (Exception e) {
+                    dto.setCurrentPrice(BigDecimal.ZERO);
+                }
+            }
             
             // Для валютных позиций добавляем специальную обработку
             if ("currency".equals(position.getInstrumentType())) {
@@ -34,13 +50,35 @@ public class PortfolioDto {
                 dto.setCurrency("rub");
                 dto.setDisplayValue("₽" + position.getQuantity().setScale(2, BigDecimal.ROUND_HALF_UP));
             } else {
-                dto.setTicker("N/A");
-                dto.setName("N/A");
-                dto.setCurrency("N/A");
-                dto.setDisplayValue("N/A");
+                // Для других инструментов показываем FIGI как тикер и добавляем тип инструмента
+                dto.setTicker(position.getFigi().substring(0, Math.min(8, position.getFigi().length())));
+                dto.setName(getInstrumentTypeDisplayName(position.getInstrumentType()));
+                dto.setCurrency("rub");
+                
+                // Упрощенная обработка стоимости
+                if (position.getQuantity() != null) {
+                    dto.setDisplayValue("₽" + position.getQuantity().setScale(2, BigDecimal.ROUND_HALF_UP));
+                } else {
+                    dto.setDisplayValue("N/A");
+                }
             }
             
             return dto;
+        }
+        
+        private static String getInstrumentTypeDisplayName(String instrumentType) {
+            switch (instrumentType) {
+                case "share":
+                    return "Акция";
+                case "bond":
+                    return "Облигация";
+                case "etf":
+                    return "ETF";
+                case "currency":
+                    return "Валюта";
+                default:
+                    return "Инструмент (" + instrumentType + ")";
+            }
         }
     }
     

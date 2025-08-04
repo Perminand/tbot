@@ -22,7 +22,7 @@ public class PortfolioController {
     public ResponseEntity<?> getPortfolio(@RequestParam("accountId") String accountId) {
         try {
             log.info("Getting portfolio for accountId: {}", accountId);
-            Portfolio portfolio = portfolioService.getPortfolio(accountId);
+            Portfolio portfolio = portfolioService.getEnrichedPortfolio(accountId);
             log.info("Portfolio retrieved successfully, positions count: {}", 
                     portfolio.getPositions() != null ? portfolio.getPositions().size() : 0);
             

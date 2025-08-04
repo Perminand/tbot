@@ -69,6 +69,27 @@ public class OrderResponseDto {
         
         dto.setOrderType(response.getOrderType().name());
         
+        // Добавляем человекочитаемое описание
+        String statusDescription = getStatusDescription(response.getExecutionReportStatus().name());
+        dto.setMessage(statusDescription + " - " + response.getMessage());
+        
         return dto;
+    }
+    
+    private static String getStatusDescription(String status) {
+        switch (status) {
+            case "EXECUTION_REPORT_STATUS_FILL":
+                return "Ордер исполнен";
+            case "EXECUTION_REPORT_STATUS_REPLACED":
+                return "Ордер заменен";
+            case "EXECUTION_REPORT_STATUS_CANCELLED":
+                return "Ордер отменен";
+            case "EXECUTION_REPORT_STATUS_NEW":
+                return "Новый ордер";
+            case "EXECUTION_REPORT_STATUS_PARTIALLY_FILL":
+                return "Ордер частично исполнен";
+            default:
+                return "Статус: " + status;
+        }
     }
 } 
