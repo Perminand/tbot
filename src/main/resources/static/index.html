@@ -108,6 +108,14 @@
                             <i class="fas fa-chart-bar me-2"></i>
                             Торговля
                         </a>
+                        <a class="nav-link" href="#" onclick="showSection('trading-bot')">
+                            <i class="fas fa-robot me-2"></i>
+                            Торговый бот
+                        </a>
+                        <a class="nav-link" href="#" onclick="showSection('analysis')">
+                            <i class="fas fa-chart-line me-2"></i>
+                            Анализ
+                        </a>
                         <a class="nav-link" href="#" onclick="showSection('settings')">
                             <i class="fas fa-cog me-2"></i>
                             Настройки
@@ -233,7 +241,7 @@
                         <div class="card-body">
                             <!-- Фильтрация -->
                             <div class="row mb-3">
-                                <div class="col-md-4">
+                                <div class="col-md-6">
                                     <div class="input-group">
                                         <span class="input-group-text"><i class="fas fa-search"></i></span>
                                         <input type="text" class="form-control" id="instrumentSearch" 
@@ -258,7 +266,7 @@
                                         <option value="100">100 на странице</option>
                                     </select>
                                 </div>
-                                <div class="col-md-2">
+                                <div class="col-md-3">
                                     <span class="text-muted" id="instrumentsCount">Всего: 0</span>
                                 </div>
                             </div>
@@ -430,6 +438,395 @@
                                     </div>
                                     <div id="marketDataResult">
                                         <p class="text-muted">Введите FIGI и нажмите поиск</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Trading Bot Section -->
+                <div id="trading-bot-section" class="section" style="display: none;">
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h2><i class="fas fa-robot me-2"></i>Торговый бот</h2>
+                        </div>
+                    </div>
+                    
+                    <!-- Bot Status -->
+                    <div class="row mb-4">
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-robot fa-2x text-primary mb-2"></i>
+                                    <h5 class="card-title">Статус бота</h5>
+                                    <h3 class="text-primary" id="botStatus">Активен</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-clock fa-2x text-success mb-2"></i>
+                                    <h5 class="card-title">Планировщик</h5>
+                                    <h3 class="text-success" id="schedulerStatus">Работает</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-chart-line fa-2x text-info mb-2"></i>
+                                    <h5 class="card-title">Анализ рынка</h5>
+                                    <h3 class="text-info" id="analysisStatus">Включен</h3>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body text-center">
+                                    <i class="fas fa-balance-scale fa-2x text-warning mb-2"></i>
+                                    <h5 class="card-title">Ребалансировка</h5>
+                                    <h3 class="text-warning" id="rebalancingStatus">Включена</h3>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Portfolio Management -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-briefcase me-2"></i>Анализ портфеля</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="portfolioAccountId" class="form-label">ID аккаунта</label>
+                                        <input type="text" class="form-control" id="portfolioAccountId" placeholder="Введите ID аккаунта">
+                                    </div>
+                                    <button class="btn btn-primary" onclick="analyzePortfolio()">
+                                        <i class="fas fa-chart-pie me-1"></i>Анализировать портфель
+                                    </button>
+                                    <div id="portfolioAnalysisResult" class="mt-3">
+                                        <p class="text-muted">Нажмите кнопку для анализа портфеля</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-balance-scale me-2"></i>Ребалансировка</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="rebalancingAccountId" class="form-label">ID аккаунта</label>
+                                        <input type="text" class="form-control" id="rebalancingAccountId" placeholder="Введите ID аккаунта">
+                                    </div>
+                                    <div class="btn-group" role="group">
+                                        <button class="btn btn-outline-primary" onclick="checkRebalancing()">
+                                            <i class="fas fa-search me-1"></i>Проверить
+                                        </button>
+                                        <button class="btn btn-success" onclick="executeRebalancing()">
+                                            <i class="fas fa-sync-alt me-1"></i>Выполнить
+                                        </button>
+                                    </div>
+                                    <div id="rebalancingResult" class="mt-3">
+                                        <p class="text-muted">Проверьте необходимость ребалансировки</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Trading Opportunities -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="row align-items-center">
+                                        <div class="col">
+                                            <h5 class="mb-0"><i class="fas fa-search me-2"></i>Лучшие торговые возможности</h5>
+                                        </div>
+                                        <div class="col-auto">
+                                            <button class="btn btn-primary btn-sm" onclick="loadTradingOpportunities()">
+                                                <i class="fas fa-sync-alt me-1"></i>Обновить
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <div id="tradingOpportunitiesResult">
+                                        <p class="text-muted">Нажмите "Обновить" для поиска лучших торговых возможностей</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Automatic Trading -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-robot me-2"></i>Автоматическая торговля</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-8">
+                                            <p class="text-muted">
+                                                Бот автоматически выберет лучший инструмент для торговли на основе технического анализа 
+                                                и выполнит торговую операцию.
+                                            </p>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <button class="btn btn-success w-100" onclick="executeAutomaticTrading()">
+                                                <i class="fas fa-play me-1"></i>Запустить автоматическую торговлю
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="automaticTradingResult" class="mt-3">
+                                        <p class="text-muted">Нажмите кнопку для запуска автоматической торговли</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Manual Trading Strategy -->
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-chess me-2"></i>Ручная торговая стратегия</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <div class="mb-3">
+                                                <label for="strategyAccountId" class="form-label">ID аккаунта</label>
+                                                <input type="text" class="form-control" id="strategyAccountId" placeholder="Введите ID аккаунта">
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="mb-3">
+                                                <label for="strategyFigi" class="form-label">FIGI инструмента</label>
+                                                <input type="text" class="form-control" id="strategyFigi" placeholder="BBG000B9XRY4">
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="mb-3">
+                                                <label class="form-label">&nbsp;</label>
+                                                <button class="btn btn-primary w-100" onclick="executeTradingStrategy()">
+                                                    <i class="fas fa-play me-1"></i>Запустить стратегию
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="strategyResult" class="mt-3">
+                                        <p class="text-muted">Введите параметры и запустите стратегию</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Bot Log -->
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <div class="row align-items-center">
+                                        <div class="col">
+                                            <h5 class="mb-0"><i class="fas fa-list-alt me-2"></i>Лог действий бота</h5>
+                                        </div>
+                                        <div class="col-auto">
+                                            <div class="btn-group" role="group">
+                                                <button class="btn btn-outline-primary btn-sm" onclick="loadBotLog()">
+                                                    <i class="fas fa-sync-alt me-1"></i>Обновить
+                                                </button>
+                                                <button class="btn btn-outline-danger btn-sm" onclick="clearBotLog()">
+                                                    <i class="fas fa-trash me-1"></i>Очистить
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="card-body">
+                                    <!-- Log Statistics -->
+                                    <div id="logStatistics" class="mb-3">
+                                        <div class="row">
+                                            <div class="col-md-2">
+                                                <div class="text-center">
+                                                    <h6 class="text-muted">Всего записей</h6>
+                                                    <span class="badge bg-primary" id="totalEntries">0</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <div class="text-center">
+                                                    <h6 class="text-muted">Информация</h6>
+                                                    <span class="badge bg-info" id="infoCount">0</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <div class="text-center">
+                                                    <h6 class="text-muted">Предупреждения</h6>
+                                                    <span class="badge bg-warning" id="warningCount">0</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <div class="text-center">
+                                                    <h6 class="text-muted">Ошибки</h6>
+                                                    <span class="badge bg-danger" id="errorCount">0</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <div class="text-center">
+                                                    <h6 class="text-muted">Успех</h6>
+                                                    <span class="badge bg-success" id="successCount">0</span>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <div class="text-center">
+                                                    <h6 class="text-muted">Торговля</h6>
+                                                    <span class="badge bg-secondary" id="tradeCount">0</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Log Filters -->
+                                    <div class="row mb-3">
+                                        <div class="col-md-3">
+                                            <select class="form-select form-select-sm" id="logLevelFilter">
+                                                <option value="">Все уровни</option>
+                                                <option value="INFO">Информация</option>
+                                                <option value="WARNING">Предупреждения</option>
+                                                <option value="ERROR">Ошибки</option>
+                                                <option value="SUCCESS">Успех</option>
+                                                <option value="TRADE">Торговля</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <select class="form-select form-select-sm" id="logCategoryFilter">
+                                                <option value="">Все категории</option>
+                                                <option value="MARKET_ANALYSIS">Анализ рынка</option>
+                                                <option value="PORTFOLIO_MANAGEMENT">Управление портфелем</option>
+                                                <option value="TRADING_STRATEGY">Торговая стратегия</option>
+                                                <option value="REBALANCING">Ребалансировка</option>
+                                                <option value="TECHNICAL_INDICATORS">Технические индикаторы</option>
+                                                <option value="AUTOMATIC_TRADING">Автоматическая торговля</option>
+                                                <option value="RISK_MANAGEMENT">Управление рисками</option>
+                                                <option value="SYSTEM_STATUS">Статус системы</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <select class="form-select form-select-sm" id="logLimitFilter">
+                                                <option value="20">20 записей</option>
+                                                <option value="50" selected>50 записей</option>
+                                                <option value="100">100 записей</option>
+                                                <option value="200">200 записей</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <button class="btn btn-primary btn-sm w-100" onclick="applyLogFilters()">
+                                                <i class="fas fa-filter me-1"></i>Применить фильтры
+                                            </button>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Log Entries -->
+                                    <div id="botLogResult" class="mt-3">
+                                        <p class="text-muted">Нажмите "Обновить" для загрузки лога</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Analysis Section -->
+                <div id="analysis-section" class="section" style="display: none;">
+                    <div class="row mb-4">
+                        <div class="col-12">
+                            <h2><i class="fas fa-chart-line me-2"></i>Анализ рынка</h2>
+                        </div>
+                    </div>
+                    
+                    <!-- Market Analysis -->
+                    <div class="row mb-4">
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>Анализ тренда</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="trendAnalysisFigi" class="form-label">FIGI инструмента</label>
+                                        <input type="text" class="form-control" id="trendAnalysisFigi" placeholder="BBG000B9XRY4">
+                                    </div>
+                                    <button class="btn btn-primary" onclick="analyzeTrend()">
+                                        <i class="fas fa-search me-1"></i>Анализировать тренд
+                                    </button>
+                                    <div id="trendAnalysisResult" class="mt-3">
+                                        <p class="text-muted">Введите FIGI и нажмите кнопку для анализа</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Технические индикаторы</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="mb-3">
+                                        <label for="indicatorsFigi" class="form-label">FIGI инструмента</label>
+                                        <input type="text" class="form-control" id="indicatorsFigi" placeholder="BBG000B9XRY4">
+                                    </div>
+                                    <button class="btn btn-primary" onclick="getTechnicalIndicators()">
+                                        <i class="fas fa-chart-bar me-1"></i>Получить индикаторы
+                                    </button>
+                                    <div id="indicatorsResult" class="mt-3">
+                                        <p class="text-muted">Введите FIGI для получения технических индикаторов</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Technical Analysis Chart -->
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5 class="mb-0"><i class="fas fa-chart-area me-2"></i>Технический анализ</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row mb-3">
+                                        <div class="col-md-4">
+                                            <label for="chartFigi" class="form-label">FIGI инструмента</label>
+                                            <input type="text" class="form-control" id="chartFigi" placeholder="BBG000B9XRY4">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="chartPeriod" class="form-label">Период</label>
+                                            <select class="form-select" id="chartPeriod">
+                                                <option value="1">1 день</option>
+                                                <option value="7">7 дней</option>
+                                                <option value="30" selected>30 дней</option>
+                                                <option value="90">90 дней</option>
+                                            </select>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label">&nbsp;</label>
+                                            <button class="btn btn-primary w-100" onclick="loadTechnicalChart()">
+                                                <i class="fas fa-chart-line me-1"></i>Загрузить график
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="technicalChartContainer">
+                                        <canvas id="technicalChart" width="400" height="200"></canvas>
                                     </div>
                                 </div>
                             </div>

@@ -72,6 +72,14 @@ function showSection(sectionName) {
         case 'orders':
             loadOrders();
             break;
+        case 'trading-bot':
+            loadBotStatus();
+            loadTradingOpportunities();
+            loadBotLog();
+            break;
+        case 'analysis':
+            // Анализ загружается по требованию
+            break;
     }
 }
 
@@ -1112,4 +1120,748 @@ function placeOrderFromInstrument(figi, ticker) {
     if (tickerField) tickerField.value = ticker;
     
     showSuccess(`Выбран инструмент: ${ticker} (${figi})`);
-} 
+}
+
+// ==================== ТОРГОВЫЙ БОТ ====================
+
+// Загрузка статуса торгового бота
+async function loadBotStatus() {
+    try {
+        const response = await fetch('/api/trading-bot/status');
+        if (response.ok) {
+            const status = await response.json();
+            updateBotStatusDisplay(status);
+        } else {
+            console.error('Failed to load bot status');
+        }
+    } catch (error) {
+        console.error('Error loading bot status:', error);
+    }
+}
+
+// Обновление отображения статуса бота
+function updateBotStatusDisplay(status) {
+    const botStatusElement = document.getElementById('botStatus');
+    const schedulerStatusElement = document.getElementById('schedulerStatus');
+    const analysisStatusElement = document.getElementById('analysisStatus');
+    const rebalancingStatusElement = document.getElementById('rebalancingStatus');
+    
+    if (botStatusElement) {
+        botStatusElement.textContent = status.status === 'running' ? 'Активен' : 'Остановлен';
+        botStatusElement.className = status.status === 'running' ? 'text-success' : 'text-danger';
+    }
+    
+    if (schedulerStatusElement) {
+        schedulerStatusElement.textContent = status.scheduler === 'active' ? 'Работает' : 'Остановлен';
+        schedulerStatusElement.className = status.scheduler === 'active' ? 'text-success' : 'text-danger';
+    }
+    
+    if (analysisStatusElement) {
+        analysisStatusElement.textContent = status.features?.marketAnalysis ? 'Включен' : 'Отключен';
+        analysisStatusElement.className = status.features?.marketAnalysis ? 'text-success' : 'text-danger';
+    }
+    
+    if (rebalancingStatusElement) {
+        rebalancingStatusElement.textContent = status.features?.rebalancing ? 'Включена' : 'Отключена';
+        rebalancingStatusElement.className = status.features?.rebalancing ? 'text-success' : 'text-danger';
+    }
+}
+
+// Анализ портфеля
+async function analyzePortfolio() {
+    const accountId = document.getElementById('portfolioAccountId').value;
+    if (!accountId) {
+        showError('Введите ID аккаунта');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/trading-bot/portfolio/${accountId}`);
+        if (response.ok) {
+            const data = await response.json();
+            displayPortfolioAnalysis(data);
+        } else {
+            const error = await response.text();
+            showError(`Ошибка анализа портфеля: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error analyzing portfolio:', error);
+        showError('Ошибка при анализе портфеля');
+    }
+}
+
+// Отображение анализа портфеля
+function displayPortfolioAnalysis(data) {
+    const resultElement = document.getElementById('portfolioAnalysisResult');
+    
+    const html = `
+        <div class="alert alert-info">
+            <h6><i class="fas fa-briefcase me-2"></i>Анализ портфеля</h6>
+            <div class="row">
+                <div class="col-md-4">
+                    <strong>Общая стоимость:</strong><br>
+                    <span class="text-primary">₽${data.totalValue?.toLocaleString() || '0'}</span>
+                </div>
+                <div class="col-md-4">
+                    <strong>Количество позиций:</strong><br>
+                    <span class="text-info">${data.positionsCount || 0}</span>
+                </div>
+                <div class="col-md-4">
+                    <strong>Распределение:</strong><br>
+                    <small class="text-muted">
+                        ${Object.entries(data.allocations || {}).map(([type, percentage]) => 
+                            `${type}: ${percentage.toFixed(2)}%`
+                        ).join('<br>')}
+                    </small>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    resultElement.innerHTML = html;
+}
+
+// Проверка необходимости ребалансировки
+async function checkRebalancing() {
+    const accountId = document.getElementById('rebalancingAccountId').value;
+    if (!accountId) {
+        showError('Введите ID аккаунта');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/trading-bot/rebalancing/${accountId}`);
+        if (response.ok) {
+            const data = await response.json();
+            displayRebalancingCheck(data);
+        } else {
+            const error = await response.text();
+            showError(`Ошибка проверки ребалансировки: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error checking rebalancing:', error);
+        showError('Ошибка при проверке ребалансировки');
+    }
+}
+
+// Отображение проверки ребалансировки
+function displayRebalancingCheck(data) {
+    const resultElement = document.getElementById('rebalancingResult');
+    
+    const statusClass = data.needsRebalancing ? 'alert-warning' : 'alert-success';
+    const statusIcon = data.needsRebalancing ? 'fas fa-exclamation-triangle' : 'fas fa-check-circle';
+    
+    const html = `
+        <div class="alert ${statusClass}">
+            <h6><i class="${statusIcon} me-2"></i>${data.reason}</h6>
+            <div class="row">
+                <div class="col-md-6">
+                    <strong>Максимальное отклонение:</strong><br>
+                    <span class="text-primary">${data.maxDeviation?.toFixed(2) || 0}%</span>
+                </div>
+                <div class="col-md-6">
+                    <strong>Отклонения по типам:</strong><br>
+                    <small class="text-muted">
+                        ${Object.entries(data.deviations || {}).map(([type, deviation]) => 
+                            `${type}: ${deviation.toFixed(2)}%`
+                        ).join('<br>')}
+                    </small>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    resultElement.innerHTML = html;
+}
+
+// Выполнение ребалансировки
+async function executeRebalancing() {
+    const accountId = document.getElementById('rebalancingAccountId').value;
+    if (!accountId) {
+        showError('Введите ID аккаунта');
+        return;
+    }
+    
+    if (!confirm('Вы уверены, что хотите выполнить ребалансировку портфеля?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/trading-bot/rebalancing/${accountId}`, {
+            method: 'POST'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            showSuccess('Ребалансировка выполнена успешно');
+            displayRebalancingResult(data);
+        } else {
+            const error = await response.text();
+            showError(`Ошибка ребалансировки: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error executing rebalancing:', error);
+        showError('Ошибка при выполнении ребалансировки');
+    }
+}
+
+// Отображение результата ребалансировки
+function displayRebalancingResult(data) {
+    const resultElement = document.getElementById('rebalancingResult');
+    
+    const html = `
+        <div class="alert alert-success">
+            <h6><i class="fas fa-check-circle me-2"></i>${data.message}</h6>
+            <p class="mb-0">Ребалансировка для аккаунта ${data.accountId} выполнена успешно.</p>
+        </div>
+    `;
+    
+    resultElement.innerHTML = html;
+}
+
+// Выполнение торговой стратегии
+async function executeTradingStrategy() {
+    const accountId = document.getElementById('strategyAccountId').value;
+    const figi = document.getElementById('strategyFigi').value;
+    
+    if (!accountId || !figi) {
+        showError('Введите ID аккаунта и FIGI инструмента');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/trading-bot/strategy/${accountId}/${figi}`, {
+            method: 'POST'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            showSuccess('Торговая стратегия выполнена успешно');
+            displayStrategyResult(data);
+        } else {
+            const error = await response.text();
+            showError(`Ошибка стратегии: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error executing strategy:', error);
+        showError('Ошибка при выполнении торговой стратегии');
+    }
+}
+
+// Отображение результата стратегии
+function displayStrategyResult(data) {
+    const resultElement = document.getElementById('strategyResult');
+    
+    const html = `
+        <div class="alert alert-success">
+            <h6><i class="fas fa-chess me-2"></i>${data.message}</h6>
+            <div class="row">
+                <div class="col-md-6">
+                    <strong>Аккаунт:</strong> ${data.accountId}
+                </div>
+                <div class="col-md-6">
+                    <strong>Инструмент:</strong> ${data.figi}
+                </div>
+            </div>
+        </div>
+    `;
+    
+    resultElement.innerHTML = html;
+}
+
+// ==================== АНАЛИЗ РЫНКА ====================
+
+// Анализ тренда
+async function analyzeTrend() {
+    const figi = document.getElementById('trendAnalysisFigi').value;
+    if (!figi) {
+        showError('Введите FIGI инструмента');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/trading-bot/analysis/${figi}`);
+        if (response.ok) {
+            const data = await response.json();
+            displayTrendAnalysis(data);
+        } else {
+            const error = await response.text();
+            showError(`Ошибка анализа тренда: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error analyzing trend:', error);
+        showError('Ошибка при анализе тренда');
+    }
+}
+
+// Отображение анализа тренда
+function displayTrendAnalysis(data) {
+    const resultElement = document.getElementById('trendAnalysisResult');
+    
+    const trendClass = {
+        'BULLISH': 'text-success',
+        'BEARISH': 'text-danger',
+        'SIDEWAYS': 'text-warning',
+        'UNKNOWN': 'text-muted'
+    }[data.trend] || 'text-muted';
+    
+    const trendIcon = {
+        'BULLISH': 'fas fa-arrow-up',
+        'BEARISH': 'fas fa-arrow-down',
+        'SIDEWAYS': 'fas fa-minus',
+        'UNKNOWN': 'fas fa-question'
+    }[data.trend] || 'fas fa-question';
+    
+    const html = `
+        <div class="alert alert-info">
+            <h6><i class="fas fa-chart-line me-2"></i>Анализ тренда</h6>
+            <div class="row">
+                <div class="col-md-3">
+                    <strong>FIGI:</strong><br>
+                    <span class="text-muted">${data.figi}</span>
+                </div>
+                <div class="col-md-3">
+                    <strong>Тренд:</strong><br>
+                    <span class="${trendClass}">
+                        <i class="${trendIcon} me-1"></i>${data.trend}
+                    </span>
+                </div>
+                <div class="col-md-3">
+                    <strong>Сигнал:</strong><br>
+                    <span class="text-primary">${data.signal}</span>
+                </div>
+                <div class="col-md-3">
+                    <strong>Текущая цена:</strong><br>
+                    <span class="text-success">₽${data.currentPrice?.toFixed(2) || '0'}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    resultElement.innerHTML = html;
+}
+
+// Получение технических индикаторов
+async function getTechnicalIndicators() {
+    const figi = document.getElementById('indicatorsFigi').value;
+    if (!figi) {
+        showError('Введите FIGI инструмента');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/trading-bot/indicators/${figi}`);
+        if (response.ok) {
+            const data = await response.json();
+            displayTechnicalIndicators(data);
+        } else {
+            const error = await response.text();
+            showError(`Ошибка получения индикаторов: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error getting indicators:', error);
+        showError('Ошибка при получении технических индикаторов');
+    }
+}
+
+// Отображение технических индикаторов
+function displayTechnicalIndicators(data) {
+    const resultElement = document.getElementById('indicatorsResult');
+    
+    const html = `
+        <div class="alert alert-info">
+            <h6><i class="fas fa-chart-bar me-2"></i>Технические индикаторы</h6>
+            <div class="row">
+                <div class="col-md-4">
+                    <strong>SMA 20:</strong><br>
+                    <span class="text-primary">₽${data.sma20?.toFixed(2) || '0'}</span>
+                </div>
+                <div class="col-md-4">
+                    <strong>SMA 50:</strong><br>
+                    <span class="text-primary">₽${data.sma50?.toFixed(2) || '0'}</span>
+                </div>
+                <div class="col-md-4">
+                    <strong>RSI 14:</strong><br>
+                    <span class="text-info">${data.rsi?.toFixed(2) || '0'}</span>
+                </div>
+            </div>
+            <div class="mt-2">
+                <small class="text-muted">
+                    <strong>Интерпретация RSI:</strong><br>
+                    ${data.rsi > 70 ? 'Перекупленность (>70)' : data.rsi < 30 ? 'Перепроданность (<30)' : 'Нейтральная зона (30-70)'}
+                </small>
+            </div>
+        </div>
+    `;
+    
+    resultElement.innerHTML = html;
+}
+
+// Загрузка технического графика
+async function loadTechnicalChart() {
+    const figi = document.getElementById('chartFigi').value;
+    const period = document.getElementById('chartPeriod').value;
+    
+    if (!figi) {
+        showError('Введите FIGI инструмента');
+        return;
+    }
+    
+    try {
+        // Здесь можно добавить загрузку данных для графика
+        // Пока что показываем заглушку
+        const canvas = document.getElementById('technicalChart');
+        const ctx = canvas.getContext('2d');
+        
+        // Очистить график
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Показать сообщение
+        ctx.fillStyle = '#6c757d';
+        ctx.font = '16px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('График для FIGI: ' + figi, canvas.width / 2, canvas.height / 2);
+        ctx.fillText('Период: ' + period + ' дней', canvas.width / 2, canvas.height / 2 + 25);
+        
+        showSuccess('График загружен');
+    } catch (error) {
+        console.error('Error loading chart:', error);
+        showError('Ошибка при загрузке графика');
+    }
+}
+
+// ==================== МУЛЬТИИНСТРУМЕНТАЛЬНАЯ ТОРГОВЛЯ ====================
+
+// Загрузка торговых возможностей
+async function loadTradingOpportunities() {
+    try {
+        const response = await fetch('/api/trading-bot/opportunities');
+        if (response.ok) {
+            const data = await response.json();
+            displayTradingOpportunities(data);
+        } else {
+            const error = await response.text();
+            showError(`Ошибка загрузки торговых возможностей: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error loading trading opportunities:', error);
+        showError('Ошибка при загрузке торговых возможностей');
+    }
+}
+
+// Отображение торговых возможностей
+function displayTradingOpportunities(data) {
+    const resultElement = document.getElementById('tradingOpportunitiesResult');
+    
+    if (!data.opportunities || data.opportunities.length === 0) {
+        resultElement.innerHTML = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                Торговые возможности не найдены. Попробуйте обновить позже.
+            </div>
+        `;
+        return;
+    }
+    
+    const opportunitiesHtml = data.opportunities.map((opp, index) => {
+        const scoreClass = opp.score >= 70 ? 'text-success' : opp.score >= 50 ? 'text-warning' : 'text-danger';
+        const actionClass = opp.recommendedAction === 'BUY' ? 'text-success' : 
+                          opp.recommendedAction === 'SELL' ? 'text-danger' : 'text-muted';
+        
+        return `
+            <div class="card mb-3">
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-2">
+                            <h6 class="text-muted">#${index + 1}</h6>
+                            <strong class="${scoreClass}">Score: ${opp.score.toFixed(1)}</strong>
+                        </div>
+                        <div class="col-md-3">
+                            <h6>Инструмент</h6>
+                            <strong>${opp.figi}</strong>
+                        </div>
+                        <div class="col-md-2">
+                            <h6>Цена</h6>
+                            <strong>₽${opp.currentPrice?.toFixed(2) || '0'}</strong>
+                        </div>
+                        <div class="col-md-2">
+                            <h6>Тренд</h6>
+                            <span class="badge ${opp.trend === 'BULLISH' ? 'bg-success' : 
+                                               opp.trend === 'BEARISH' ? 'bg-danger' : 'bg-warning'}">
+                                ${opp.trend}
+                            </span>
+                        </div>
+                        <div class="col-md-2">
+                            <h6>RSI</h6>
+                            <strong>${opp.rsi?.toFixed(2) || '0'}</strong>
+                        </div>
+                        <div class="col-md-1">
+                            <h6>Действие</h6>
+                            <span class="badge ${opp.recommendedAction === 'BUY' ? 'bg-success' : 
+                                               opp.recommendedAction === 'SELL' ? 'bg-danger' : 'bg-secondary'}">
+                                ${opp.recommendedAction}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="row mt-2">
+                        <div class="col-md-6">
+                            <small class="text-muted">
+                                SMA20: ₽${opp.sma20?.toFixed(2) || '0'} | 
+                                SMA50: ₽${opp.sma50?.toFixed(2) || '0'}
+                            </small>
+                        </div>
+                        <div class="col-md-6 text-end">
+                            <button class="btn btn-sm btn-outline-primary" onclick="executeTradingStrategy('${opp.figi}')">
+                                <i class="fas fa-play me-1"></i>Торговать
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    resultElement.innerHTML = `
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            Найдено ${data.count} торговых возможностей для аккаунта ${data.accountId}
+        </div>
+        ${opportunitiesHtml}
+    `;
+}
+
+// Автоматическая торговля
+async function executeAutomaticTrading() {
+    if (!confirm('Вы уверены, что хотите запустить автоматическую торговлю? Бот выберет лучший инструмент и выполнит торговую операцию.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/trading-bot/auto-trade', {
+            method: 'POST'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            showSuccess('Автоматическая торговля выполнена успешно');
+            displayAutomaticTradingResult(data);
+        } else {
+            const error = await response.text();
+            showError(`Ошибка автоматической торговли: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error executing automatic trading:', error);
+        showError('Ошибка при выполнении автоматической торговли');
+    }
+}
+
+// Отображение результата автоматической торговли
+function displayAutomaticTradingResult(data) {
+    const resultElement = document.getElementById('automaticTradingResult');
+    
+    const html = `
+        <div class="alert alert-success">
+            <h6><i class="fas fa-robot me-2"></i>${data.message}</h6>
+            <div class="row">
+                <div class="col-md-6">
+                    <strong>Аккаунт:</strong> ${data.accountId}
+                </div>
+                <div class="col-md-6">
+                    <strong>Статус:</strong> <span class="badge bg-success">${data.status}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    resultElement.innerHTML = html;
+}
+
+// Обновленная функция выполнения торговой стратегии
+async function executeTradingStrategy(figi = null) {
+    const accountId = document.getElementById('strategyAccountId').value || accountId;
+    const strategyFigi = figi || document.getElementById('strategyFigi').value;
+    
+    if (!accountId || !strategyFigi) {
+        showError('Введите ID аккаунта и FIGI инструмента');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/trading-bot/strategy/${accountId}/${strategyFigi}`, {
+            method: 'POST'
+        });
+        if (response.ok) {
+            const data = await response.json();
+            showSuccess('Торговая стратегия выполнена успешно');
+            displayStrategyResult(data);
+        } else {
+            const error = await response.text();
+            showError(`Ошибка стратегии: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error executing strategy:', error);
+        showError('Ошибка при выполнении торговой стратегии');
+    }
+}
+
+// ==================== ЛОГ ДЕЙСТВИЙ БОТА ====================
+
+// Загрузка лога бота
+async function loadBotLog() {
+    try {
+        const level = document.getElementById('logLevelFilter').value;
+        const category = document.getElementById('logCategoryFilter').value;
+        const limit = document.getElementById('logLimitFilter').value;
+        
+        let url = `/api/trading-bot/log?limit=${limit}`;
+        if (level) url += `&level=${level}`;
+        if (category) url += `&category=${category}`;
+        
+        const response = await fetch(url);
+        if (response.ok) {
+            const data = await response.json();
+            displayBotLog(data);
+        } else {
+            const error = await response.text();
+            showError(`Ошибка загрузки лога: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error loading bot log:', error);
+        showError('Ошибка при загрузке лога бота');
+    }
+}
+
+// Отображение лога бота
+function displayBotLog(data) {
+    const resultElement = document.getElementById('botLogResult');
+    
+    if (!data.entries || data.entries.length === 0) {
+        resultElement.innerHTML = `
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i>
+                Записи в логе отсутствуют
+            </div>
+        `;
+        return;
+    }
+    
+    // Обновляем статистику
+    if (data.statistics) {
+        updateLogStatistics(data.statistics);
+    }
+    
+    // Отображаем записи лога
+    const logEntriesHtml = data.entries.map(entry => {
+        const levelClass = getLogLevelClass(entry.level);
+        const categoryClass = getLogCategoryClass(entry.category);
+        
+        return `
+            <div class="card mb-2">
+                <div class="card-body py-2">
+                    <div class="row align-items-center">
+                        <div class="col-md-2">
+                            <small class="text-muted">${entry.formattedTimestamp}</small>
+                        </div>
+                        <div class="col-md-1">
+                            <span class="${levelClass}">${entry.levelIcon}</span>
+                        </div>
+                        <div class="col-md-2">
+                            <span class="badge ${categoryClass}">${entry.categoryIcon} ${getCategoryDisplayName(entry.category)}</span>
+                        </div>
+                        <div class="col-md-4">
+                            <strong>${entry.message}</strong>
+                        </div>
+                        <div class="col-md-3">
+                            <small class="text-muted">${entry.details || ''}</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    resultElement.innerHTML = `
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle me-2"></i>
+            Загружено ${data.totalEntries} записей лога
+        </div>
+        ${logEntriesHtml}
+    `;
+}
+
+// Обновление статистики лога
+function updateLogStatistics(statistics) {
+    document.getElementById('totalEntries').textContent = statistics.totalEntries;
+    document.getElementById('infoCount').textContent = statistics.infoCount;
+    document.getElementById('warningCount').textContent = statistics.warningCount;
+    document.getElementById('errorCount').textContent = statistics.errorCount;
+    document.getElementById('successCount').textContent = statistics.successCount;
+    document.getElementById('tradeCount').textContent = statistics.tradeCount;
+}
+
+// Применение фильтров лога
+function applyLogFilters() {
+    loadBotLog();
+}
+
+// Очистка лога
+async function clearBotLog() {
+    if (!confirm('Вы уверены, что хотите очистить лог? Это действие нельзя отменить.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/trading-bot/log', {
+            method: 'DELETE'
+        });
+        if (response.ok) {
+            showSuccess('Лог очищен');
+            loadBotLog();
+        } else {
+            const error = await response.text();
+            showError(`Ошибка очистки лога: ${error}`);
+        }
+    } catch (error) {
+        console.error('Error clearing bot log:', error);
+        showError('Ошибка при очистке лога');
+    }
+}
+
+// Получение CSS класса для уровня лога
+function getLogLevelClass(level) {
+    switch (level) {
+        case 'INFO': return 'text-info';
+        case 'WARNING': return 'text-warning';
+        case 'ERROR': return 'text-danger';
+        case 'SUCCESS': return 'text-success';
+        case 'TRADE': return 'text-secondary';
+        default: return 'text-muted';
+    }
+}
+
+// Получение CSS класса для категории лога
+function getLogCategoryClass(category) {
+    switch (category) {
+        case 'MARKET_ANALYSIS': return 'bg-info';
+        case 'PORTFOLIO_MANAGEMENT': return 'bg-primary';
+        case 'TRADING_STRATEGY': return 'bg-success';
+        case 'REBALANCING': return 'bg-warning';
+        case 'TECHNICAL_INDICATORS': return 'bg-info';
+        case 'AUTOMATIC_TRADING': return 'bg-secondary';
+        case 'RISK_MANAGEMENT': return 'bg-danger';
+        case 'SYSTEM_STATUS': return 'bg-dark';
+        default: return 'bg-secondary';
+    }
+}
+
+// Получение отображаемого имени категории
+function getCategoryDisplayName(category) {
+    switch (category) {
+        case 'MARKET_ANALYSIS': return 'Анализ рынка';
+        case 'PORTFOLIO_MANAGEMENT': return 'Портфель';
+        case 'TRADING_STRATEGY': return 'Стратегия';
+        case 'REBALANCING': return 'Ребалансировка';
+        case 'TECHNICAL_INDICATORS': return 'Индикаторы';
+        case 'AUTOMATIC_TRADING': return 'Автоторговля';
+        case 'RISK_MANAGEMENT': return 'Риски';
+        case 'SYSTEM_STATUS': return 'Система';
+        default: return category;
+    }
+}
