@@ -13,32 +13,10 @@ let filteredInstruments = [];
 // Инициализация приложения
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Trading Bot Web Interface initialized');
-    setupEventListeners();
     loadTradingModeStatus();
     loadAccountId();
     loadDashboard();
 });
-
-// Настройка обработчиков событий
-function setupEventListeners() {
-    // Обработчик формы ордера
-    document.getElementById('orderForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        placeOrder();
-    });
-    
-    // Показать/скрыть поле цены в зависимости от типа ордера
-    document.getElementById('orderType').addEventListener('change', function() {
-        const priceField = document.getElementById('priceField');
-        if (this.value === 'limit') {
-            priceField.style.display = 'block';
-            document.getElementById('price').required = true;
-        } else {
-            priceField.style.display = 'none';
-            document.getElementById('price').required = false;
-        }
-    });
-}
 
 // Переключение между разделами
 function showSection(sectionName) {
@@ -76,6 +54,8 @@ function showSection(sectionName) {
             loadBotStatus();
             loadTradingOpportunities();
             loadBotLog();
+            // Инициализируем SSE для логов в реальном времени
+            initLogStream();
             break;
         case 'analysis':
             // Анализ загружается по требованию
@@ -726,57 +706,7 @@ function getStatusDisplayName(status) {
     }
 }
 
-// Размещение ордера
-async function placeOrder() {
-    // Предупреждение для реальной торговли
-    if (tradingMode === 'production') {
-        if (!confirm('ВНИМАНИЕ! Вы размещаете ордер в режиме реальной торговли. Это может привести к реальным финансовым потерям. Продолжить?')) {
-            return;
-        }
-    }
-    
-    const formData = new FormData(document.getElementById('orderForm'));
-    const orderData = {
-        figi: document.getElementById('figi').value,
-        lots: parseInt(document.getElementById('lots').value),
-        accountId: accountId, // Используем accountId
-        orderType: document.getElementById('orderType').value,
-        direction: document.getElementById('direction').value
-    };
-    
-    if (orderData.orderType === 'limit') {
-        orderData.price = parseFloat(document.getElementById('price').value);
-    }
-    
-    try {
-        let url = '';
-        if (orderData.orderType === 'market') {
-            url = '/api/orders/market';
-        } else {
-            url = '/api/orders/limit';
-        }
-        
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: new URLSearchParams(orderData)
-        });
-        
-        if (response.ok) {
-            const result = await response.json();
-            showSuccess('Ордер успешно размещен');
-            document.getElementById('orderForm').reset();
-            document.getElementById('priceField').style.display = 'none';
-        } else {
-            showError('Ошибка размещения ордера');
-        }
-    } catch (error) {
-        console.error('Order placement failed:', error);
-        showError('Ошибка размещения ордера');
-    }
-}
+
 
 // Отмена ордера
 async function cancelOrder(orderId) {
@@ -815,78 +745,7 @@ async function cancelOrder(orderId) {
     }
 }
 
-// Загрузка рыночных данных
-async function loadMarketData() {
-    const figi = document.getElementById('marketDataFigi').value;
-    if (!figi) {
-        showError('Введите FIGI инструмента');
-        return;
-    }
-    
-    const result = document.getElementById('marketDataResult');
-    result.innerHTML = '<div class="text-center"><div class="spinner-border text-primary" role="status"></div></div>';
-    
-    try {
-        // Используем новый эндпоинт для поиска инструмента по FIGI
-        const response = await fetch(`/api/instruments/search/${figi}`);
-        if (response.ok) {
-            const instrument = await response.json();
-            displayMarketData(instrument);
-        } else if (response.status === 404) {
-            result.innerHTML = '<p class="text-muted">Инструмент с таким FIGI не найден</p>';
-        } else {
-            showError('Ошибка загрузки рыночных данных');
-        }
-    } catch (error) {
-        console.error('Market data loading failed:', error);
-        showError('Ошибка загрузки рыночных данных');
-    }
-}
 
-// Отображение рыночных данных
-function displayMarketData(data) {
-    const result = document.getElementById('marketDataResult');
-    
-    if (!data) {
-        result.innerHTML = '<p class="text-muted">Данные не найдены</p>';
-        return;
-    }
-    
-    const html = `
-        <div class="row">
-            <div class="col-md-6">
-                <h6>Основная информация</h6>
-                <ul class="list-unstyled">
-                    <li><strong>FIGI:</strong> ${data.figi || 'N/A'}</li>
-                    <li><strong>Название:</strong> ${data.name || 'N/A'}</li>
-                    <li><strong>Тикер:</strong> ${data.ticker || 'N/A'}</li>
-                    <li><strong>Биржа:</strong> ${data.exchange || 'N/A'}</li>
-                    <li><strong>Валюта:</strong> ${data.currency || 'N/A'}</li>
-                    <li><strong>Сектор:</strong> ${data.sector || 'N/A'}</li>
-                </ul>
-            </div>
-            <div class="col-md-6">
-                <h6>Статус торгов</h6>
-                <ul class="list-unstyled">
-                    <li><strong>Статус:</strong> 
-                        <span class="badge ${data.tradingStatus === 'SECURITY_TRADING_STATUS_NORMAL_TRADING' ? 'bg-success' : 'bg-secondary'}">
-                            ${getTradingStatusDisplay(data.tradingStatus)}
-                        </span>
-                    </li>
-                    <li><strong>Страна риска:</strong> ${data.countryOfRiskName || 'N/A'}</li>
-                </ul>
-                <div class="mt-3">
-                    <button class="btn btn-sm btn-outline-primary" onclick="placeOrderFromInstrument('${data.figi}', '${data.ticker}')" 
-                            ${data.tradingStatus !== 'SECURITY_TRADING_STATUS_NORMAL_TRADING' ? 'disabled' : ''}>
-                        <i class="fas fa-shopping-cart"></i> Торговать
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    result.innerHTML = html;
-}
 
 // Показать уведомление об успехе
 function showSuccess(message) {
@@ -1074,9 +933,9 @@ function displayInstruments(data, type) {
                                 </span>
                             </td>
                             <td>
-                                <button class="btn btn-sm btn-outline-primary" onclick="placeOrderFromInstrument('${instrument.figi}', '${instrument.ticker}')" 
+                                <button class="btn btn-sm btn-outline-info" onclick="analyzeInstrument('${instrument.figi}', '${instrument.ticker}')" 
                                         ${instrument.tradingStatus !== 'SECURITY_TRADING_STATUS_NORMAL_TRADING' ? 'disabled' : ''}>
-                                    <i class="fas fa-shopping-cart"></i> Торговать
+                                    <i class="fas fa-chart-line"></i> Анализ
                                 </button>
                             </td>
                         </tr>
@@ -1108,18 +967,21 @@ function getTradingStatusDisplay(status) {
     return statusMap[status] || status;
 }
 
-function placeOrderFromInstrument(figi, ticker) {
-    // Переключаемся на раздел торговли и заполняем форму
-    showSection('trading');
+
+
+// Анализ инструмента
+function analyzeInstrument(figi, ticker) {
+    showSection('analysis');
+    showSuccess(`Анализ инструмента: ${ticker} (${figi})`);
     
-    // Заполняем форму ордера
-    const figiField = document.getElementById('figi');
-    const tickerField = document.getElementById('ticker');
+    // Заполняем поля анализа
+    const trendAnalysisFigi = document.getElementById('trendAnalysisFigi');
+    const indicatorsFigi = document.getElementById('indicatorsFigi');
+    const chartFigi = document.getElementById('chartFigi');
     
-    if (figiField) figiField.value = figi;
-    if (tickerField) tickerField.value = ticker;
-    
-    showSuccess(`Выбран инструмент: ${ticker} (${figi})`);
+    if (trendAnalysisFigi) trendAnalysisFigi.value = figi;
+    if (indicatorsFigi) indicatorsFigi.value = figi;
+    if (chartFigi) chartFigi.value = figi;
 }
 
 // ==================== ТОРГОВЫЙ БОТ ====================
@@ -1703,6 +1565,104 @@ async function executeTradingStrategy(figi = null) {
 
 // ==================== ЛОГ ДЕЙСТВИЙ БОТА ====================
 
+let logEventSource = null;
+
+// Инициализация SSE соединения для логов
+function initLogStream() {
+    if (logEventSource) {
+        logEventSource.close();
+    }
+    
+    logEventSource = new EventSource('/api/logs/stream');
+    
+    logEventSource.onopen = function(event) {
+        console.log('SSE соединение для логов установлено');
+        showLogConnectionStatus('connected', 'Логи подключены');
+    };
+    
+    logEventSource.onmessage = function(event) {
+        console.log('Получено SSE сообщение:', event);
+    };
+    
+    logEventSource.addEventListener('connected', function(event) {
+        console.log('Подключение к логам:', event.data);
+    });
+    
+    logEventSource.addEventListener('initial-logs', function(event) {
+        const logs = JSON.parse(event.data);
+        displayBotLog({ entries: logs, totalEntries: logs.length });
+    });
+    
+    logEventSource.addEventListener('new-log', function(event) {
+        const logEntry = JSON.parse(event.data);
+        addNewLogEntry(logEntry);
+    });
+    
+    logEventSource.addEventListener('statistics-update', function(event) {
+        const statistics = JSON.parse(event.data);
+        updateLogStatistics(statistics);
+    });
+    
+    logEventSource.onerror = function(event) {
+        console.error('Ошибка SSE соединения:', event);
+        showLogConnectionStatus('disconnected', 'Логи отключены');
+        // Переподключение через 5 секунд
+        setTimeout(() => {
+            if (currentSection === 'trading-bot') {
+                initLogStream();
+            }
+        }, 5000);
+    };
+}
+
+// Добавление новой записи лога в реальном времени
+function addNewLogEntry(logEntry) {
+    const resultElement = document.getElementById('botLogResult');
+    if (!resultElement) return;
+    
+    const levelClass = getLogLevelClass(logEntry.level);
+    const categoryClass = getLogCategoryClass(logEntry.category);
+    
+    const newLogHtml = `
+        <div class="card mb-2 new-log-entry" style="animation: fadeIn 0.5s ease-in;">
+            <div class="card-body py-2">
+                <div class="row align-items-center">
+                    <div class="col-md-2">
+                        <small class="text-muted">${logEntry.formattedTimestamp}</small>
+                    </div>
+                    <div class="col-md-1">
+                        <span class="${levelClass}">${logEntry.levelIcon}</span>
+                    </div>
+                    <div class="col-md-2">
+                        <span class="badge ${categoryClass}">${logEntry.categoryIcon} ${getCategoryDisplayName(logEntry.category)}</span>
+                    </div>
+                    <div class="col-md-4">
+                        <strong>${logEntry.message}</strong>
+                    </div>
+                    <div class="col-md-3">
+                        <small class="text-muted">${logEntry.details || ''}</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Добавляем новую запись в начало
+    const existingContent = resultElement.innerHTML;
+    const alertInfo = existingContent.match(/<div class="alert alert-info">.*?<\/div>/s);
+    const logsContent = existingContent.replace(/<div class="alert alert-info">.*?<\/div>/s, '');
+    
+    resultElement.innerHTML = (alertInfo ? alertInfo[0] : '') + newLogHtml + logsContent;
+    
+    // Удаляем анимацию через некоторое время
+    setTimeout(() => {
+        const newEntry = resultElement.querySelector('.new-log-entry');
+        if (newEntry) {
+            newEntry.classList.remove('new-log-entry');
+        }
+    }, 1000);
+}
+
 // Загрузка лога бота
 async function loadBotLog() {
     try {
@@ -1801,6 +1761,23 @@ function applyLogFilters() {
     loadBotLog();
 }
 
+// Тестирование логов в реальном времени
+async function testRealTimeLogs() {
+    try {
+        const response = await fetch('/api/trading-bot/auto-trade', {
+            method: 'POST'
+        });
+        if (response.ok) {
+            showSuccess('Тестовые логи отправлены');
+        } else {
+            showError('Ошибка отправки тестовых логов');
+        }
+    } catch (error) {
+        console.error('Error testing real-time logs:', error);
+        showError('Ошибка при тестировании логов');
+    }
+}
+
 // Очистка лога
 async function clearBotLog() {
     if (!confirm('Вы уверены, что хотите очистить лог? Это действие нельзя отменить.')) {
@@ -1848,6 +1825,31 @@ function getLogCategoryClass(category) {
         case 'RISK_MANAGEMENT': return 'bg-danger';
         case 'SYSTEM_STATUS': return 'bg-dark';
         default: return 'bg-secondary';
+    }
+}
+
+// Показать статус подключения к логам
+function showLogConnectionStatus(status, message) {
+    let statusElement = document.getElementById('logConnectionStatus');
+    
+    if (!statusElement) {
+        statusElement = document.createElement('div');
+        statusElement.id = 'logConnectionStatus';
+        statusElement.className = `log-connection-status ${status}`;
+        document.body.appendChild(statusElement);
+    } else {
+        statusElement.className = `log-connection-status ${status}`;
+    }
+    
+    statusElement.textContent = message;
+    
+    // Скрыть через 3 секунды для connected статуса
+    if (status === 'connected') {
+        setTimeout(() => {
+            if (statusElement.parentNode) {
+                statusElement.remove();
+            }
+        }, 3000);
     }
 }
 

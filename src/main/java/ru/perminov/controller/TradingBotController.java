@@ -264,13 +264,85 @@ public class TradingBotController {
     }
     
     /**
+     * Включение автоматического мониторинга
+     */
+    @PostMapping("/start-monitoring")
+    public ResponseEntity<?> startAutoMonitoring() {
+        try {
+            log.info("Включение автоматического мониторинга");
+            
+            // Получаем первый доступный аккаунт
+            String accountId = getFirstAccountId();
+            if (accountId == null) {
+                return ResponseEntity.badRequest().body("Нет доступных аккаунтов");
+            }
+            
+            portfolioManagementService.startAutoMonitoring(accountId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("accountId", accountId);
+            response.put("status", "success");
+            response.put("message", "Автоматический мониторинг включен");
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при включении автоматического мониторинга: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при включении автоматического мониторинга: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Выключение автоматического мониторинга
+     */
+    @PostMapping("/stop-monitoring")
+    public ResponseEntity<?> stopAutoMonitoring() {
+        try {
+            log.info("Выключение автоматического мониторинга");
+            
+            portfolioManagementService.stopAutoMonitoring();
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("message", "Автоматический мониторинг выключен");
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при выключении автоматического мониторинга: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при выключении автоматического мониторинга: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Получение статуса автоматического мониторинга
+     */
+    @GetMapping("/monitoring-status")
+    public ResponseEntity<?> getMonitoringStatus() {
+        try {
+            boolean isEnabled = portfolioManagementService.isAutoMonitoringEnabled();
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("monitoringEnabled", isEnabled);
+            response.put("status", "success");
+            response.put("message", isEnabled ? "Мониторинг активен" : "Мониторинг неактивен");
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при получении статуса мониторинга: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при получении статуса мониторинга: " + e.getMessage());
+        }
+    }
+    
+    /**
      * Получение первого доступного аккаунта
      */
     private String getFirstAccountId() {
         try {
             // Здесь можно добавить получение аккаунта из AccountService
-            // Пока возвращаем тестовый аккаунт
-            return "031c83e0-377c-48fc-ba06-8ee9aad06e98";
+            // Пока возвращаем новый тестовый аккаунт
+            return "1635493e-e47e-49bb-84ca-5feca7c718ad";
         } catch (Exception e) {
             log.error("Ошибка при получении аккаунта: {}", e.getMessage());
             return null;

@@ -2,6 +2,7 @@ package ru.perminov.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Position;
@@ -25,9 +26,14 @@ public class PortfolioManagementService {
     private final OrderService orderService;
     private final MarketAnalysisService marketAnalysisService;
     private final BotLogService botLogService;
+    private final InstrumentService instrumentService;
     
     // Целевые доли активов в портфеле
     private final Map<String, BigDecimal> targetAllocations = new HashMap<>();
+    
+    // Настройки автоматического мониторинга
+    private boolean autoMonitoringEnabled = false;
+    private String monitoredAccountId = null;
     
     // Инициализация целевых долей (пример)
     {
@@ -196,25 +202,40 @@ public class PortfolioManagementService {
                 // Проверяем, есть ли свободные средства
                 BigDecimal availableCash = getAvailableCash(portfolioAnalysis);
                 if (availableCash.compareTo(BigDecimal.valueOf(10000)) > 0) {
-                    // Покупаем на 10% от доступных средств
-                    BigDecimal buyAmount = availableCash.multiply(BigDecimal.valueOf(0.1));
+                    // Проверяем, есть ли уже позиция по этому инструменту
+                    boolean hasPosition = portfolioAnalysis.getPositionValues().containsKey(figi) && 
+                                        portfolioAnalysis.getPositionValues().get(figi).compareTo(BigDecimal.ZERO) > 0;
+                    
+                    // Определяем размер покупки в зависимости от наличия позиции
+                    BigDecimal buyAmount;
+                    if (hasPosition) {
+                        // Докупаем - используем меньшую сумму (5% от доступных средств)
+                        buyAmount = availableCash.multiply(BigDecimal.valueOf(0.05));
+                        log.info("Докупаем позицию по {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
+                    } else {
+                        // Первая покупка - используем большую сумму (10% от доступных средств)
+                        buyAmount = availableCash.multiply(BigDecimal.valueOf(0.1));
+                        log.info("Первая покупка {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
+                    }
+                    
                     int lots = buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
                     
                     if (lots > 0) {
-                        log.info("Размещение ордера на покупку: {} лотов по цене {}", lots, trend.getCurrentPrice());
+                        String actionType = hasPosition ? "докупка" : "покупка";
+                        log.info("Размещение ордера на {}: {} лотов по цене {}", actionType, lots, trend.getCurrentPrice());
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                            "Размещение ордера на покупку", String.format("FIGI: %s, Лотов: %d, Цена: %.2f", 
+                            "Размещение ордера на " + actionType, String.format("FIGI: %s, Лотов: %d, Цена: %.2f", 
                                 figi, lots, trend.getCurrentPrice()));
                         
                         // Размещаем реальный ордер
                         try {
                             orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                                "Ордер на покупку размещен", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                                "Ордер на " + actionType + " размещен", String.format("FIGI: %s, Лотов: %d", figi, lots));
                         } catch (Exception e) {
-                            log.error("Ошибка размещения ордера на покупку: {}", e.getMessage());
+                            log.error("Ошибка размещения ордера на {}: {}", actionType, e.getMessage());
                             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                                "Ошибка размещения ордера на покупку", e.getMessage());
+                                "Ошибка размещения ордера на " + actionType, e.getMessage());
                         }
                     } else {
                         log.warn("Недостаточно средств для покупки лотов");
@@ -343,13 +364,16 @@ public class PortfolioManagementService {
             botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.TRADING_STRATEGY, 
                 "Начало поиска торговых возможностей", "Аккаунт: " + accountId);
             
-            // Получаем доступные акции
+            List<TradingOpportunity> opportunities = new ArrayList<>();
+            
+            // 1. Анализируем существующие позиции для продажи
+            List<TradingOpportunity> sellOpportunities = analyzeExistingPositions(accountId);
+            opportunities.addAll(sellOpportunities);
+            
+            // 2. Анализируем новые инструменты для покупки
             List<ShareDto> availableShares = getAvailableShares();
             botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.MARKET_ANALYSIS, 
                 "Получен список инструментов", "Количество: " + availableShares.size());
-            
-            // Анализируем каждый инструмент
-            List<TradingOpportunity> opportunities = new ArrayList<>();
             
             for (ShareDto share : availableShares) {
                 try {
@@ -360,6 +384,10 @@ public class PortfolioManagementService {
                             "Анализ инструмента завершен", String.format("FIGI: %s, Score: %.1f, Действие: %s", 
                                 share.getFigi(), opportunity.getScore(), opportunity.getRecommendedAction()));
                     }
+                    
+                    // Добавляем задержку между запросами для избежания лимитов API
+                    Thread.sleep(100); // 100ms задержка
+                    
                 } catch (Exception e) {
                     log.warn("Ошибка анализа инструмента {}: {}", share.getFigi(), e.getMessage());
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.TECHNICAL_INDICATORS, 
@@ -387,6 +415,73 @@ public class PortfolioManagementService {
     }
     
     /**
+     * Анализ существующих позиций для продажи
+     */
+    private List<TradingOpportunity> analyzeExistingPositions(String accountId) {
+        List<TradingOpportunity> sellOpportunities = new ArrayList<>();
+        
+        try {
+            PortfolioAnalysis portfolioAnalysis = analyzePortfolio(accountId);
+            List<Position> positions = portfolioAnalysis.getPositions();
+            
+            log.info("Анализ {} существующих позиций для продажи", positions.size());
+            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.PORTFOLIO_MANAGEMENT, 
+                "Анализ существующих позиций", "Количество позиций: " + positions.size());
+            
+            for (Position position : positions) {
+                // Пропускаем валютные позиции
+                if ("currency".equals(position.getInstrumentType())) {
+                    continue;
+                }
+                
+                // Анализируем только позиции с количеством > 0
+                if (position.getQuantity().compareTo(BigDecimal.ZERO) > 0) {
+                    try {
+                        TradingOpportunity opportunity = analyzeTradingOpportunity(position.getFigi(), accountId);
+                        if (opportunity != null && "SELL".equals(opportunity.getRecommendedAction())) {
+                            // Увеличиваем score для позиций, которые нужно продать
+                            opportunity = new TradingOpportunity(
+                                opportunity.getFigi(),
+                                opportunity.getCurrentPrice(),
+                                opportunity.getTrend(),
+                                opportunity.getRsi(),
+                                opportunity.getSma20(),
+                                opportunity.getSma50(),
+                                opportunity.getScore().add(BigDecimal.valueOf(10)), // Бонус за существующую позицию
+                                "SELL"
+                            );
+                            sellOpportunities.add(opportunity);
+                            
+                            log.info("Найдена возможность продажи: {} (Score: {})", 
+                                position.getFigi(), opportunity.getScore());
+                            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.PORTFOLIO_MANAGEMENT, 
+                                "Найдена возможность продажи", String.format("FIGI: %s, Score: %.1f", 
+                                    position.getFigi(), opportunity.getScore()));
+                        }
+                        
+                        // Добавляем задержку между запросами
+                        Thread.sleep(200); // 200ms задержка для анализа позиций
+                        
+                    } catch (Exception e) {
+                        log.warn("Ошибка анализа позиции {}: {}", position.getFigi(), e.getMessage());
+                    }
+                }
+            }
+            
+            log.info("Найдено {} возможностей для продажи", sellOpportunities.size());
+            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.PORTFOLIO_MANAGEMENT, 
+                "Анализ позиций завершен", "Возможностей продажи: " + sellOpportunities.size());
+            
+        } catch (Exception e) {
+            log.error("Ошибка при анализе существующих позиций: {}", e.getMessage());
+            botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.PORTFOLIO_MANAGEMENT, 
+                "Ошибка анализа позиций", e.getMessage());
+        }
+        
+        return sellOpportunities;
+    }
+    
+    /**
      * Анализ торговой возможности для конкретного инструмента
      */
     private TradingOpportunity analyzeTradingOpportunity(String figi, String accountId) {
@@ -406,8 +501,13 @@ public class PortfolioManagementService {
             // Рассчитываем оценку (score) для инструмента
             BigDecimal score = calculateTradingScore(trendAnalysis, sma20, sma50, rsi);
             
-            // Определяем рекомендуемое действие
-            String recommendedAction = determineRecommendedAction(trendAnalysis, rsi);
+            // Получаем информацию о портфеле для проверки позиций
+            PortfolioAnalysis portfolioAnalysis = analyzePortfolio(accountId);
+            boolean hasPosition = portfolioAnalysis.getPositionValues().containsKey(figi) && 
+                                portfolioAnalysis.getPositionValues().get(figi).compareTo(BigDecimal.ZERO) > 0;
+            
+            // Определяем рекомендуемое действие с учетом позиций
+            String recommendedAction = determineRecommendedAction(trendAnalysis, rsi, hasPosition);
             
             return new TradingOpportunity(
                 figi,
@@ -474,27 +574,32 @@ public class PortfolioManagementService {
     /**
      * Определение рекомендуемого действия
      */
-    private String determineRecommendedAction(MarketAnalysisService.TrendAnalysis trendAnalysis, BigDecimal rsi) {
-        // Более агрессивная логика для принятия торговых решений
+    private String determineRecommendedAction(MarketAnalysisService.TrendAnalysis trendAnalysis, BigDecimal rsi, boolean hasPosition) {
+        // Логика для принятия торговых решений с учетом возможности докупки и продажи
+        
         if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BULLISH) {
             if (rsi.compareTo(BigDecimal.valueOf(40)) < 0) {
-                return "BUY"; // Сильная покупка при перепроданности
+                return "BUY"; // Сильная покупка при перепроданности (докупаем или покупаем)
             } else if (rsi.compareTo(BigDecimal.valueOf(60)) < 0) {
-                return "BUY"; // Умеренная покупка при восходящем тренде
+                return hasPosition ? "HOLD" : "BUY"; // Умеренная покупка - докупаем только при хороших условиях
+            } else if (rsi.compareTo(BigDecimal.valueOf(75)) > 0) {
+                return hasPosition ? "SELL" : "HOLD"; // Продажа при перекупленности даже в восходящем тренде
             }
         } else if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BEARISH) {
             if (rsi.compareTo(BigDecimal.valueOf(70)) > 0) {
-                return "SELL"; // Сильная продажа при перекупленности
+                return hasPosition ? "SELL" : "HOLD"; // Сильная продажа при перекупленности
             } else if (rsi.compareTo(BigDecimal.valueOf(50)) > 0) {
-                return "SELL"; // Умеренная продажа при нисходящем тренде
+                return hasPosition ? "SELL" : "HOLD"; // Умеренная продажа при нисходящем тренде
+            } else if (rsi.compareTo(BigDecimal.valueOf(30)) < 0) {
+                return "BUY"; // Покупка при сильной перепроданности даже в нисходящем тренде
             }
         }
         
         // Для бокового тренда используем RSI
         if (rsi.compareTo(BigDecimal.valueOf(35)) < 0) {
-            return "BUY";
+            return "BUY"; // Докупаем при сильной перепроданности
         } else if (rsi.compareTo(BigDecimal.valueOf(65)) > 0) {
-            return "SELL";
+            return hasPosition ? "SELL" : "HOLD"; // Продаем только если есть позиция
         }
         
         return "HOLD";
@@ -504,10 +609,83 @@ public class PortfolioManagementService {
      * Получение доступных акций
      */
     private List<ShareDto> getAvailableShares() {
-        // Здесь можно добавить кэширование и фильтрацию
-        // Пока возвращаем популярные акции
+        List<ShareDto> allInstruments = new ArrayList<>();
+        
+        try {
+            log.info("Получение всех доступных инструментов для анализа...");
+            
+            // Получаем акции
+            List<ru.tinkoff.piapi.contract.v1.Share> shares = instrumentService.getTradableShares();
+            log.info("Получено {} акций для анализа", shares.size());
+            
+            // Добавляем акции (ограничиваем количество для производительности)
+            int maxShares = Math.min(shares.size(), 20); // Уменьшаем до 20 акций для снижения нагрузки
+            for (int i = 0; i < maxShares; i++) {
+                ru.tinkoff.piapi.contract.v1.Share share = shares.get(i);
+                ShareDto shareDto = new ShareDto();
+                shareDto.setFigi(share.getFigi());
+                shareDto.setTicker(share.getTicker());
+                shareDto.setName(share.getName());
+                shareDto.setCurrency(share.getCurrency());
+                shareDto.setExchange(share.getExchange());
+                shareDto.setTradingStatus(share.getTradingStatus().name());
+                allInstruments.add(shareDto);
+            }
+            
+            // Получаем облигации
+            List<ru.tinkoff.piapi.contract.v1.Bond> bonds = instrumentService.getTradableBonds();
+            log.info("Получено {} облигаций для анализа", bonds.size());
+            
+            // Добавляем облигации (ограничиваем количество)
+            int maxBonds = Math.min(bonds.size(), 10); // Уменьшаем до 10 облигаций
+            for (int i = 0; i < maxBonds; i++) {
+                ru.tinkoff.piapi.contract.v1.Bond bond = bonds.get(i);
+                ShareDto bondDto = new ShareDto();
+                bondDto.setFigi(bond.getFigi());
+                bondDto.setTicker(bond.getTicker());
+                bondDto.setName(bond.getName());
+                bondDto.setCurrency(bond.getCurrency());
+                bondDto.setExchange(bond.getExchange());
+                bondDto.setTradingStatus(bond.getTradingStatus().name());
+                allInstruments.add(bondDto);
+            }
+            
+            // Получаем ETF
+            List<ru.tinkoff.piapi.contract.v1.Etf> etfs = instrumentService.getTradableEtfs();
+            log.info("Получено {} ETF для анализа", etfs.size());
+            
+            // Добавляем ETF (ограничиваем количество)
+            int maxEtfs = Math.min(etfs.size(), 5); // Уменьшаем до 5 ETF
+            for (int i = 0; i < maxEtfs; i++) {
+                ru.tinkoff.piapi.contract.v1.Etf etf = etfs.get(i);
+                ShareDto etfDto = new ShareDto();
+                etfDto.setFigi(etf.getFigi());
+                etfDto.setTicker(etf.getTicker());
+                etfDto.setName(etf.getName());
+                etfDto.setCurrency(etf.getCurrency());
+                etfDto.setExchange(etf.getExchange());
+                etfDto.setTradingStatus(etf.getTradingStatus().name());
+                allInstruments.add(etfDto);
+            }
+            
+            log.info("Всего инструментов для анализа: {}", allInstruments.size());
+            
+        } catch (Exception e) {
+            log.error("Ошибка при получении инструментов: {}", e.getMessage());
+            // В случае ошибки возвращаем базовый набор инструментов
+            return getFallbackInstruments();
+        }
+        
+        return allInstruments;
+    }
+    
+    /**
+     * Резервный набор инструментов в случае ошибки получения данных
+     */
+    private List<ShareDto> getFallbackInstruments() {
         List<ShareDto> shares = new ArrayList<>();
         
+        // Добавляем популярные акции
         ShareDto apple = new ShareDto();
         apple.setFigi("BBG000B9XRY4");
         apple.setTicker("AAPL");
@@ -517,41 +695,15 @@ public class PortfolioManagementService {
         apple.setTradingStatus("SECURITY_TRADING_STATUS_NORMAL_TRADING");
         shares.add(apple);
         
-        ShareDto microsoft = new ShareDto();
-        microsoft.setFigi("BBG000B9XRY5");
-        microsoft.setTicker("MSFT");
-        microsoft.setName("Microsoft Corporation");
-        microsoft.setCurrency("USD");
-        microsoft.setExchange("MOEX");
-        microsoft.setTradingStatus("SECURITY_TRADING_STATUS_NORMAL_TRADING");
-        shares.add(microsoft);
-        
-        ShareDto google = new ShareDto();
-        google.setFigi("BBG000B9XRY6");
-        google.setTicker("GOOGL");
-        google.setName("Alphabet Inc.");
-        google.setCurrency("USD");
-        google.setExchange("MOEX");
-        google.setTradingStatus("SECURITY_TRADING_STATUS_NORMAL_TRADING");
-        shares.add(google);
-        
-        ShareDto tesla = new ShareDto();
-        tesla.setFigi("BBG000B9XRY7");
-        tesla.setTicker("TSLA");
-        tesla.setName("Tesla Inc.");
-        tesla.setCurrency("USD");
-        tesla.setExchange("MOEX");
-        tesla.setTradingStatus("SECURITY_TRADING_STATUS_NORMAL_TRADING");
-        shares.add(tesla);
-        
-        ShareDto amazon = new ShareDto();
-        amazon.setFigi("BBG000B9XRY8");
-        amazon.setTicker("AMZN");
-        amazon.setName("Amazon.com Inc.");
-        amazon.setCurrency("USD");
-        amazon.setExchange("MOEX");
-        amazon.setTradingStatus("SECURITY_TRADING_STATUS_NORMAL_TRADING");
-        shares.add(amazon);
+        // Добавляем облигацию из портфеля
+        ShareDto bond = new ShareDto();
+        bond.setFigi("TCS00A107D74");
+        bond.setTicker("TCS00A10");
+        bond.setName("Облигация Тинькофф");
+        bond.setCurrency("RUB");
+        bond.setExchange("MOEX");
+        bond.setTradingStatus("SECURITY_TRADING_STATUS_NORMAL_TRADING");
+        shares.add(bond);
         
         return shares;
     }
@@ -565,7 +717,45 @@ public class PortfolioManagementService {
             botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
                 "Запуск автоматической торговли", "Аккаунт: " + accountId);
             
-            // Получаем лучшие торговые возможности
+            // 1. АНАЛИЗ ПОРТФЕЛЯ
+            log.info("Начало анализа портфеля для аккаунта: {}", accountId);
+            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.PORTFOLIO_ANALYSIS, 
+                "Начало анализа портфеля", "Аккаунт: " + accountId);
+            
+            PortfolioAnalysis portfolioAnalysis = analyzePortfolio(accountId);
+            log.info("Анализ портфеля завершен. Общая стоимость: {}, Позиций: {}", 
+                portfolioAnalysis.getTotalValue(), portfolioAnalysis.getPositions().size());
+            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.PORTFOLIO_ANALYSIS, 
+                "Анализ портфеля завершен", String.format("Общая стоимость: %.2f, Позиций: %d", 
+                    portfolioAnalysis.getTotalValue(), portfolioAnalysis.getPositions().size()));
+            
+            // 2. ПРОВЕРКА РЕБАЛАНСИРОВКИ
+            log.info("Проверка необходимости ребалансировки");
+            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.PORTFOLIO_ANALYSIS, 
+                "Проверка ребалансировки", "");
+            
+            RebalancingDecision rebalancingDecision = checkRebalancing(accountId);
+            if (rebalancingDecision.isNeedsRebalancing()) {
+                log.info("Требуется ребалансировка: {}", rebalancingDecision.getReason());
+                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.PORTFOLIO_ANALYSIS, 
+                    "Требуется ребалансировка", rebalancingDecision.getReason());
+                
+                // Выполняем ребалансировку
+                log.info("Выполнение ребалансировки портфеля");
+                botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.PORTFOLIO_ANALYSIS, 
+                    "Выполнение ребалансировки", "");
+                rebalancePortfolio(accountId);
+            } else {
+                log.info("Ребалансировка не требуется");
+                botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.PORTFOLIO_ANALYSIS, 
+                    "Ребалансировка не требуется", "");
+            }
+            
+            // 3. ПОИСК ТОРГОВЫХ ВОЗМОЖНОСТЕЙ
+            log.info("Поиск торговых возможностей");
+            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.MARKET_ANALYSIS, 
+                "Поиск торговых возможностей", "");
+            
             List<TradingOpportunity> opportunities = findBestTradingOpportunities(accountId);
             
             if (opportunities.isEmpty()) {
@@ -575,10 +765,29 @@ public class PortfolioManagementService {
                 return;
             }
             
-            // Выбираем лучшую возможность
-            TradingOpportunity bestOpportunity = opportunities.get(0);
+            // Выбираем лучшую возможность для торговли (предпочитаем BUY/SELL над HOLD)
+            TradingOpportunity bestOpportunity = null;
             
-            if (bestOpportunity.getScore().compareTo(BigDecimal.valueOf(30)) >= 0) {
+            // Сначала ищем возможности с действиями BUY или SELL
+            for (TradingOpportunity opportunity : opportunities) {
+                if (("BUY".equals(opportunity.getRecommendedAction()) || "SELL".equals(opportunity.getRecommendedAction())) &&
+                    opportunity.getScore().compareTo(BigDecimal.valueOf(30)) >= 0) {
+                    bestOpportunity = opportunity;
+                    break;
+                }
+            }
+            
+            // Если не нашли BUY/SELL, берем первую возможность с высоким score
+            if (bestOpportunity == null) {
+                for (TradingOpportunity opportunity : opportunities) {
+                    if (opportunity.getScore().compareTo(BigDecimal.valueOf(30)) >= 0) {
+                        bestOpportunity = opportunity;
+                        break;
+                    }
+                }
+            }
+            
+            if (bestOpportunity != null) {
                 log.info("Выполняем торговую операцию для {}: {} (Score: {})", 
                     bestOpportunity.getFigi(), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore());
                 
@@ -589,11 +798,14 @@ public class PortfolioManagementService {
                 
                 executeTradingStrategy(accountId, bestOpportunity.getFigi());
             } else {
-                log.info("Недостаточно высокий score для торговли: {} (порог: 30)", bestOpportunity.getScore());
+                log.info("Нет подходящих торговых возможностей с достаточным score");
                 botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                    "Недостаточный score для торговли", String.format("Score: %.1f < 30, FIGI: %s, Действие: %s", 
-                        bestOpportunity.getScore(), bestOpportunity.getFigi(), bestOpportunity.getRecommendedAction()));
+                    "Нет подходящих торговых возможностей", "Все возможности имеют score < 30 или только HOLD");
             }
+            
+            log.info("Автоматическая торговля завершена");
+            botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+                "Автоматическая торговля завершена", "");
             
         } catch (Exception e) {
             log.error("Ошибка при автоматической торговле: {}", e.getMessage());
@@ -637,5 +849,113 @@ public class PortfolioManagementService {
         public BigDecimal getSma50() { return sma50; }
         public BigDecimal getScore() { return score; }
         public String getRecommendedAction() { return recommendedAction; }
+    }
+    
+    /**
+     * Включение автоматического мониторинга
+     */
+    public void startAutoMonitoring(String accountId) {
+        this.autoMonitoringEnabled = true;
+        this.monitoredAccountId = accountId;
+        log.info("Автоматический мониторинг включен для аккаунта: {}", accountId);
+        botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+            "Автоматический мониторинг включен", "Аккаунт: " + accountId);
+    }
+    
+    /**
+     * Выключение автоматического мониторинга
+     */
+    public void stopAutoMonitoring() {
+        this.autoMonitoringEnabled = false;
+        this.monitoredAccountId = null;
+        log.info("Автоматический мониторинг выключен");
+        botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+            "Автоматический мониторинг выключен", "");
+    }
+    
+    /**
+     * Получение статуса автоматического мониторинга
+     */
+    public boolean isAutoMonitoringEnabled() {
+        return autoMonitoringEnabled;
+    }
+    
+    /**
+     * Автоматический мониторинг каждые 5 минут
+     */
+    @Scheduled(fixedRate = 300000) // 5 минут = 300000 мс
+    public void autoMonitoringTask() {
+        if (!autoMonitoringEnabled || monitoredAccountId == null) {
+            return;
+        }
+        
+        try {
+            log.info("Запуск автоматического мониторинга для аккаунта: {}", monitoredAccountId);
+            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+                "Запуск автоматического мониторинга", "Аккаунт: " + monitoredAccountId);
+            
+            // Анализируем рынок и выполняем торговлю
+            executeAutomaticTrading(monitoredAccountId);
+            
+            log.info("Автоматический мониторинг завершен");
+            botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+                "Автоматический мониторинг завершен", "");
+            
+        } catch (Exception e) {
+            log.error("Ошибка в автоматическом мониторинге: {}", e.getMessage());
+            botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+                "Ошибка автоматического мониторинга", e.getMessage());
+        }
+    }
+    
+    /**
+     * Быстрый мониторинг каждую минуту (анализ + торговля при хороших возможностях)
+     */
+    @Scheduled(fixedRate = 60000) // 1 минута = 60000 мс
+    public void quickMonitoringTask() {
+        if (!autoMonitoringEnabled || monitoredAccountId == null) {
+            return;
+        }
+        
+        try {
+            // Анализируем возможности
+            List<TradingOpportunity> opportunities = findBestTradingOpportunities(monitoredAccountId);
+            
+            // Ищем лучшую возможность для торговли (только BUY/SELL)
+            TradingOpportunity bestTradingOpportunity = null;
+            for (TradingOpportunity opportunity : opportunities) {
+                if ("BUY".equals(opportunity.getRecommendedAction()) || "SELL".equals(opportunity.getRecommendedAction())) {
+                    if (bestTradingOpportunity == null || opportunity.getScore().compareTo(bestTradingOpportunity.getScore()) > 0) {
+                        bestTradingOpportunity = opportunity;
+                    }
+                }
+            }
+            
+            // Логируем найденные возможности
+            if (!opportunities.isEmpty()) {
+                TradingOpportunity bestOpportunity = opportunities.get(0);
+                log.info("Быстрый мониторинг: лучшая возможность - {} ({}), Score: {}", 
+                    bestOpportunity.getFigi(), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore());
+                
+                botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.MARKET_ANALYSIS, 
+                    "Быстрый мониторинг", String.format("Лучшая возможность: %s (%s), Score: %.1f", 
+                        bestOpportunity.getFigi(), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore()));
+                
+                // Выполняем торговлю если есть хорошая возможность для торговли
+                if (bestTradingOpportunity != null && bestTradingOpportunity.getScore().compareTo(BigDecimal.valueOf(60)) > 0) {
+                    log.info("Выполняем торговую операцию для {} ({}), Score: {}", 
+                        bestTradingOpportunity.getFigi(), bestTradingOpportunity.getRecommendedAction(), bestTradingOpportunity.getScore());
+                    
+                    botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+                        "Выполнение торговой операции", String.format("FIGI: %s, Действие: %s, Score: %.1f", 
+                            bestTradingOpportunity.getFigi(), bestTradingOpportunity.getRecommendedAction(), bestTradingOpportunity.getScore()));
+                    
+                    executeTradingStrategy(monitoredAccountId, bestTradingOpportunity.getFigi());
+                }
+            }
+            
+        } catch (Exception e) {
+            log.warn("Ошибка в быстром мониторинге: {}", e.getMessage());
+        }
     }
 } 

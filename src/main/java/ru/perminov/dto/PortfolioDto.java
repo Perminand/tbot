@@ -21,10 +21,9 @@ public class PortfolioDto {
         private String currency;
         private String displayValue;
         private BigDecimal currentPrice;
-        // Убираем проблемные поля
-        // private BigDecimal averagePrice;
-        // private BigDecimal accumulatedCouponYield;
-        // private BigDecimal yield;
+        private BigDecimal averagePrice;
+        private BigDecimal accumulatedCouponYield;
+        private BigDecimal yield;
         
         public static PositionDto from(ru.tinkoff.piapi.core.models.Position position) {
             PositionDto dto = new PositionDto();
@@ -32,7 +31,7 @@ public class PortfolioDto {
             dto.setInstrumentType(position.getInstrumentType());
             dto.setQuantity(position.getQuantity());
             
-            // Упрощенная обработка currentPrice
+            // Обработка currentPrice
             if (position.getCurrentPrice() != null) {
                 try {
                     // Пытаемся получить значение как строку и конвертировать
@@ -40,6 +39,36 @@ public class PortfolioDto {
                     dto.setCurrentPrice(new BigDecimal(priceStr));
                 } catch (Exception e) {
                     dto.setCurrentPrice(BigDecimal.ZERO);
+                }
+            }
+            
+            // Обработка averagePrice
+            if (position.getAveragePositionPrice() != null) {
+                try {
+                    String avgPriceStr = position.getAveragePositionPrice().toString();
+                    dto.setAveragePrice(new BigDecimal(avgPriceStr));
+                } catch (Exception e) {
+                    dto.setAveragePrice(BigDecimal.ZERO);
+                }
+            }
+            
+            // Обработка accumulatedCouponYield (НКД)
+            if (position.getAccumulatedCouponYield() != null) {
+                try {
+                    String nkdStr = position.getAccumulatedCouponYield().toString();
+                    dto.setAccumulatedCouponYield(new BigDecimal(nkdStr));
+                } catch (Exception e) {
+                    dto.setAccumulatedCouponYield(BigDecimal.ZERO);
+                }
+            }
+            
+            // Обработка yield (доходность)
+            if (position.getYield() != null) {
+                try {
+                    String yieldStr = position.getYield().toString();
+                    dto.setYield(new BigDecimal(yieldStr));
+                } catch (Exception e) {
+                    dto.setYield(BigDecimal.ZERO);
                 }
             }
             
@@ -55,8 +84,11 @@ public class PortfolioDto {
                 dto.setName(getInstrumentTypeDisplayName(position.getInstrumentType()));
                 dto.setCurrency("rub");
                 
-                // Упрощенная обработка стоимости
-                if (position.getQuantity() != null) {
+                // Правильная обработка стоимости - используем currentPrice
+                if (dto.getCurrentPrice() != null && position.getQuantity() != null) {
+                    BigDecimal totalValue = dto.getCurrentPrice().multiply(position.getQuantity());
+                    dto.setDisplayValue("₽" + totalValue.setScale(2, BigDecimal.ROUND_HALF_UP));
+                } else if (position.getQuantity() != null) {
                     dto.setDisplayValue("₽" + position.getQuantity().setScale(2, BigDecimal.ROUND_HALF_UP));
                 } else {
                     dto.setDisplayValue("N/A");

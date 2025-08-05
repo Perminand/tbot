@@ -1,7 +1,11 @@
 package ru.perminov.service;
 
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import ru.perminov.event.LogEvent;
+import ru.perminov.event.LogStatisticsEvent;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -10,8 +14,11 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class BotLogService {
+    
+    private final ApplicationEventPublisher eventPublisher;
     
     private static final int MAX_LOG_ENTRIES = 1000;
     private final List<BotLogEntry> logEntries = new CopyOnWriteArrayList<>();
@@ -27,7 +34,7 @@ public class BotLogService {
     }
     
     public enum LogCategory {
-        MARKET_ANALYSIS, PORTFOLIO_MANAGEMENT, TRADING_STRATEGY, 
+        MARKET_ANALYSIS, PORTFOLIO_MANAGEMENT, PORTFOLIO_ANALYSIS, TRADING_STRATEGY, 
         REBALANCING, TECHNICAL_INDICATORS, AUTOMATIC_TRADING, 
         RISK_MANAGEMENT, SYSTEM_STATUS
     }
@@ -67,6 +74,19 @@ public class BotLogService {
                 break;
             default:
                 log.info("[{}] {}: {}", category, message, details);
+        }
+        
+        // Отправляем в реальном времени через SSE
+        try {
+            eventPublisher.publishEvent(new LogEvent(entry));
+            
+            // Обновляем статистику каждые 10 записей
+            if (logEntries.size() % 10 == 0) {
+                BotLogService.LogStatistics statistics = getLogStatistics();
+                eventPublisher.publishEvent(new LogStatisticsEvent(statistics));
+            }
+        } catch (Exception e) {
+            log.debug("Ошибка отправки лога через SSE", e);
         }
     }
     
@@ -169,6 +189,7 @@ public class BotLogService {
             return switch (category) {
                 case MARKET_ANALYSIS -> "📊";
                 case PORTFOLIO_MANAGEMENT -> "💼";
+                case PORTFOLIO_ANALYSIS -> "📋";
                 case TRADING_STRATEGY -> "🎯";
                 case REBALANCING -> "⚖️";
                 case TECHNICAL_INDICATORS -> "📈";
