@@ -1,6 +1,7 @@
 package ru.perminov.dto;
 
 import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -34,49 +35,72 @@ public class PortfolioDto {
             // Обработка currentPrice
             if (position.getCurrentPrice() != null) {
                 try {
-                    // Пытаемся получить значение как строку и конвертировать
+                    // Извлекаем цену из строкового представления объекта
                     String priceStr = position.getCurrentPrice().toString();
-                    dto.setCurrentPrice(new BigDecimal(priceStr));
+                    
+                    // Ищем числовое значение в строке
+                    if (priceStr.contains("value=")) {
+                        String valuePart = priceStr.substring(priceStr.indexOf("value=") + 6);
+                        valuePart = valuePart.substring(0, valuePart.indexOf(","));
+                        dto.setCurrentPrice(new BigDecimal(valuePart));
+                    } else {
+                        // Попробуем найти любое число в строке
+                        String[] parts = priceStr.split("[^0-9.]");
+                        for (String part : parts) {
+                            if (!part.isEmpty() && part.matches("\\d+\\.?\\d*")) {
+                                dto.setCurrentPrice(new BigDecimal(part));
+                                break;
+                            }
+                        }
+                    }
                 } catch (Exception e) {
                     dto.setCurrentPrice(BigDecimal.ZERO);
                 }
+            } else {
+                dto.setCurrentPrice(BigDecimal.ZERO);
             }
             
             // Обработка averagePrice
             if (position.getAveragePositionPrice() != null) {
                 try {
+                    // Извлекаем цену из строкового представления объекта
                     String avgPriceStr = position.getAveragePositionPrice().toString();
-                    dto.setAveragePrice(new BigDecimal(avgPriceStr));
+                    
+                    // Ищем числовое значение в строке
+                    if (avgPriceStr.contains("value=")) {
+                        String valuePart = avgPriceStr.substring(avgPriceStr.indexOf("value=") + 6);
+                        valuePart = valuePart.substring(0, valuePart.indexOf(","));
+                        dto.setAveragePrice(new BigDecimal(valuePart));
+                    } else {
+                        // Попробуем найти любое число в строке
+                        String[] parts = avgPriceStr.split("[^0-9.]");
+                        for (String part : parts) {
+                            if (!part.isEmpty() && part.matches("\\d+\\.?\\d*")) {
+                                dto.setAveragePrice(new BigDecimal(part));
+                                break;
+                            }
+                        }
+                    }
                 } catch (Exception e) {
                     dto.setAveragePrice(BigDecimal.ZERO);
                 }
+            } else {
+                dto.setAveragePrice(BigDecimal.ZERO);
             }
             
-            // Обработка accumulatedCouponYield (НКД)
-            if (position.getAccumulatedCouponYield() != null) {
-                try {
-                    String nkdStr = position.getAccumulatedCouponYield().toString();
-                    dto.setAccumulatedCouponYield(new BigDecimal(nkdStr));
-                } catch (Exception e) {
-                    dto.setAccumulatedCouponYield(BigDecimal.ZERO);
-                }
-            }
-            
-            // Обработка yield (доходность)
-            if (position.getYield() != null) {
-                try {
-                    String yieldStr = position.getYield().toString();
-                    dto.setYield(new BigDecimal(yieldStr));
-                } catch (Exception e) {
-                    dto.setYield(BigDecimal.ZERO);
-                }
-            }
+            // Обработка accumulatedCouponYield (НКД) и yield (доходность)
+            // Пока устанавливаем нулевые значения, расчеты будут добавлены позже
+            dto.setAccumulatedCouponYield(BigDecimal.ZERO);
+            dto.setYield(BigDecimal.ZERO);
             
             // Для валютных позиций добавляем специальную обработку
             if ("currency".equals(position.getInstrumentType())) {
                 dto.setTicker("RUB");
                 dto.setName("Российский рубль");
                 dto.setCurrency("rub");
+                // Для валюты используем количество как текущую цену
+                dto.setCurrentPrice(position.getQuantity());
+                dto.setAveragePrice(position.getQuantity());
                 dto.setDisplayValue("₽" + position.getQuantity().setScale(2, BigDecimal.ROUND_HALF_UP));
             } else {
                 // Для других инструментов показываем FIGI как тикер и добавляем тип инструмента

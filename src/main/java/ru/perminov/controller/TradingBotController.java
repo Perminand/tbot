@@ -8,6 +8,11 @@ import ru.perminov.service.MarketAnalysisService;
 import ru.perminov.service.PortfolioManagementService;
 import ru.perminov.service.TradingBotScheduler;
 import ru.perminov.service.BotLogService;
+import ru.perminov.service.AdvancedTechnicalAnalysisService;
+import ru.perminov.service.AdvancedTradingStrategyService;
+import ru.perminov.service.AdvancedPortfolioManagementService;
+import ru.perminov.service.RiskManagementService;
+import ru.perminov.service.AccountService;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
@@ -24,6 +29,11 @@ public class TradingBotController {
     private final MarketAnalysisService marketAnalysisService;
     private final PortfolioManagementService portfolioManagementService;
     private final BotLogService botLogService;
+    private final AdvancedTechnicalAnalysisService advancedAnalysisService;
+    private final AdvancedTradingStrategyService advancedTradingStrategyService;
+    private final AdvancedPortfolioManagementService advancedPortfolioManagementService;
+    private final RiskManagementService riskManagementService;
+    private final AccountService accountService;
     
     /**
      * Получение анализа тренда для инструмента
@@ -151,6 +161,34 @@ public class TradingBotController {
     }
     
     /**
+     * Получение списка доступных аккаунтов
+     */
+    @GetMapping("/accounts")
+    public ResponseEntity<?> getAvailableAccounts() {
+        try {
+            List<ru.tinkoff.piapi.contract.v1.Account> accounts = accountService.getAccounts();
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("accounts", accounts.stream()
+                .map(account -> Map.of(
+                    "id", account.getId(),
+                    "name", account.getName(),
+                    "type", account.getType().name(),
+                    "status", account.getStatus().name()
+                ))
+                .collect(java.util.stream.Collectors.toList()));
+            response.put("count", accounts.size());
+            response.put("currentAccount", getFirstAccountId());
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при получении списка аккаунтов: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при получении списка аккаунтов: " + e.getMessage());
+        }
+    }
+    
+    /**
      * Получение статуса торгового бота
      */
     @GetMapping("/status")
@@ -190,11 +228,46 @@ public class TradingBotController {
             BigDecimal rsi = marketAnalysisService.calculateRSI(figi, 
                 ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY, 14);
             
+            // Продвинутые индикаторы
+            AdvancedTechnicalAnalysisService.MACDResult macd = 
+                advancedAnalysisService.calculateMACD(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
+            AdvancedTechnicalAnalysisService.BollingerBandsResult bb = 
+                advancedAnalysisService.calculateBollingerBands(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY, 20);
+            AdvancedTechnicalAnalysisService.StochasticResult stoch = 
+                advancedAnalysisService.calculateStochastic(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY, 14);
+            AdvancedTechnicalAnalysisService.VolumeAnalysisResult volume = 
+                advancedAnalysisService.analyzeVolume(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
+            AdvancedTechnicalAnalysisService.SupportResistanceResult sr = 
+                advancedAnalysisService.findSupportResistance(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
+            
             Map<String, Object> response = new HashMap<>();
             response.put("figi", figi);
             response.put("sma20", sma20);
             response.put("sma50", sma50);
             response.put("rsi", rsi);
+            response.put("macd", Map.of(
+                "macdLine", macd.getMacdLine(),
+                "signalLine", macd.getSignalLine(),
+                "histogram", macd.getHistogram()
+            ));
+            response.put("bollingerBands", Map.of(
+                "upperBand", bb.getUpperBand(),
+                "middleBand", bb.getMiddleBand(),
+                "lowerBand", bb.getLowerBand()
+            ));
+            response.put("stochastic", Map.of(
+                "kPercent", stoch.getKPercent(),
+                "dPercent", stoch.getDPercent()
+            ));
+            response.put("volume", Map.of(
+                "currentVolume", volume.getCurrentVolume(),
+                "volumeRatio", volume.getVolumeRatio(),
+                "volumeSignal", volume.getVolumeSignal()
+            ));
+            response.put("supportResistance", Map.of(
+                "support", sr.getSupport(),
+                "resistance", sr.getResistance()
+            ));
             
             return ResponseEntity.ok(response);
         } catch (Exception e) {
@@ -340,9 +413,15 @@ public class TradingBotController {
      */
     private String getFirstAccountId() {
         try {
-            // Здесь можно добавить получение аккаунта из AccountService
-            // Пока возвращаем новый тестовый аккаунт
-            return "1635493e-e47e-49bb-84ca-5feca7c718ad";
+            List<ru.tinkoff.piapi.contract.v1.Account> accounts = accountService.getAccounts();
+            if (accounts != null && !accounts.isEmpty()) {
+                String accountId = accounts.get(0).getId();
+                log.info("Используется аккаунт: {}", accountId);
+                return accountId;
+            } else {
+                log.warn("Нет доступных аккаунтов");
+                return null;
+            }
         } catch (Exception e) {
             log.error("Ошибка при получении аккаунта: {}", e.getMessage());
             return null;
@@ -436,6 +515,237 @@ public class TradingBotController {
             log.error("Ошибка при получении последних записей лога: {}", e.getMessage());
             return ResponseEntity.internalServerError()
                     .body("Ошибка при получении последних записей лога: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Продвинутый анализ торговых сигналов
+     */
+    @GetMapping("/advanced-signal/{figi}")
+    public ResponseEntity<?> getAdvancedTradingSignal(@PathVariable("figi") String figi) {
+        try {
+            log.info("Получение продвинутого торгового сигнала для: {}", figi);
+            
+            String accountId = getFirstAccountId();
+            if (accountId == null) {
+                return ResponseEntity.badRequest().body("Нет доступных аккаунтов");
+            }
+            
+            AdvancedTradingStrategyService.TradingSignal signal = 
+                advancedTradingStrategyService.analyzeTradingSignal(figi, accountId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("figi", figi);
+            response.put("action", signal.getAction());
+            response.put("strength", signal.getStrength());
+            response.put("signals", signal.getSignals());
+            response.put("riskLevel", signal.getRiskLevel());
+            response.put("riskAction", signal.getRiskAction());
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при получении продвинутого торгового сигнала: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при получении продвинутого торгового сигнала: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Анализ следования за трендом
+     */
+    @GetMapping("/trend-following/{figi}")
+    public ResponseEntity<?> getTrendFollowingAnalysis(@PathVariable("figi") String figi) {
+        try {
+            log.info("Получение анализа следования за трендом для: {}", figi);
+            
+            AdvancedTradingStrategyService.TrendFollowingSignal signal = 
+                advancedTradingStrategyService.analyzeTrendFollowing(figi);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("figi", figi);
+            response.put("signal", signal.getSignal());
+            response.put("reason", signal.getReason());
+            response.put("dailyTrend", signal.getDailyTrend());
+            response.put("weeklyTrend", signal.getWeeklyTrend());
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при получении анализа следования за трендом: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при получении анализа следования за трендом: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Анализ уровней поддержки и сопротивления
+     */
+    @GetMapping("/support-resistance/{figi}")
+    public ResponseEntity<?> getSupportResistanceAnalysis(@PathVariable("figi") String figi) {
+        try {
+            log.info("Получение анализа уровней поддержки/сопротивления для: {}", figi);
+            
+            AdvancedTradingStrategyService.SupportResistanceSignal signal = 
+                advancedTradingStrategyService.analyzeSupportResistance(figi);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("figi", figi);
+            response.put("signal", signal.getSignal());
+            response.put("reason", signal.getReason());
+            response.put("support", signal.getSupport());
+            response.put("resistance", signal.getResistance());
+            response.put("currentPrice", signal.getCurrentPrice());
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при получении анализа уровней поддержки/сопротивления: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при получении анализа уровней поддержки/сопротивления: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Динамическая ребалансировка портфеля
+     */
+    @PostMapping("/dynamic-rebalancing/{accountId}")
+    public ResponseEntity<?> performDynamicRebalancing(@PathVariable("accountId") String accountId) {
+        try {
+            log.info("Выполнение динамической ребалансировки для аккаунта: {}", accountId);
+            
+            AdvancedPortfolioManagementService.DynamicRebalancingResult result = 
+                advancedPortfolioManagementService.performDynamicRebalancing(accountId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("accountId", accountId);
+            response.put("marketCondition", result.getMarketCondition());
+            response.put("targetAllocation", Map.of(
+                "shares", result.getTargetAllocation().getSharesAllocation(),
+                "bonds", result.getTargetAllocation().getBondsAllocation(),
+                "etf", result.getTargetAllocation().getEtfAllocation()
+            ));
+            response.put("actions", result.getActions().stream()
+                .map(action -> Map.of(
+                    "type", action.getType(),
+                    "amount", action.getAmount(),
+                    "description", action.getDescription()
+                ))
+                .collect(java.util.stream.Collectors.toList()));
+            response.put("totalValue", result.getTotalValue());
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при динамической ребалансировке: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при динамической ребалансировке: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Анализ диверсификации портфеля
+     */
+    @GetMapping("/diversification/{accountId}")
+    public ResponseEntity<?> getDiversificationAnalysis(@PathVariable("accountId") String accountId) {
+        try {
+            log.info("Получение анализа диверсификации для аккаунта: {}", accountId);
+            
+            AdvancedPortfolioManagementService.DiversificationAnalysis analysis = 
+                advancedPortfolioManagementService.analyzeDiversification(accountId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("accountId", accountId);
+            response.put("sectorAllocation", analysis.getSectorAllocation());
+            response.put("countryAllocation", analysis.getCountryAllocation());
+            response.put("correlationRisk", analysis.getCorrelationRisk());
+            response.put("diversificationScore", analysis.getScore());
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при получении анализа диверсификации: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при получении анализа диверсификации: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Получение рекомендаций по риск-менеджменту
+     */
+    @GetMapping("/risk-recommendation/{accountId}")
+    public ResponseEntity<?> getRiskRecommendation(@PathVariable("accountId") String accountId) {
+        try {
+            log.info("Получение рекомендаций по риск-менеджменту для аккаунта: {}", accountId);
+            
+            RiskManagementService.RiskRecommendation recommendation = 
+                riskManagementService.getRiskRecommendation(accountId);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("accountId", accountId);
+            response.put("recommendation", recommendation.getRecommendation());
+            response.put("action", recommendation.getAction());
+            response.put("drawdown", recommendation.getDrawdown());
+            response.put("dailyLoss", recommendation.getDailyLoss());
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при получении рекомендаций по риск-менеджменту: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при получении рекомендаций по риск-менеджменту: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Проверка рисков для позиции
+     */
+    @PostMapping("/risk-check/{accountId}")
+    public ResponseEntity<?> checkPositionRisk(
+            @PathVariable("accountId") String accountId,
+            @RequestParam("figi") String figi,
+            @RequestParam("price") BigDecimal price,
+            @RequestParam("lots") int lots) {
+        try {
+            log.info("Проверка рисков для позиции: {} в аккаунте {}", figi, accountId);
+            
+            RiskManagementService.RiskCheckResult result = 
+                riskManagementService.checkPositionRisk(accountId, figi, price, lots);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("accountId", accountId);
+            response.put("figi", figi);
+            response.put("approved", result.isApproved());
+            response.put("reason", result.getReason());
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при проверке рисков позиции: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при проверке рисков позиции: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Расчет стоп-лосса и тейк-профита
+     */
+    @GetMapping("/stop-loss-take-profit/{figi}")
+    public ResponseEntity<?> getStopLossTakeProfit(
+            @PathVariable("figi") String figi,
+            @RequestParam("entryPrice") BigDecimal entryPrice,
+            @RequestParam("direction") String direction) {
+        try {
+            log.info("Расчет стоп-лосса и тейк-профита для: {}", figi);
+            
+            RiskManagementService.StopLossTakeProfit result = 
+                riskManagementService.calculateStopLossTakeProfit(figi, entryPrice, direction);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("figi", figi);
+            response.put("entryPrice", entryPrice);
+            response.put("direction", direction);
+            response.put("stopLoss", result.getStopLoss());
+            response.put("takeProfit", result.getTakeProfit());
+            
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Ошибка при расчете стоп-лосса и тейк-профита: {}", e.getMessage());
+            return ResponseEntity.internalServerError()
+                    .body("Ошибка при расчете стоп-лосса и тейк-профита: " + e.getMessage());
         }
     }
 } 

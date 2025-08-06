@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Position;
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
+import ru.tinkoff.piapi.contract.v1.MoneyValue;
+import ru.tinkoff.piapi.contract.v1.Quotation;
 import ru.perminov.dto.ShareDto;
 
 import java.math.BigDecimal;
@@ -60,10 +62,31 @@ public class PortfolioManagementService {
             
             if (position.getCurrentPrice() != null) {
                 try {
-                    currentPrice = new BigDecimal(position.getCurrentPrice().toString());
+                    // Извлекаем цену из строкового представления объекта
+                    String priceStr = position.getCurrentPrice().toString();
+                    log.debug("Price string for {}: {}", position.getFigi(), priceStr);
+                    
+                    // Ищем числовое значение в строке
+                    if (priceStr.contains("value=")) {
+                        String valuePart = priceStr.substring(priceStr.indexOf("value=") + 6);
+                        valuePart = valuePart.substring(0, valuePart.indexOf(","));
+                        currentPrice = new BigDecimal(valuePart);
+                    } else {
+                        // Попробуем найти любое число в строке
+                        String[] parts = priceStr.split("[^0-9.]");
+                        for (String part : parts) {
+                            if (!part.isEmpty() && part.matches("\\d+\\.?\\d*")) {
+                                currentPrice = new BigDecimal(part);
+                                break;
+                            }
+                        }
+                    }
                 } catch (Exception e) {
-                    log.warn("Не удалось получить цену для позиции {}", position.getFigi());
+                    log.warn("Не удалось получить цену для позиции {}: {}", position.getFigi(), e.getMessage());
+                    currentPrice = BigDecimal.ZERO;
                 }
+            } else {
+                currentPrice = BigDecimal.ZERO;
             }
             
             BigDecimal positionValue = quantity.multiply(currentPrice);
@@ -201,7 +224,9 @@ public class PortfolioManagementService {
             if ("BUY".equals(action)) {
                 // Проверяем, есть ли свободные средства
                 BigDecimal availableCash = getAvailableCash(portfolioAnalysis);
-                if (availableCash.compareTo(BigDecimal.valueOf(10000)) > 0) {
+                log.info("Доступные средства для покупки: {}", availableCash);
+                
+                if (availableCash.compareTo(BigDecimal.ZERO) > 0) {
                     // Проверяем, есть ли уже позиция по этому инструменту
                     boolean hasPosition = portfolioAnalysis.getPositionValues().containsKey(figi) && 
                                         portfolioAnalysis.getPositionValues().get(figi).compareTo(BigDecimal.ZERO) > 0;
@@ -209,12 +234,12 @@ public class PortfolioManagementService {
                     // Определяем размер покупки в зависимости от наличия позиции
                     BigDecimal buyAmount;
                     if (hasPosition) {
-                        // Докупаем - используем меньшую сумму (5% от доступных средств)
-                        buyAmount = availableCash.multiply(BigDecimal.valueOf(0.05));
+                        // Докупаем - используем меньшую сумму (2% от доступных средств)
+                        buyAmount = availableCash.multiply(BigDecimal.valueOf(0.02));
                         log.info("Докупаем позицию по {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     } else {
-                        // Первая покупка - используем большую сумму (10% от доступных средств)
-                        buyAmount = availableCash.multiply(BigDecimal.valueOf(0.1));
+                        // Первая покупка - используем меньшую сумму (5% от доступных средств)
+                        buyAmount = availableCash.multiply(BigDecimal.valueOf(0.05));
                         log.info("Первая покупка {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     }
                     
@@ -243,9 +268,9 @@ public class PortfolioManagementService {
                             "Недостаточно средств для покупки", "Сумма: " + buyAmount + ", Цена: " + trend.getCurrentPrice());
                     }
                 } else {
-                    log.warn("Недостаточно свободных средств для покупки");
+                    log.warn("Нет свободных средств для покупки");
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                        "Недостаточно свободных средств", "Доступно: " + availableCash);
+                        "Нет свободных средств", "Доступно: " + availableCash);
                 }
             } else if ("SELL".equals(action)) {
                 // Проверяем, есть ли позиция по этому инструменту
@@ -299,8 +324,18 @@ public class PortfolioManagementService {
     }
     
     private BigDecimal getAvailableCash(PortfolioAnalysis analysis) {
-        // В реальном приложении нужно получить доступные средства из API
-        return BigDecimal.valueOf(100000); // Пример
+        // Получаем реальные доступные средства из портфеля
+        // Ищем позицию с валютой (обычно RUB)
+        for (Position position : analysis.getPositions()) {
+            if ("currency".equals(position.getInstrumentType())) {
+                log.info("Найдена валюта в портфеле: {} - {}", position.getFigi(), position.getQuantity());
+                return position.getQuantity();
+            }
+        }
+        
+        // Если не найдена валюта, возвращаем 0
+        log.warn("Не найдены доступные средства в портфеле");
+        return BigDecimal.ZERO;
     }
     
     public static class PortfolioAnalysis {
