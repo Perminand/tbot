@@ -9,6 +9,9 @@ import ru.tinkoff.piapi.core.models.Position;
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
 import ru.tinkoff.piapi.contract.v1.MoneyValue;
 import ru.tinkoff.piapi.contract.v1.Quotation;
+import ru.tinkoff.piapi.contract.v1.Share;
+import ru.tinkoff.piapi.contract.v1.Bond;
+import ru.tinkoff.piapi.contract.v1.Etf;
 import ru.perminov.dto.ShareDto;
 
 import java.math.BigDecimal;
@@ -89,7 +92,15 @@ public class PortfolioManagementService {
                 currentPrice = BigDecimal.ZERO;
             }
             
-            BigDecimal positionValue = quantity.multiply(currentPrice);
+            BigDecimal positionValue;
+            
+            // Для валютных позиций используем количество как стоимость
+            if ("currency".equals(position.getInstrumentType())) {
+                positionValue = quantity;
+            } else {
+                positionValue = quantity.multiply(currentPrice);
+            }
+            
             positionValues.put(position.getFigi(), positionValue);
             totalValue = totalValue.add(positionValue);
             
@@ -204,6 +215,26 @@ public class PortfolioManagementService {
      */
     public void executeTradingStrategy(String accountId, String figi) {
         try {
+            // Проверяем доступность инструмента для торговли
+            try {
+                // Пытаемся получить информацию об инструменте
+                Share share = instrumentService.getShareByFigi(figi);
+                Bond bond = instrumentService.getBondByFigi(figi);
+                Etf etf = instrumentService.getEtfByFigi(figi);
+                
+                if (share == null && bond == null && etf == null) {
+                    log.warn("Инструмент {} не найден или недоступен для торговли", figi);
+                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                        "Инструмент недоступен", "FIGI: " + figi + " - не найден или недоступен для торговли");
+                    return;
+                }
+            } catch (Exception e) {
+                log.warn("Ошибка проверки доступности инструмента {}: {}", figi, e.getMessage());
+                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                    "Ошибка проверки инструмента", "FIGI: " + figi + " - " + e.getMessage());
+                return;
+            }
+            
             // Анализ тренда
             MarketAnalysisService.TrendAnalysis trend = 
                 marketAnalysisService.analyzeTrend(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
@@ -411,6 +442,12 @@ public class PortfolioManagementService {
                 "Получен список инструментов", "Количество: " + availableShares.size());
             
             for (ShareDto share : availableShares) {
+                // Дополнительная проверка статуса торговли
+                if (!"SECURITY_TRADING_STATUS_NORMAL_TRADING".equals(share.getTradingStatus())) {
+                    log.debug("Пропускаем инструмент {} - статус торговли: {}", share.getFigi(), share.getTradingStatus());
+                    continue;
+                }
+                
                 try {
                     TradingOpportunity opportunity = analyzeTradingOpportunity(share.getFigi(), accountId);
                     if (opportunity != null) {
@@ -655,16 +692,22 @@ public class PortfolioManagementService {
             
             // Добавляем акции (ограничиваем количество для производительности)
             int maxShares = Math.min(shares.size(), 20); // Уменьшаем до 20 акций для снижения нагрузки
-            for (int i = 0; i < maxShares; i++) {
+            int addedShares = 0;
+            for (int i = 0; i < shares.size() && addedShares < maxShares; i++) {
                 ru.tinkoff.piapi.contract.v1.Share share = shares.get(i);
-                ShareDto shareDto = new ShareDto();
-                shareDto.setFigi(share.getFigi());
-                shareDto.setTicker(share.getTicker());
-                shareDto.setName(share.getName());
-                shareDto.setCurrency(share.getCurrency());
-                shareDto.setExchange(share.getExchange());
-                shareDto.setTradingStatus(share.getTradingStatus().name());
-                allInstruments.add(shareDto);
+                
+                // Проверяем, что акция доступна для торговли
+                if (share.getTradingStatus().name().equals("SECURITY_TRADING_STATUS_NORMAL_TRADING")) {
+                    ShareDto shareDto = new ShareDto();
+                    shareDto.setFigi(share.getFigi());
+                    shareDto.setTicker(share.getTicker());
+                    shareDto.setName(share.getName());
+                    shareDto.setCurrency(share.getCurrency());
+                    shareDto.setExchange(share.getExchange());
+                    shareDto.setTradingStatus(share.getTradingStatus().name());
+                    allInstruments.add(shareDto);
+                    addedShares++;
+                }
             }
             
             // Получаем облигации
@@ -673,16 +716,22 @@ public class PortfolioManagementService {
             
             // Добавляем облигации (ограничиваем количество)
             int maxBonds = Math.min(bonds.size(), 10); // Уменьшаем до 10 облигаций
-            for (int i = 0; i < maxBonds; i++) {
+            int addedBonds = 0;
+            for (int i = 0; i < bonds.size() && addedBonds < maxBonds; i++) {
                 ru.tinkoff.piapi.contract.v1.Bond bond = bonds.get(i);
-                ShareDto bondDto = new ShareDto();
-                bondDto.setFigi(bond.getFigi());
-                bondDto.setTicker(bond.getTicker());
-                bondDto.setName(bond.getName());
-                bondDto.setCurrency(bond.getCurrency());
-                bondDto.setExchange(bond.getExchange());
-                bondDto.setTradingStatus(bond.getTradingStatus().name());
-                allInstruments.add(bondDto);
+                
+                // Проверяем, что облигация доступна для торговли
+                if (bond.getTradingStatus().name().equals("SECURITY_TRADING_STATUS_NORMAL_TRADING")) {
+                    ShareDto bondDto = new ShareDto();
+                    bondDto.setFigi(bond.getFigi());
+                    bondDto.setTicker(bond.getTicker());
+                    bondDto.setName(bond.getName());
+                    bondDto.setCurrency(bond.getCurrency());
+                    bondDto.setExchange(bond.getExchange());
+                    bondDto.setTradingStatus(bond.getTradingStatus().name());
+                    allInstruments.add(bondDto);
+                    addedBonds++;
+                }
             }
             
             // Получаем ETF
@@ -691,16 +740,22 @@ public class PortfolioManagementService {
             
             // Добавляем ETF (ограничиваем количество)
             int maxEtfs = Math.min(etfs.size(), 5); // Уменьшаем до 5 ETF
-            for (int i = 0; i < maxEtfs; i++) {
+            int addedEtfs = 0;
+            for (int i = 0; i < etfs.size() && addedEtfs < maxEtfs; i++) {
                 ru.tinkoff.piapi.contract.v1.Etf etf = etfs.get(i);
-                ShareDto etfDto = new ShareDto();
-                etfDto.setFigi(etf.getFigi());
-                etfDto.setTicker(etf.getTicker());
-                etfDto.setName(etf.getName());
-                etfDto.setCurrency(etf.getCurrency());
-                etfDto.setExchange(etf.getExchange());
-                etfDto.setTradingStatus(etf.getTradingStatus().name());
-                allInstruments.add(etfDto);
+                
+                // Проверяем, что ETF доступен для торговли
+                if (etf.getTradingStatus().name().equals("SECURITY_TRADING_STATUS_NORMAL_TRADING")) {
+                    ShareDto etfDto = new ShareDto();
+                    etfDto.setFigi(etf.getFigi());
+                    etfDto.setTicker(etf.getTicker());
+                    etfDto.setName(etf.getName());
+                    etfDto.setCurrency(etf.getCurrency());
+                    etfDto.setExchange(etf.getExchange());
+                    etfDto.setTradingStatus(etf.getTradingStatus().name());
+                    allInstruments.add(etfDto);
+                    addedEtfs++;
+                }
             }
             
             log.info("Всего инструментов для анализа: {}", allInstruments.size());

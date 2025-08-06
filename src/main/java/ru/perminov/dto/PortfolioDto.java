@@ -99,8 +99,8 @@ public class PortfolioDto {
                 dto.setName("Российский рубль");
                 dto.setCurrency("rub");
                 // Для валюты используем количество как текущую цену
-                dto.setCurrentPrice(position.getQuantity());
-                dto.setAveragePrice(position.getQuantity());
+                dto.setCurrentPrice(BigDecimal.ONE); // 1 рубль = 1 рубль
+                dto.setAveragePrice(BigDecimal.ONE);
                 dto.setDisplayValue("₽" + position.getQuantity().setScale(2, BigDecimal.ROUND_HALF_UP));
             } else {
                 // Для других инструментов показываем FIGI как тикер и добавляем тип инструмента
