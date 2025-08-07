@@ -19,12 +19,12 @@ import java.util.concurrent.ExecutionException;
 @RequiredArgsConstructor
 @Slf4j
 public class OrderService {
-    private final InvestApi investApi;
+    private final InvestApiManager investApiManager;
 
     public List<OrderState> getOrders(String accountId) {
         try {
             log.info("Получение ордеров для аккаунта: {}", accountId);
-            CompletableFuture<List<OrderState>> future = investApi.getOrdersService().getOrders(accountId);
+            CompletableFuture<List<OrderState>> future = investApiManager.getCurrentInvestApi().getOrdersService().getOrders(accountId);
             List<OrderState> orders = future.get();
             log.info("Получено {} ордеров для аккаунта {}", orders.size(), accountId);
             return orders;
@@ -46,7 +46,7 @@ public class OrderService {
                 .setNano(0)
                 .build();
             
-            CompletableFuture<PostOrderResponse> future = investApi.getOrdersService().postOrder(
+            CompletableFuture<PostOrderResponse> future = investApiManager.getCurrentInvestApi().getOrdersService().postOrder(
                 figi,
                 lots,
                 priceObj, // используем нулевую цену для рыночного ордера
@@ -78,7 +78,7 @@ public class OrderService {
                 .setNano(Integer.parseInt(price.split("\\.")[1] + "000000000".substring(price.split("\\.")[1].length())))
                 .build();
             
-            CompletableFuture<PostOrderResponse> future = investApi.getOrdersService().postOrder(
+            CompletableFuture<PostOrderResponse> future = investApiManager.getCurrentInvestApi().getOrdersService().postOrder(
                 figi,
                 lots,
                 priceObj,
@@ -102,7 +102,7 @@ public class OrderService {
     public void cancelOrder(String accountId, String orderId) {
         try {
             log.info("Отмена ордера: accountId={}, orderId={}", accountId, orderId);
-            CompletableFuture<java.time.Instant> future = investApi.getOrdersService().cancelOrder(accountId, orderId);
+            CompletableFuture<java.time.Instant> future = investApiManager.getCurrentInvestApi().getOrdersService().cancelOrder(accountId, orderId);
             java.time.Instant cancelTime = future.get();
             log.info("Ордер успешно отменен: accountId={}, orderId={}, cancelTime={}", accountId, orderId, cancelTime);
         } catch (InterruptedException | ExecutionException e) {

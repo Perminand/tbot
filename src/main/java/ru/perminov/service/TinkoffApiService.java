@@ -12,14 +12,14 @@ import ru.tinkoff.piapi.contract.v1.InstrumentStatus;
 @RequiredArgsConstructor
 public class TinkoffApiService {
     
-    private final InvestApi investApi;
+    private final InvestApiManager investApiManager;
     
     /**
      * Получение списка инструментов
      */
     public Mono<String> getInstruments() {
         return Mono.fromCallable(() -> {
-            var response = investApi.getInstrumentsService().getSharesSync(InstrumentStatus.INSTRUMENT_STATUS_ALL);
+            var response = investApiManager.getCurrentInvestApi().getInstrumentsService().getSharesSync(InstrumentStatus.INSTRUMENT_STATUS_ALL);
             log.info("Получен список инструментов");
             return response.toString();
         }).doOnError(error -> log.error("Ошибка при получении инструментов: {}", error.getMessage()));
@@ -41,7 +41,7 @@ public class TinkoffApiService {
      */
     public Mono<String> getPortfolio(String accountId) {
         return Mono.fromCallable(() -> {
-            var response = investApi.getOperationsService().getPortfolioSync(accountId);
+            var response = investApiManager.getCurrentInvestApi().getOperationsService().getPortfolioSync(accountId);
             log.info("Получен портфель для аккаунта: {}", accountId);
             return response.toString();
         }).doOnError(error -> log.error("Ошибка при получении портфеля: {}", error.getMessage()));
@@ -52,7 +52,7 @@ public class TinkoffApiService {
      */
     public Mono<String> getAccounts() {
         return Mono.fromCallable(() -> {
-            var response = investApi.getUserService().getAccountsSync();
+            var response = investApiManager.getCurrentInvestApi().getUserService().getAccountsSync();
             log.info("Получен список аккаунтов");
             return response.toString();
         }).doOnError(error -> log.error("Ошибка при получении аккаунтов: {}", error.getMessage()));
@@ -63,7 +63,7 @@ public class TinkoffApiService {
      */
     public Mono<String> getMarketData(String figi) {
         return Mono.fromCallable(() -> {
-            var response = investApi.getMarketDataService().getLastPricesSync(java.util.List.of(figi));
+            var response = investApiManager.getCurrentInvestApi().getMarketDataService().getLastPricesSync(java.util.List.of(figi));
             log.info("Получены рыночные данные для: {}", figi);
             return response.toString();
         }).doOnError(error -> log.error("Ошибка при получении рыночных данных: {}", error.getMessage()));

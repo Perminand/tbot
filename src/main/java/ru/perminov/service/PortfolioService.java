@@ -17,11 +17,11 @@ import java.util.concurrent.ExecutionException;
 @RequiredArgsConstructor
 @Slf4j
 public class PortfolioService {
-    private final InvestApi investApi;
+    private final InvestApiManager investApiManager;
     // private final InstrumentService instrumentService;
 
     public Portfolio getPortfolio(String accountId) {
-        return investApi.getOperationsService().getPortfolio(accountId).join();
+        return investApiManager.getCurrentInvestApi().getOperationsService().getPortfolio(accountId).join();
     }
 
     public Portfolio getEnrichedPortfolio(String accountId) {

@@ -6,6 +6,17 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Создание таблиц (если не существуют)
 -- Hibernate автоматически создаст таблицы при запуске приложения
 
+-- Создание таблицы настроек торговли
+CREATE TABLE IF NOT EXISTS trading_settings (
+    id BIGSERIAL PRIMARY KEY,
+    setting_key VARCHAR(255) UNIQUE NOT NULL,
+    setting_value TEXT NOT NULL,
+    description TEXT,
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_trading_settings_key ON trading_settings(setting_key);
+
 -- Создание индексов для оптимизации
 CREATE INDEX IF NOT EXISTS idx_instruments_ticker ON instruments(ticker);
 CREATE INDEX IF NOT EXISTS idx_instruments_currency ON instruments(currency);
@@ -157,6 +168,7 @@ COMMENT ON TABLE instruments IS 'Финансовые инструменты';
 COMMENT ON TABLE orders IS 'Торговые ордера';
 COMMENT ON TABLE positions IS 'Позиции в портфеле';
 COMMENT ON TABLE order_log IS 'Лог изменений ордеров';
+COMMENT ON TABLE trading_settings IS 'Настройки торгового бота';
 
 COMMENT ON VIEW portfolio_summary IS 'Сводка по портфелю';
 COMMENT ON VIEW active_orders IS 'Активные ордера'; 

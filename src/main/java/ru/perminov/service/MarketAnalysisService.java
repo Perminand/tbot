@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class MarketAnalysisService {
     
-    private final InvestApi investApi;
+    private final InvestApiManager investApiManager;
     private final BotLogService botLogService;
     private final Map<String, List<HistoricCandle>> candleCache = new ConcurrentHashMap<>();
     
@@ -35,7 +35,7 @@ public class MarketAnalysisService {
             Instant to = Instant.now();
             
             try {
-                return investApi.getMarketDataService()
+                return investApiManager.getCurrentInvestApi().getMarketDataService()
                     .getCandlesSync(figi, from, to, interval);
             } catch (Exception e) {
                 log.error("Ошибка при получении свечей для {}: {}", figi, e.getMessage());

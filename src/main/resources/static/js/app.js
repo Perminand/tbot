@@ -157,9 +157,72 @@ async function loadTradingModeStatus() {
                 sandboxRadio.checked = status.isSandbox;
                 productionRadio.checked = status.isProduction;
             }
+            
+            // Показать информацию о режиме
+            if (status.modeInfo) {
+                showModeInfo(status.modeInfo, status.isProduction);
+            }
         }
     } catch (error) {
         console.error('Error loading trading mode status:', error);
+    }
+}
+
+// Сброс настроек режима торговли
+async function resetTradingMode() {
+    if (!confirm('Сбросить настройки режима торговли к значениям по умолчанию?')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/trading-mode/reset', {
+            method: 'POST'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            tradingMode = result.currentMode;
+            await loadTradingModeStatus();
+            showSuccess(result.message);
+            
+            // Перезагрузить данные
+            loadAccountId();
+            loadDashboard();
+        } else {
+            showError(result.message);
+        }
+    } catch (error) {
+        console.error('Error resetting trading mode:', error);
+        showError('Ошибка сброса настроек: ' + error.message);
+    }
+}
+
+// Показать информацию о режиме торговли
+function showModeInfo(info, isProduction) {
+    // Удалить существующие уведомления о режиме
+    const existingAlerts = document.querySelectorAll('.trading-mode-alert');
+    existingAlerts.forEach(alert => alert.remove());
+    
+    // Создать новое уведомление
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert ${isProduction ? 'alert-danger' : 'alert-warning'} trading-mode-alert`;
+    alertDiv.innerHTML = `
+        <i class="fas ${isProduction ? 'fa-exclamation-triangle' : 'fa-info-circle'} me-2"></i>
+        <strong>${isProduction ? 'ВНИМАНИЕ!' : 'Информация:'}</strong> ${info}
+    `;
+    
+    // Добавить в начало контента
+    const mainContent = document.querySelector('.main-content');
+    if (mainContent) {
+        mainContent.insertBefore(alertDiv, mainContent.firstChild);
+    }
+    
+    // Обновить информацию в настройках
+    const tradingModeInfoElement = document.getElementById('tradingModeInfo');
+    if (tradingModeInfoElement) {
+        tradingModeInfoElement.textContent = info;
+        tradingModeInfoElement.className = `text-${isProduction ? 'danger' : 'muted'}`;
     }
 }
 
@@ -172,25 +235,79 @@ async function switchTradingMode() {
         return;
     }
     
+    // Дополнительное предупреждение для переключения в продакшн
     if (selectedMode === 'production') {
         if (!confirm('ВНИМАНИЕ! Вы переключаетесь в режим реальной торговли. Это может привести к реальным финансовым потерям. Продолжить?')) {
+            return;
+        }
+        
+        // Дополнительное подтверждение
+        if (!confirm('ПОДТВЕРЖДЕНИЕ: Вы уверены, что хотите активировать режим реальной торговли? Все операции будут выполняться с реальными деньгами!')) {
             return;
         }
     }
     
     try {
-        // Здесь можно добавить API вызов для переключения режима
-        // Пока просто обновляем локально
-        tradingMode = selectedMode;
-        await loadTradingModeStatus();
-        showSuccess(`Режим переключен на: ${selectedMode === 'sandbox' ? 'Песочница' : 'Реальная торговля'}`);
+        // Вызов API для переключения режима
+        const formData = new FormData();
+        formData.append('mode', selectedMode);
         
-        // Перезагрузить данные
-        loadAccountId();
-        loadDashboard();
+        let endpoint = '/api/trading-mode/switch';
+        if (selectedMode === 'production') {
+            endpoint = '/api/trading-mode/switch-confirmed';
+        }
+        
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            tradingMode = selectedMode;
+            await loadTradingModeStatus();
+            showSuccess(result.message);
+            
+            // Показать предупреждение если есть
+            if (result.warning) {
+                showNotification(result.warning, 'warning');
+            }
+            
+            // Перезагрузить данные
+            loadAccountId();
+            loadDashboard();
+        } else {
+            if (result.requiresConfirmation) {
+                // Показать диалог подтверждения
+                if (confirm(result.message + '\n\nПродолжить?')) {
+                    // Повторный вызов с подтверждением
+                    const confirmResponse = await fetch('/api/trading-mode/switch-confirmed', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const confirmResult = await confirmResponse.json();
+                    if (confirmResult.success) {
+                        tradingMode = selectedMode;
+                        await loadTradingModeStatus();
+                        showSuccess(confirmResult.message);
+                        if (confirmResult.warning) {
+                            showNotification(confirmResult.warning, 'warning');
+                        }
+                        loadAccountId();
+                        loadDashboard();
+                    } else {
+                        showError(confirmResult.message);
+                    }
+                }
+            } else {
+                showError(result.message);
+            }
+        }
     } catch (error) {
         console.error('Error switching trading mode:', error);
-        showError('Ошибка переключения режима');
+        showError('Ошибка переключения режима: ' + error.message);
     }
 }
 

@@ -19,7 +19,7 @@ import java.util.List;
 @Slf4j
 public class BondCalculationService {
     
-    private final InvestApi investApi;
+    private final InvestApiManager investApiManager;
     
     /**
      * Расчет НКД (Накопленного купонного дохода)
@@ -27,7 +27,7 @@ public class BondCalculationService {
     public BigDecimal calculateAccumulatedCouponYield(String figi, BigDecimal currentPrice) {
         try {
             // Получаем информацию об облигации
-            Bond bond = investApi.getInstrumentsService().getBondByFigiSync(figi);
+            Bond bond = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondByFigiSync(figi);
             if (bond == null) {
                 log.warn("Не удалось получить информацию об облигации: {}", figi);
                 return BigDecimal.ZERO;
@@ -36,7 +36,7 @@ public class BondCalculationService {
             // Получаем купоны за последний год
             Instant from = Instant.now().minus(365, ChronoUnit.DAYS);
             Instant to = Instant.now().plus(365, ChronoUnit.DAYS);
-            List<Coupon> coupons = investApi.getInstrumentsService().getBondCouponsSync(figi, from, to);
+            List<Coupon> coupons = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondCouponsSync(figi, from, to);
             if (coupons.isEmpty()) {
                 log.warn("Не найдены купоны для облигации: {}", figi);
                 return BigDecimal.ZERO;
@@ -109,7 +109,7 @@ public class BondCalculationService {
     public BigDecimal calculateCurrentYield(String figi, BigDecimal currentPrice) {
         try {
             // Получаем информацию об облигации
-            Bond bond = investApi.getInstrumentsService().getBondByFigiSync(figi);
+            Bond bond = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondByFigiSync(figi);
             if (bond == null) {
                 log.warn("Не удалось получить информацию об облигации: {}", figi);
                 return BigDecimal.ZERO;
@@ -118,7 +118,7 @@ public class BondCalculationService {
             // Получаем купоны за последний год
             Instant from = Instant.now().minus(365, ChronoUnit.DAYS);
             Instant to = Instant.now().plus(365, ChronoUnit.DAYS);
-            List<Coupon> coupons = investApi.getInstrumentsService().getBondCouponsSync(figi, from, to);
+            List<Coupon> coupons = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondCouponsSync(figi, from, to);
             if (coupons.isEmpty()) {
                 log.warn("Не найдены купоны для облигации: {}", figi);
                 return BigDecimal.ZERO;
@@ -176,7 +176,7 @@ public class BondCalculationService {
     public BigDecimal calculateYieldToMaturity(String figi, BigDecimal currentPrice, BigDecimal faceValue) {
         try {
             // Получаем информацию об облигации
-            Bond bond = investApi.getInstrumentsService().getBondByFigiSync(figi);
+            Bond bond = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondByFigiSync(figi);
             if (bond == null) {
                 log.warn("Не удалось получить информацию об облигации: {}", figi);
                 return BigDecimal.ZERO;
@@ -200,7 +200,7 @@ public class BondCalculationService {
             // Получаем купоны до погашения
             Instant from = Instant.now();
             Instant to = Instant.now().plus(365 * 10, ChronoUnit.DAYS); // 10 лет вперед
-            List<Coupon> coupons = investApi.getInstrumentsService().getBondCouponsSync(figi, from, to);
+            List<Coupon> coupons = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondCouponsSync(figi, from, to);
             BigDecimal totalCouponIncome = BigDecimal.ZERO;
             
             for (Coupon coupon : coupons) {

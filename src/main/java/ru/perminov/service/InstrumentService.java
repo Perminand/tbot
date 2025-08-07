@@ -18,22 +18,22 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class InstrumentService {
-    private final InvestApi investApi;
+    private final InvestApiManager investApiManager;
 
     public List<Share> getAllShares() throws ExecutionException, InterruptedException {
-        return investApi.getInstrumentsService().getAllShares().get();
+        return investApiManager.getCurrentInvestApi().getInstrumentsService().getAllShares().get();
     }
 
     public List<Bond> getAllBonds() throws ExecutionException, InterruptedException {
-        return investApi.getInstrumentsService().getAllBonds().get();
+        return investApiManager.getCurrentInvestApi().getInstrumentsService().getAllBonds().get();
     }
 
     public List<Etf> getAllEtfs() throws ExecutionException, InterruptedException {
-        return investApi.getInstrumentsService().getAllEtfs().get();
+        return investApiManager.getCurrentInvestApi().getInstrumentsService().getAllEtfs().get();
     }
 
     public List<Currency> getAllCurrencies() throws ExecutionException, InterruptedException {
-        return investApi.getInstrumentsService().getAllCurrencies().get();
+        return investApiManager.getCurrentInvestApi().getInstrumentsService().getAllCurrencies().get();
     }
 
     public List<Share> getTradableShares() throws ExecutionException, InterruptedException {

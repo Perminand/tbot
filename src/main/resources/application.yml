@@ -16,9 +16,12 @@ spring:
 # Tinkoff Invest API Configuration
 tinkoff:
   api:
-    token: ${TINKOFF_API_TOKEN:t.CRkcaE_K19MSklxNKVqJ2rcohwl5CGpwN6Hxp58mdase_kEotm5eXbt2PAlURvHZ6UkhGEPueod2VM7Op4jChg}
-    use-sandbox: true
-    mode: sandbox  # sandbox или production
+    # Токен для песочницы (тестовый)
+    sandbox-token: ${TINKOFF_SANDBOX_TOKEN:t.CRkcaE_K19MSklxNKVqJ2rcohwl5CGpwN6Hxp58mdase_kEotm5eXbt2PAlURvHZ6UkhGEPueod2VM7Op4jChg}
+    # Токен для реальной торговли (продакшн)
+    production-token: ${TINKOFF_PRODUCTION_TOKEN:t.RNl-ZpAkTj4Yl3DVSNBsQbW8xKifjbGSUrtQ-o05nWgwiod5K5cyNZaj_Q6D2N4_yl6UFfEH-_bwd9sjozO5ag}
+    # Режим по умолчанию
+    default-mode: sandbox  # sandbox или production
 
 # Application Configuration
 app:

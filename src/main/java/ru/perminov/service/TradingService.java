@@ -18,7 +18,7 @@ import java.math.BigDecimal;
 @RequiredArgsConstructor
 public class TradingService {
     
-    private final InvestApi investApi;
+    private final InvestApiManager investApiManager;
     
     /**
      * Размещение рыночного ордера на покупку
@@ -29,7 +29,7 @@ public class TradingService {
             String orderId = generateOrderId();
             log.info("Сгенерирован orderId: {}", orderId);
             
-            PostOrderResponse response = investApi.getOrdersService().postOrderSync(
+            PostOrderResponse response = investApiManager.getCurrentInvestApi().getOrdersService().postOrderSync(
                     figi, lots, null, OrderDirection.ORDER_DIRECTION_BUY, 
                     accountId, OrderType.ORDER_TYPE_MARKET, orderId);
             
@@ -49,7 +49,7 @@ public class TradingService {
         return Mono.fromCallable(() -> {
             String orderId = generateOrderId();
             
-            PostOrderResponse response = investApi.getOrdersService().postOrderSync(
+            PostOrderResponse response = investApiManager.getCurrentInvestApi().getOrdersService().postOrderSync(
                     figi, lots, null, OrderDirection.ORDER_DIRECTION_SELL, 
                     accountId, OrderType.ORDER_TYPE_MARKET, orderId);
             log.info("Размещен рыночный ордер на продажу: {} лотов {}", lots, figi);
@@ -72,7 +72,7 @@ public class TradingService {
             
             String orderId = generateOrderId();
             
-            PostOrderResponse response = investApi.getOrdersService().postOrderSync(
+            PostOrderResponse response = investApiManager.getCurrentInvestApi().getOrdersService().postOrderSync(
                     figi, lots, priceQuotation, orderDirection, 
                     accountId, OrderType.ORDER_TYPE_LIMIT, orderId);
             log.info("Размещен лимитный ордер: {} лотов {} по цене {}", lots, figi, price);
@@ -85,7 +85,7 @@ public class TradingService {
      */
     public Mono<String> cancelOrder(String orderId, String accountId) {
         return Mono.fromCallable(() -> {
-            investApi.getOrdersService().cancelOrderSync(accountId, orderId);
+            investApiManager.getCurrentInvestApi().getOrdersService().cancelOrderSync(accountId, orderId);
             log.info("Отменен ордер: {}", orderId);
             return "{\"status\": \"cancelled\"}";
         }).doOnError(error -> log.error("Ошибка при отмене ордера: {}", error.getMessage()));
@@ -96,7 +96,7 @@ public class TradingService {
      */
     public Mono<String> getOrderState(String orderId, String accountId) {
         return Mono.fromCallable(() -> {
-            OrderState orderState = investApi.getOrdersService().getOrderStateSync(accountId, orderId);
+            OrderState orderState = investApiManager.getCurrentInvestApi().getOrdersService().getOrderStateSync(accountId, orderId);
             log.info("Получен статус ордера: {}", orderId);
             return orderState.toString();
         }).doOnError(error -> log.error("Ошибка при получении статуса ордера: {}", error.getMessage()));
@@ -107,7 +107,7 @@ public class TradingService {
      */
     public Mono<String> getActiveOrders(String accountId) {
         return Mono.fromCallable(() -> {
-            var orders = investApi.getOrdersService().getOrdersSync(accountId);
+            var orders = investApiManager.getCurrentInvestApi().getOrdersService().getOrdersSync(accountId);
             log.info("Получен список активных ордеров для аккаунта: {}", accountId);
             return orders.toString();
         }).doOnError(error -> log.error("Ошибка при получении активных ордеров: {}", error.getMessage()));

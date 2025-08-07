@@ -5,7 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import ru.tinkoff.piapi.core.InvestApi;
+import ru.perminov.service.InvestApiManager;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -16,23 +16,29 @@ import java.util.Map;
 @Slf4j
 public class TestController {
     
-    private final InvestApi investApi;
+    private final InvestApiManager investApiManager;
     
-    @Value("${tinkoff.api.token}")
-    private String token;
+    @Value("${tinkoff.api.sandbox-token}")
+    private String sandboxToken;
     
-    @Value("${tinkoff.api.use-sandbox:true}")
-    private boolean useSandbox;
+    @Value("${tinkoff.api.production-token}")
+    private String productionToken;
+    
+    @Value("${tinkoff.api.default-mode:sandbox}")
+    private String defaultMode;
     
     @GetMapping("/status")
     public ResponseEntity<Map<String, Object>> getStatus() {
         Map<String, Object> status = new HashMap<>();
         status.put("application", "Tinkoff Trading Bot");
         status.put("version", "1.0.0");
-        status.put("tokenConfigured", token != null && !token.isEmpty());
-        status.put("useSandbox", useSandbox);
-        status.put("tokenLength", token != null ? token.length() : 0);
-        status.put("tokenPreview", token != null ? token.substring(0, Math.min(10, token.length())) + "..." : "null");
+        status.put("sandboxTokenConfigured", sandboxToken != null && !sandboxToken.isEmpty());
+        status.put("productionTokenConfigured", productionToken != null && !productionToken.isEmpty());
+        status.put("defaultMode", defaultMode);
+        status.put("sandboxTokenLength", sandboxToken != null ? sandboxToken.length() : 0);
+        status.put("productionTokenLength", productionToken != null ? productionToken.length() : 0);
+        status.put("sandboxTokenPreview", sandboxToken != null ? sandboxToken.substring(0, Math.min(10, sandboxToken.length())) + "..." : "null");
+        status.put("productionTokenPreview", productionToken != null ? productionToken.substring(0, Math.min(10, productionToken.length())) + "..." : "null");
         
         return ResponseEntity.ok(status);
     }
@@ -43,7 +49,7 @@ public class TestController {
         
         try {
             // Попробуем получить аккаунты для проверки подключения
-            var accounts = investApi.getUserService().getAccounts().get();
+            var accounts = investApiManager.getCurrentInvestApi().getUserService().getAccounts().get();
             result.put("success", true);
             result.put("accountsCount", accounts.size());
             result.put("message", "Successfully connected to Tinkoff API");

@@ -14,25 +14,25 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 public class AccountService {
-    private final InvestApi investApi;
+    private final InvestApiManager investApiManager;
     private final TradingModeService tradingModeService;
 
     public List<Account> getAccounts() {
-        return investApi.getUserService().getAccounts().join();
+        return investApiManager.getCurrentInvestApi().getUserService().getAccounts().join();
     }
 
     public String openSandboxAccount() {
         if (!tradingModeService.isSandboxMode()) {
             throw new IllegalStateException("Sandbox operations are only allowed in sandbox mode");
         }
-        return investApi.getSandboxService().openAccount().join();
+        return investApiManager.getCurrentInvestApi().getSandboxService().openAccount().join();
     }
 
     public void closeSandboxAccount(String accountId) {
         if (!tradingModeService.isSandboxMode()) {
             throw new IllegalStateException("Sandbox operations are only allowed in sandbox mode");
         }
-        investApi.getSandboxService().closeAccount(accountId).join();
+        investApiManager.getCurrentInvestApi().getSandboxService().closeAccount(accountId).join();
     }
 
     public void topUpSandboxAccount(String accountId, String currency, long units, int nano) {
@@ -47,6 +47,6 @@ public class AccountService {
                 .build();
         
         // Используем правильный метод из piapi SDK
-        investApi.getSandboxService().payIn(accountId, money).join();
+        investApiManager.getCurrentInvestApi().getSandboxService().payIn(accountId, money).join();
     }
 } 
