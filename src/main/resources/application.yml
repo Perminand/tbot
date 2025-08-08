@@ -19,14 +19,41 @@ tinkoff:
     # Токен для песочницы (тестовый)
     sandbox-token: ${TINKOFF_SANDBOX_TOKEN:t.CRkcaE_K19MSklxNKVqJ2rcohwl5CGpwN6Hxp58mdase_kEotm5eXbt2PAlURvHZ6UkhGEPueod2VM7Op4jChg}
     # Токен для реальной торговли (продакшн)
-    production-token: ${TINKOFF_PRODUCTION_TOKEN:t.RNl-ZpAkTj4Yl3DVSNBsQbW8xKifjbGSUrtQ-o05nWgwiod5K5cyNZaj_Q6D2N4_yl6UFfEH-_bwd9sjozO5ag}
+    production-token: ${TINKOFF_PRODUCTION_TOKEN:t.0CTznpaRfqz_r6xbq0XY_sDcgYQVVMJ9ZAsEy4_i91P8IL2QIN5Jf0E8XDbx0gJcjpnNxXcuKuYWHxSEsl2zMw}
     # Режим по умолчанию
-    default-mode: sandbox  # sandbox или production
+    default-mode: sandbox  # sandbox или production (РЕКОМЕНДУЕТСЯ: sandbox для тестирования)
 
 # Application Configuration
 app:
   name: Tinkoff Trading Bot
   version: 1.0.0
+
+# Dynamic Instruments Configuration
+dynamic-instruments:
+  cache:
+    ttl-minutes: 5      # Время жизни кэша в минутах
+    max-shares: 100     # Максимум акций (было 30)
+    max-bonds: 50       # Максимум облигаций (было 15)  
+    max-etfs: 30        # Максимум ETF (было 10)
+    max-currencies: 10  # Максимум валют
+
+# Smart Analysis Configuration
+smart-analysis:
+  quick-monitoring:
+    existing-positions: all    # Все существующие позиции
+    priority-instruments: 5    # 5 приоритетных
+    rotation-instruments: 5    # 5 из ротации
+    total-per-cycle: 10-15     # Итого за 30 сек
+  
+  full-monitoring:
+    existing-positions: all    # Все существующие позиции  
+    priority-instruments: 15   # 15 приоритетных
+    rotation-instruments: 15   # 15 из ротации
+    total-per-cycle: 30-40     # Итого за 2 мин
+  
+  rotation:
+    batch-size: 20            # Размер группы ротации
+    full-cycle-days: 1        # Полный цикл за 1 день
 
 # Logging Configuration
 logging:

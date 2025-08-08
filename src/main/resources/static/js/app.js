@@ -10,6 +10,35 @@ let totalInstruments = 0;
 let allInstruments = [];
 let filteredInstruments = [];
 
+// Функции форматирования
+function formatPrice(price) {
+    if (price === null || price === undefined) return null;
+    if (typeof price === 'number') {
+        return `₽${price.toFixed(2)}`;
+    }
+    if (typeof price === 'string') {
+        const numPrice = parseFloat(price);
+        if (!isNaN(numPrice)) {
+            return `₽${numPrice.toFixed(2)}`;
+        }
+    }
+    return null;
+}
+
+function formatYield(yield) {
+    if (yield === null || yield === undefined) return null;
+    if (typeof yield === 'number') {
+        return `${yield.toFixed(2)}%`;
+    }
+    if (typeof yield === 'string') {
+        const numYield = parseFloat(yield);
+        if (!isNaN(numYield)) {
+            return `${numYield.toFixed(2)}%`;
+        }
+    }
+    return null;
+}
+
 // Инициализация приложения
 document.addEventListener('DOMContentLoaded', function() {
     console.log('Trading Bot Web Interface initialized');
@@ -683,10 +712,10 @@ function displayPortfolio(data) {
                 <td>${position.name || 'N/A'}</td>
                 <td><span class="badge bg-secondary">${position.instrumentType || 'N/A'}</span></td>
                 <td>${position.quantity ? position.quantity.toFixed(2) : 'N/A'}</td>
-                <td>${position.displayValue || 'N/A'}</td>
-                <td>${position.displayValue || 'N/A'}</td>
-                <td>N/A</td>
-                <td>N/A</td>
+                <td>${position.currentPriceDisplay || 'N/A'}</td>
+                <td>${position.averagePriceDisplay || 'N/A'}</td>
+                <td>${position.accumulatedCouponYieldDisplay || 'N/A'}</td>
+                <td>${position.yieldDisplay || 'N/A'}</td>
             </tr>
         `;
     });

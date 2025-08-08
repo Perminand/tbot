@@ -32,6 +32,7 @@ public class PortfolioManagementService {
     private final MarketAnalysisService marketAnalysisService;
     private final BotLogService botLogService;
     private final InstrumentService instrumentService;
+    private final DynamicInstrumentService dynamicInstrumentService;
     
     // Целевые доли активов в портфеле
     private final Map<String, BigDecimal> targetAllocations = new HashMap<>();
@@ -216,22 +217,10 @@ public class PortfolioManagementService {
     public void executeTradingStrategy(String accountId, String figi) {
         try {
             // Проверяем доступность инструмента для торговли
-            try {
-                // Пытаемся получить информацию об инструменте
-                Share share = instrumentService.getShareByFigi(figi);
-                Bond bond = instrumentService.getBondByFigi(figi);
-                Etf etf = instrumentService.getEtfByFigi(figi);
-                
-                if (share == null && bond == null && etf == null) {
-                    log.warn("Инструмент {} не найден или недоступен для торговли", figi);
-                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                        "Инструмент недоступен", "FIGI: " + figi + " - не найден или недоступен для торговли");
-                    return;
-                }
-            } catch (Exception e) {
-                log.warn("Ошибка проверки доступности инструмента {}: {}", figi, e.getMessage());
+            if (!dynamicInstrumentService.isInstrumentAvailable(figi)) {
+                log.warn("Инструмент {} недоступен для торговли, пропускаем", figi);
                 botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                    "Ошибка проверки инструмента", "FIGI: " + figi + " - " + e.getMessage());
+                    "Инструмент недоступен", "FIGI: " + figi + " - недоступен для торговли");
                 return;
             }
             
@@ -274,14 +263,31 @@ public class PortfolioManagementService {
                         log.info("Первая покупка {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     }
                     
+                    // Проверяем минимальную сумму для покупки (1 лот)
+                    BigDecimal minBuyAmount = trend.getCurrentPrice();
+                    if (buyAmount.compareTo(minBuyAmount) < 0) {
+                        log.info("Сумма покупки {} меньше минимальной {}. Увеличиваем до минимальной.", buyAmount, minBuyAmount);
+                        buyAmount = minBuyAmount;
+                    }
+                    
                     int lots = buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
+                    
+                    // Дополнительная проверка: достаточно ли средств для покупки хотя бы 1 лота
+                    if (availableCash.compareTo(trend.getCurrentPrice()) < 0) {
+                        log.warn("Недостаточно средств для покупки даже 1 лота. Нужно: {}, Доступно: {}", trend.getCurrentPrice(), availableCash);
+                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                            "Недостаточно средств для покупки 1 лота", String.format("Нужно: %.2f, Доступно: %.2f", trend.getCurrentPrice(), availableCash));
+                        return;
+                    }
                     
                     if (lots > 0) {
                         String actionType = hasPosition ? "докупка" : "покупка";
-                        log.info("Размещение ордера на {}: {} лотов по цене {}", actionType, lots, trend.getCurrentPrice());
+                        BigDecimal totalCost = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
+                        log.info("Размещение ордера на {}: {} лотов по цене {} (общая стоимость: {})", 
+                            actionType, lots, trend.getCurrentPrice(), totalCost);
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                            "Размещение ордера на " + actionType, String.format("FIGI: %s, Лотов: %d, Цена: %.2f", 
-                                figi, lots, trend.getCurrentPrice()));
+                            "Размещение ордера на " + actionType, String.format("FIGI: %s, Лотов: %d, Цена: %.2f, Стоимость: %.2f", 
+                                figi, lots, trend.getCurrentPrice(), totalCost));
                         
                         // Размещаем реальный ордер
                         try {
@@ -292,11 +298,14 @@ public class PortfolioManagementService {
                             log.error("Ошибка размещения ордера на {}: {}", actionType, e.getMessage());
                             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
                                 "Ошибка размещения ордера на " + actionType, e.getMessage());
+                            // НЕ останавливаем выполнение, продолжаем с другими инструментами
                         }
                     } else {
-                        log.warn("Недостаточно средств для покупки лотов");
+                        log.warn("Не удалось рассчитать количество лотов для покупки. Сумма: {}, Цена: {}, Лотов: {}", 
+                            buyAmount, trend.getCurrentPrice(), lots);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                            "Недостаточно средств для покупки", "Сумма: " + buyAmount + ", Цена: " + trend.getCurrentPrice());
+                            "Ошибка расчета лотов", String.format("Сумма: %.2f, Цена: %.2f, Лотов: %d", 
+                                buyAmount, trend.getCurrentPrice(), lots));
                     }
                 } else {
                     log.warn("Нет свободных средств для покупки");
@@ -330,6 +339,7 @@ public class PortfolioManagementService {
                             log.error("Ошибка размещения ордера на продажу: {}", e.getMessage());
                             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
                                 "Ошибка размещения ордера на продажу", e.getMessage());
+                            // НЕ останавливаем выполнение, продолжаем с другими инструментами
                         }
                     } else {
                         log.warn("Нет позиции для продажи по инструменту {}", figi);
@@ -348,9 +358,10 @@ public class PortfolioManagementService {
             }
             
         } catch (Exception e) {
-            log.error("Ошибка при выполнении торговой стратегии: {}", e.getMessage());
+            log.error("Ошибка при выполнении торговой стратегии для {}: {}", figi, e.getMessage());
             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                "Ошибка выполнения торговой стратегии", e.getMessage());
+                "Ошибка выполнения торговой стратегии", "FIGI: " + figi + " - " + e.getMessage());
+            // НЕ останавливаем выполнение, продолжаем с другими инструментами
         }
     }
     
@@ -464,6 +475,7 @@ public class PortfolioManagementService {
                     log.warn("Ошибка анализа инструмента {}: {}", share.getFigi(), e.getMessage());
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.TECHNICAL_INDICATORS, 
                         "Ошибка анализа инструмента", "FIGI: " + share.getFigi() + ", Ошибка: " + e.getMessage());
+                    // Продолжаем с следующим инструментом, не останавливаем выполнение
                 }
             }
             
@@ -681,92 +693,20 @@ public class PortfolioManagementService {
      * Получение доступных акций
      */
     private List<ShareDto> getAvailableShares() {
-        List<ShareDto> allInstruments = new ArrayList<>();
-        
         try {
-            log.info("Получение всех доступных инструментов для анализа...");
+            log.info("Получение доступных инструментов через DynamicInstrumentService...");
             
-            // Получаем акции
-            List<ru.tinkoff.piapi.contract.v1.Share> shares = instrumentService.getTradableShares();
-            log.info("Получено {} акций для анализа", shares.size());
+            // Используем новый динамический сервис
+            List<ShareDto> instruments = dynamicInstrumentService.getAvailableInstruments();
             
-            // Добавляем акции (ограничиваем количество для производительности)
-            int maxShares = Math.min(shares.size(), 20); // Уменьшаем до 20 акций для снижения нагрузки
-            int addedShares = 0;
-            for (int i = 0; i < shares.size() && addedShares < maxShares; i++) {
-                ru.tinkoff.piapi.contract.v1.Share share = shares.get(i);
-                
-                // Проверяем, что акция доступна для торговли
-                if (share.getTradingStatus().name().equals("SECURITY_TRADING_STATUS_NORMAL_TRADING")) {
-                    ShareDto shareDto = new ShareDto();
-                    shareDto.setFigi(share.getFigi());
-                    shareDto.setTicker(share.getTicker());
-                    shareDto.setName(share.getName());
-                    shareDto.setCurrency(share.getCurrency());
-                    shareDto.setExchange(share.getExchange());
-                    shareDto.setTradingStatus(share.getTradingStatus().name());
-                    allInstruments.add(shareDto);
-                    addedShares++;
-                }
-            }
-            
-            // Получаем облигации
-            List<ru.tinkoff.piapi.contract.v1.Bond> bonds = instrumentService.getTradableBonds();
-            log.info("Получено {} облигаций для анализа", bonds.size());
-            
-            // Добавляем облигации (ограничиваем количество)
-            int maxBonds = Math.min(bonds.size(), 10); // Уменьшаем до 10 облигаций
-            int addedBonds = 0;
-            for (int i = 0; i < bonds.size() && addedBonds < maxBonds; i++) {
-                ru.tinkoff.piapi.contract.v1.Bond bond = bonds.get(i);
-                
-                // Проверяем, что облигация доступна для торговли
-                if (bond.getTradingStatus().name().equals("SECURITY_TRADING_STATUS_NORMAL_TRADING")) {
-                    ShareDto bondDto = new ShareDto();
-                    bondDto.setFigi(bond.getFigi());
-                    bondDto.setTicker(bond.getTicker());
-                    bondDto.setName(bond.getName());
-                    bondDto.setCurrency(bond.getCurrency());
-                    bondDto.setExchange(bond.getExchange());
-                    bondDto.setTradingStatus(bond.getTradingStatus().name());
-                    allInstruments.add(bondDto);
-                    addedBonds++;
-                }
-            }
-            
-            // Получаем ETF
-            List<ru.tinkoff.piapi.contract.v1.Etf> etfs = instrumentService.getTradableEtfs();
-            log.info("Получено {} ETF для анализа", etfs.size());
-            
-            // Добавляем ETF (ограничиваем количество)
-            int maxEtfs = Math.min(etfs.size(), 5); // Уменьшаем до 5 ETF
-            int addedEtfs = 0;
-            for (int i = 0; i < etfs.size() && addedEtfs < maxEtfs; i++) {
-                ru.tinkoff.piapi.contract.v1.Etf etf = etfs.get(i);
-                
-                // Проверяем, что ETF доступен для торговли
-                if (etf.getTradingStatus().name().equals("SECURITY_TRADING_STATUS_NORMAL_TRADING")) {
-                    ShareDto etfDto = new ShareDto();
-                    etfDto.setFigi(etf.getFigi());
-                    etfDto.setTicker(etf.getTicker());
-                    etfDto.setName(etf.getName());
-                    etfDto.setCurrency(etf.getCurrency());
-                    etfDto.setExchange(etf.getExchange());
-                    etfDto.setTradingStatus(etf.getTradingStatus().name());
-                    allInstruments.add(etfDto);
-                    addedEtfs++;
-                }
-            }
-            
-            log.info("Всего инструментов для анализа: {}", allInstruments.size());
+            log.info("Получено {} доступных инструментов для анализа", instruments.size());
+            return instruments;
             
         } catch (Exception e) {
             log.error("Ошибка при получении инструментов: {}", e.getMessage());
             // В случае ошибки возвращаем базовый набор инструментов
             return getFallbackInstruments();
         }
-        
-        return allInstruments;
     }
     
     /**
@@ -886,7 +826,14 @@ public class PortfolioManagementService {
                         bestOpportunity.getFigi(), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore(), 
                         bestOpportunity.getRsi(), bestOpportunity.getTrend()));
                 
-                executeTradingStrategy(accountId, bestOpportunity.getFigi());
+                try {
+                    executeTradingStrategy(accountId, bestOpportunity.getFigi());
+                } catch (Exception e) {
+                    log.error("Ошибка выполнения торговой стратегии для {}: {}", bestOpportunity.getFigi(), e.getMessage());
+                    botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+                        "Ошибка выполнения торговой стратегии", "FIGI: " + bestOpportunity.getFigi() + " - " + e.getMessage());
+                    // Продолжаем выполнение, не останавливаем бота
+                }
             } else {
                 log.info("Нет подходящих торговых возможностей с достаточным score");
                 botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
@@ -901,6 +848,7 @@ public class PortfolioManagementService {
             log.error("Ошибка при автоматической торговле: {}", e.getMessage());
             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
                 "Ошибка автоматической торговли", e.getMessage());
+            // НЕ останавливаем бота, продолжаем работу
         }
     }
     

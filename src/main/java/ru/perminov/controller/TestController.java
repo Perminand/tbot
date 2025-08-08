@@ -2,10 +2,10 @@ package ru.perminov.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.perminov.service.InvestApiManager;
+import ru.tinkoff.piapi.core.InvestApi;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -15,57 +15,130 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Slf4j
 public class TestController {
-    
     private final InvestApiManager investApiManager;
     
-    @Value("${tinkoff.api.sandbox-token}")
-    private String sandboxToken;
-    
-    @Value("${tinkoff.api.production-token}")
-    private String productionToken;
-    
-    @Value("${tinkoff.api.default-mode:sandbox}")
-    private String defaultMode;
-    
-    @GetMapping("/status")
-    public ResponseEntity<Map<String, Object>> getStatus() {
-        Map<String, Object> status = new HashMap<>();
-        status.put("application", "Tinkoff Trading Bot");
-        status.put("version", "1.0.0");
-        status.put("sandboxTokenConfigured", sandboxToken != null && !sandboxToken.isEmpty());
-        status.put("productionTokenConfigured", productionToken != null && !productionToken.isEmpty());
-        status.put("defaultMode", defaultMode);
-        status.put("sandboxTokenLength", sandboxToken != null ? sandboxToken.length() : 0);
-        status.put("productionTokenLength", productionToken != null ? productionToken.length() : 0);
-        status.put("sandboxTokenPreview", sandboxToken != null ? sandboxToken.substring(0, Math.min(10, sandboxToken.length())) + "..." : "null");
-        status.put("productionTokenPreview", productionToken != null ? productionToken.substring(0, Math.min(10, productionToken.length())) + "..." : "null");
-        
-        return ResponseEntity.ok(status);
-    }
-    
-    @GetMapping("/connection")
-    public ResponseEntity<Map<String, Object>> testConnection() {
-        Map<String, Object> result = new HashMap<>();
-        
+    @GetMapping("/invest-api")
+    public ResponseEntity<?> testInvestApi() {
         try {
-            // Попробуем получить аккаунты для проверки подключения
-            var accounts = investApiManager.getCurrentInvestApi().getUserService().getAccounts().get();
-            result.put("success", true);
-            result.put("accountsCount", accounts.size());
-            result.put("message", "Successfully connected to Tinkoff API");
+            log.info("Тестирование InvestApi...");
             
-            if (!accounts.isEmpty()) {
-                result.put("firstAccountId", accounts.get(0).getId());
-                result.put("firstAccountName", accounts.get(0).getName());
+            InvestApi api = investApiManager.getCurrentInvestApi();
+            if (api == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "InvestApi не инициализирован"));
             }
             
+            String currentMode = investApiManager.getCurrentMode();
+            String availableModes = investApiManager.getAvailableModesInfo();
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("currentMode", currentMode);
+            response.put("availableModes", availableModes);
+            response.put("message", "InvestApi работает корректно");
+            
+            return ResponseEntity.ok(response);
+            
         } catch (Exception e) {
-            log.error("Connection test failed", e);
-            result.put("success", false);
-            result.put("error", e.getMessage());
-            result.put("errorType", e.getClass().getSimpleName());
+            log.error("Ошибка при тестировании InvestApi", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Ошибка InvestApi: " + e.getMessage());
+            error.put("errorType", e.getClass().getSimpleName());
+            return ResponseEntity.status(500).body(error);
         }
-        
-        return ResponseEntity.ok(result);
+    }
+
+    @GetMapping("/accounts")
+    public ResponseEntity<?> testAccounts() {
+        try {
+            log.info("Тестирование получения счетов...");
+            
+            InvestApi api = investApiManager.getCurrentInvestApi();
+            log.info("InvestApi получен: {}", api != null ? "OK" : "NULL");
+            
+            if (api == null) {
+                return ResponseEntity.badRequest().body(Map.of("error", "InvestApi не инициализирован"));
+            }
+            
+            log.info("Получаем счета через API...");
+            var accountsFuture = api.getUserService().getAccounts();
+            log.info("Future создан, ожидаем результат...");
+            
+            var accounts = accountsFuture.join();
+            log.info("Счета получены, количество: {}", accounts.size());
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("accountsCount", accounts.size());
+            
+            // Добавляем информацию о каждом счете
+            var accountsInfo = accounts.stream()
+                .map(account -> {
+                    Map<String, Object> accountInfo = new HashMap<>();
+                    accountInfo.put("id", account.getId());
+                    accountInfo.put("name", account.getName());
+                    accountInfo.put("type", account.getType());
+                    accountInfo.put("status", account.getStatus());
+                    return accountInfo;
+                })
+                .collect(java.util.stream.Collectors.toList());
+            
+            response.put("accounts", accountsInfo);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("Ошибка при получении счетов", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Ошибка получения счетов: " + e.getMessage());
+            error.put("errorType", e.getClass().getSimpleName());
+            error.put("stackTrace", e.getStackTrace());
+            return ResponseEntity.status(500).body(error);
+        }
+    }
+
+    @PostMapping("/switch-mode/{mode}")
+    public ResponseEntity<?> switchMode(@PathVariable("mode") String mode) {
+        try {
+            log.info("Переключение на режим: {}", mode);
+            
+            investApiManager.switchToMode(mode);
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("currentMode", investApiManager.getCurrentMode());
+            response.put("message", "Успешно переключен на режим: " + mode);
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("Ошибка при переключении режима на {}", mode, e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Ошибка переключения режима: " + e.getMessage());
+            error.put("errorType", e.getClass().getSimpleName());
+            return ResponseEntity.status(500).body(error);
+        }
+    }
+
+    @GetMapping("/tokens")
+    public ResponseEntity<?> checkTokens() {
+        try {
+            log.info("Проверка токенов...");
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("status", "success");
+            response.put("sandboxConfigured", investApiManager.isTokenConfigured("sandbox"));
+            response.put("productionConfigured", investApiManager.isTokenConfigured("production"));
+            response.put("currentMode", investApiManager.getCurrentMode());
+            response.put("availableModes", investApiManager.getAvailableModesInfo());
+            
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("Ошибка при проверке токенов", e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Ошибка проверки токенов: " + e.getMessage());
+            error.put("errorType", e.getClass().getSimpleName());
+            return ResponseEntity.status(500).body(error);
+        }
     }
 } 

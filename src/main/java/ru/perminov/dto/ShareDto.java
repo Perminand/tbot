@@ -13,6 +13,7 @@ public class ShareDto {
     private String sector;
     private String countryOfRisk;
     private String countryOfRiskName;
+    private String instrumentType; // Тип инструмента: share, bond, etf
     
     public static ShareDto from(ru.tinkoff.piapi.contract.v1.Share share) {
         ShareDto dto = new ShareDto();
@@ -25,6 +26,7 @@ public class ShareDto {
         dto.setSector(share.getSector());
         dto.setCountryOfRisk(share.getCountryOfRisk());
         dto.setCountryOfRiskName(share.getCountryOfRiskName());
+        dto.setInstrumentType("share");
         return dto;
     }
 } 
