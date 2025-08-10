@@ -168,3 +168,5 @@ curl "http://localhost:8081/api/portfolio/with-names?accountId=YOUR_ACCOUNT_ID"
 - Добавлена обработка ошибок
 - Создан резервный словарь известных инструментов
 - Добавлено логирование для отладки
+
+

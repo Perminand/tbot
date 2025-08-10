@@ -3,8 +3,10 @@ package ru.perminov.controller;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 
 @Slf4j
 @Controller
@@ -17,7 +19,26 @@ public class WebController {
      */
     @GetMapping
     public String index() {
-        return "redirect:/index.html";
+        return "redirect:/dashboard";
+    }
+    
+    /**
+     * Страница входа
+     */
+    @GetMapping("/login")
+    public String login(@RequestParam(value = "error", required = false) String error,
+                       @RequestParam(value = "logout", required = false) String logout,
+                       Model model) {
+        
+        if (error != null) {
+            model.addAttribute("error", "Неверный логин или пароль");
+        }
+
+        if (logout != null) {
+            model.addAttribute("message", "Вы успешно вышли из системы");
+        }
+
+        return "login";
     }
     
     /**
@@ -25,7 +46,7 @@ public class WebController {
      */
     @GetMapping("/dashboard")
     public String dashboard() {
-        return "redirect:/index.html#dashboard";
+        return "dashboard";
     }
     
     /**
@@ -33,7 +54,7 @@ public class WebController {
      */
     @GetMapping("/instruments")
     public String instruments() {
-        return "redirect:/index.html#instruments";
+        return "instruments";
     }
     
     /**
@@ -41,7 +62,7 @@ public class WebController {
      */
     @GetMapping("/portfolio")
     public String portfolio() {
-        return "redirect:/index.html#portfolio";
+        return "portfolio";
     }
     
     /**
@@ -49,7 +70,7 @@ public class WebController {
      */
     @GetMapping("/orders")
     public String orders() {
-        return "redirect:/index.html#orders";
+        return "orders";
     }
     
     /**
@@ -57,7 +78,7 @@ public class WebController {
      */
     @GetMapping("/trading")
     public String trading() {
-        return "redirect:/index.html#trading";
+        return "trading";
     }
     
     /**
@@ -65,6 +86,22 @@ public class WebController {
      */
     @GetMapping("/settings")
     public String settings() {
-        return "redirect:/index.html#settings";
+        return "settings";
+    }
+    
+    /**
+     * Страница аналитики
+     */
+    @GetMapping("/analysis")
+    public String analysis() {
+        return "analysis";
+    }
+    
+    /**
+     * Страница логов
+     */
+    @GetMapping("/logs")
+    public String logs() {
+        return "logs";
     }
 } 
