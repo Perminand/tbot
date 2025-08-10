@@ -29,7 +29,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DB_URL: jdbc:postgresql://postgres:5433/tbot_db
+      DB_URL: jdbc:postgresql://postgres:5432/tbot_db
       DB_USER: postgres
       DB_PASSWORD: password
       # Порт приложения на контейнере
