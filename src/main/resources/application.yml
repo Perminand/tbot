@@ -21,7 +21,7 @@ tinkoff:
     # Токен для реальной торговли (продакшн)
     production-token: ${TINKOFF_PRODUCTION_TOKEN:t.0CTznpaRfqz_r6xbq0XY_sDcgYQVVMJ9ZAsEy4_i91P8IL2QIN5Jf0E8XDbx0gJcjpnNxXcuKuYWHxSEsl2zMw}
     # Режим по умолчанию
-    default-mode: ${TINKOFF_DEFAULT_MODE:sandbox}  # sandbox или production (РЕКОМЕНДУЕТСЯ: sandbox для тестирования)
+    default-mode: sandbox  # sandbox или production (РЕКОМЕНДУЕТСЯ: sandbox для тестирования)
 
 # Application Configuration
 app:
@@ -62,23 +62,10 @@ logging:
     org.springframework.web: DEBUG
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE 
-
-# Server Configuration
 server:
-  port: ${SERVER_PORT:8081}
+  port: 8081
 
-# TBank API Configuration
 tbank:
   api:
     base-url: https://api.tbank.ru/invest
-
-# Management endpoints for health checks
-management:
-  endpoints:
-    web:
-      exposure:
-        include: health,info,metrics
-  endpoint:
-    health:
-      show-details: always 
   

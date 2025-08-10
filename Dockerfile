@@ -4,38 +4,25 @@ FROM maven:latest AS build
 # Установка рабочей директории
 WORKDIR /app
 
-# Копирование pom.xml и зависимостей
+# Копирование файлов зависимостей
 COPY pom.xml .
 COPY src ./src
-
-# Скачивание зависимостей (кеширование слоев)
-RUN mvn dependency:go-offline -B
 
 # Сборка приложения
 RUN mvn clean package -DskipTests
 
-# Проверка, что JAR файл создан
-RUN ls -la target/
-RUN jar tf target/*.jar | head -20
-
-# Продакшн образ
+# Этап выполнения
 FROM amazoncorretto:21-alpine
 
-# Установка необходимых пакетов
-RUN apk add --no-cache curl bash
+# Установка рабочей директории
+WORKDIR /app
 
 # Создание пользователя для безопасности
 RUN addgroup -g 1001 -S appgroup && \
     adduser -u 1001 -S appuser -G appgroup
 
-# Установка рабочей директории
-WORKDIR /app
-
-# Копирование JAR файла из этапа сборки
+# Копирование собранного JAR файла
 COPY --from=build /app/target/*.jar app.jar
-
-# Проверка содержимого JAR файла
-RUN jar tf app.jar | head -10
 
 # Создание директории для логов
 RUN mkdir -p /app/logs && \
@@ -44,15 +31,12 @@ RUN mkdir -p /app/logs && \
 # Переключение на непривилегированного пользователя
 USER appuser
 
-# Настройка JVM для контейнеров
-ENV JAVA_OPTS="-Xms512m -Xmx1g -XX:+UseG1GC -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
-
-# Проверка здоровья приложения
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:8081/actuator/health || exit 1
-
-# Точка входа
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
-
-# Экспорт порта
+# Открытие порта
 EXPOSE 8081
+
+# Переменные окружения по умолчанию
+ENV JAVA_OPTS="-Xmx512m -Xms256m"
+ENV SPRING_PROFILES_ACTIVE="docker"
+
+# Команда запуска
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
