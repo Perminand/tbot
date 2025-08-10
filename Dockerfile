@@ -14,6 +14,10 @@ RUN mvn dependency:go-offline -B
 # Сборка приложения
 RUN mvn clean package -DskipTests
 
+# Проверка, что JAR файл создан
+RUN ls -la target/
+RUN jar tf target/*.jar | head -20
+
 # Продакшн образ
 FROM amazoncorretto:21-alpine
 
@@ -29,6 +33,9 @@ WORKDIR /app
 
 # Копирование JAR файла из этапа сборки
 COPY --from=build /app/target/*.jar app.jar
+
+# Проверка содержимого JAR файла
+RUN jar tf app.jar | head -10
 
 # Создание директории для логов
 RUN mkdir -p /app/logs && \
