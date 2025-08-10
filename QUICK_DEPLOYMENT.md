@@ -17,9 +17,6 @@ sudo usermod -aG docker $USER
 sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 sudo chmod +x /usr/local/bin/docker-compose
 
-# Установка Maven
-sudo apt install maven -y
-
 # Перезагрузка (или перелогин)
 sudo reboot
 ```
@@ -62,8 +59,7 @@ chmod +x deploy.sh manage.sh
 ./deploy.sh
 
 # Или ручной запуск
-mvn clean package -DskipTests
-docker-compose -f docker-compose.prod.yml up -d
+docker-compose -f docker-compose.prod.yml up -d --build
 ```
 
 ### 5. Проверка

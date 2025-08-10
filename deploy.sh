@@ -110,21 +110,8 @@ check_docker() {
 
 # Сборка проекта
 build_project() {
-    log_info "Сборка проекта..."
-    
-    if ! command -v mvn &> /dev/null; then
-        log_error "Maven не установлен"
-        exit 1
-    fi
-    
-    mvn clean package -DskipTests
-    
-    if [[ ! -f "target/*.jar" ]]; then
-        log_error "JAR файл не создан"
-        exit 1
-    fi
-    
-    log_success "Проект успешно собран"
+    log_info "Сборка проекта будет выполнена в Docker..."
+    log_success "Пропускаем локальную сборку - она будет выполнена в Docker"
 }
 
 # Остановка существующих контейнеров

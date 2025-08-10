@@ -31,7 +31,7 @@ services:
   tbot-app:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.prod
     container_name: tbot_app
     depends_on:
       postgres:

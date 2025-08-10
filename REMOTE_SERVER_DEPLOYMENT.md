@@ -10,14 +10,12 @@
 - **Docker** (версия 20.10+)
 - **Docker Compose** (версия 2.0+)
 - **Git** (для клонирования репозитория)
-- **Java 21** (для сборки проекта)
 
 ### Проверка установки:
 ```bash
 docker --version
 docker-compose --version
 git --version
-java --version
 ```
 
 ## Пошаговое развертывание
@@ -88,16 +86,7 @@ EOF
 
 ### 4. Сборка проекта
 
-```bash
-# Установка Maven (если не установлен)
-sudo apt install maven -y
-
-# Сборка проекта
-mvn clean package -DskipTests
-
-# Проверка, что JAR файл создан
-ls -la target/*.jar
-```
+Сборка проекта будет выполнена автоматически в Docker при запуске контейнера.
 
 ### 5. Настройка Docker Compose
 
@@ -167,14 +156,14 @@ networks:
 ### 6. Запуск приложения
 
 ```bash
-# Запуск в фоновом режиме
-docker-compose up -d
+# Запуск в фоновом режиме с автоматической сборкой
+docker-compose -f docker-compose.prod.yml up -d --build
 
 # Проверка статуса контейнеров
-docker-compose ps
+docker-compose -f docker-compose.prod.yml ps
 
 # Просмотр логов
-docker-compose logs -f
+docker-compose -f docker-compose.prod.yml logs -f
 ```
 
 ### 7. Проверка работоспособности
