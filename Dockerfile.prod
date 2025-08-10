@@ -1,0 +1,51 @@
+# Многоэтапная сборка для оптимизации размера образа
+FROM maven:3.9.5-openjdk-21 AS build
+
+# Установка рабочей директории
+WORKDIR /app
+
+# Копирование pom.xml и зависимостей
+COPY pom.xml .
+COPY src ./src
+
+# Скачивание зависимостей (кеширование слоев)
+RUN mvn dependency:go-offline -B
+
+# Сборка приложения
+RUN mvn clean package -DskipTests
+
+# Продакшн образ
+FROM amazoncorretto:21-alpine
+
+# Установка необходимых пакетов
+RUN apk add --no-cache curl bash
+
+# Создание пользователя для безопасности
+RUN addgroup -g 1001 -S appgroup && \
+    adduser -u 1001 -S appuser -G appgroup
+
+# Установка рабочей директории
+WORKDIR /app
+
+# Копирование JAR файла из этапа сборки
+COPY --from=build /app/target/*.jar app.jar
+
+# Создание директории для логов
+RUN mkdir -p /app/logs && \
+    chown -R appuser:appgroup /app
+
+# Переключение на непривилегированного пользователя
+USER appuser
+
+# Настройка JVM для контейнеров
+ENV JAVA_OPTS="-Xms512m -Xmx1g -XX:+UseG1GC -XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+# Проверка здоровья приложения
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8081/actuator/health || exit 1
+
+# Точка входа
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+
+# Экспорт порта
+EXPOSE 8081

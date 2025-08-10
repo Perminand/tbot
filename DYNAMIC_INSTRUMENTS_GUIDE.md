@@ -176,3 +176,4 @@ GET /api/dynamic-instruments/random
 - ✅ **Имеет резервный план** при сбоях API
 
 
+

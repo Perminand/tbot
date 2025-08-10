@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: tbot_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tbot_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - tbot_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-tbot_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  tbot-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tbot_app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5433/tbot_db}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD}
+      TINKOFF_SANDBOX_TOKEN: ${TINKOFF_SANDBOX_TOKEN}
+      TINKOFF_PRODUCTION_TOKEN: ${TINKOFF_PRODUCTION_TOKEN}
+      TINKOFF_DEFAULT_MODE: ${TINKOFF_DEFAULT_MODE:-sandbox}
+      SERVER_PORT: ${SERVER_PORT:-8081}
+      # Spring Boot профиль для продакшена
+      SPRING_PROFILES_ACTIVE: production
+      # Настройки JVM для продакшена
+      JAVA_OPTS: "-Xms512m -Xmx1g -XX:+UseG1GC -XX:+UseContainerSupport"
+    ports:
+      - "${SERVER_PORT:-8081}:${SERVER_PORT:-8081}"
+    networks:
+      - tbot_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${SERVER_PORT:-8081}/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Опционально: Nginx для reverse proxy
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  tbot_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

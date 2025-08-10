@@ -170,3 +170,4 @@ curl "http://localhost:8081/api/portfolio/with-names?accountId=YOUR_ACCOUNT_ID"
 - Добавлено логирование для отладки
 
 
+
