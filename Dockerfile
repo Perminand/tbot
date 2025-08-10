@@ -1,5 +1,5 @@
 # Многоэтапная сборка для оптимизации размера образа
-FROM maven:3.9.5-openjdk-21 AS build
+FROM maven:latest AS backend-build
 
 # Установка рабочей директории
 WORKDIR /app
