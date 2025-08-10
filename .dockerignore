@@ -1,9 +1,49 @@
+# Maven
 target/
-.git/
+!target/*.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# IDE
 .idea/
-.vscode/
+*.iws
 *.iml
+*.ipr
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Git
+.git/
+.gitignore
+
+# Docker
 Dockerfile
+.dockerignore
 docker-compose*.yml
-node_modules/
-**/*.log
+
+# Documentation
+*.md
+docs/
+
+# Tests
+src/test/
+
+# Temporary files
+*.tmp
+*.temp
