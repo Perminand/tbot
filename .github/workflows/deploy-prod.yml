@@ -88,7 +88,7 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_SSH_PORT }}
-          source: "docker-compose.production.yml"
+          source: "docker-compose.production.yml,init.sql,nginx.conf"
           target: ${{ secrets.PRODUCTION_PATH }}
 
       - name: Deploy via SSH
@@ -114,6 +114,16 @@ jobs:
             mkdir -p ${{ secrets.PRODUCTION_PATH }}
             cd ${{ secrets.PRODUCTION_PATH }}
             echo "Debug: Changed to directory: $(pwd)"
+
+            # Fix wrong file types if directories were created by mistake
+            if [ -d nginx.conf ]; then
+              echo "Fix: 'nginx.conf' is a directory; removing"
+              rm -rf nginx.conf
+            fi
+            if [ -d init.sql ]; then
+              echo "Fix: 'init.sql' is a directory; removing"
+              rm -rf init.sql
+            fi
 
             echo "IMAGE=$IMAGE" > .env
             echo "DB_PASSWORD=$DB_PASSWORD" >> .env
