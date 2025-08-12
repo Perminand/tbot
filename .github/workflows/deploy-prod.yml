@@ -104,6 +104,7 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_SSH_PORT }}
+          envs: IMAGE,DB_PASSWORD,TINKOFF_SANDBOX_TOKEN,TINKOFF_PRODUCTION_TOKEN,GHCR_PAT
           script_stop: true
           script: |
             set -euo pipefail
