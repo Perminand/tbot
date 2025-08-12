@@ -5,12 +5,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import ru.tinkoff.piapi.contract.v1.OrderState;
 import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
-import ru.tinkoff.piapi.core.InvestApi;
+// import ru.tinkoff.piapi.core.InvestApi; // unused
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
 import ru.tinkoff.piapi.contract.v1.OrderType;
 import ru.tinkoff.piapi.contract.v1.Quotation;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -20,6 +21,7 @@ import java.util.concurrent.ExecutionException;
 @Slf4j
 public class OrderService {
     private final InvestApiManager investApiManager;
+    private final BotControlService botControlService;
 
     public List<OrderState> getOrders(String accountId) {
         try {
@@ -36,6 +38,12 @@ public class OrderService {
 
     public PostOrderResponse placeMarketOrder(String figi, int lots, OrderDirection direction, String accountId) {
         try {
+            if (botControlService.isPanic()) {
+                throw new IllegalStateException("Panic-Stop активен: размещение ордеров заблокировано");
+            }
+            if (!botControlService.tryReserveOrderSlot()) {
+                throw new IllegalStateException("Превышен лимит ордеров в минуту");
+            }
             String orderId = UUID.randomUUID().toString();
             log.info("Размещение рыночного ордера: figi={}, lots={}, direction={}, accountId={}, orderId={}", 
                     figi, lots, direction, accountId, orderId);
@@ -110,5 +118,39 @@ public class OrderService {
                     accountId, orderId, e.getMessage(), e);
             throw new RuntimeException("Ошибка при отмене ордера: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Отмена всех активных ордеров (NEW/ PARTIALLY_FILLED)
+     */
+    public Map<String, Object> cancelAllActiveOrders(String accountId) {
+        Map<String, Object> result = new java.util.HashMap<>();
+        int total = 0;
+        int cancelled = 0;
+        int failed = 0;
+        java.util.List<String> errors = new java.util.ArrayList<>();
+        try {
+            List<OrderState> orders = getOrders(accountId);
+            for (OrderState o : orders) {
+                String status = o.getExecutionReportStatus().name();
+                if ("EXECUTION_REPORT_STATUS_NEW".equals(status) || "EXECUTION_REPORT_STATUS_PARTIALLY_FILLED".equals(status)) {
+                    total++;
+                    try {
+                        cancelOrder(accountId, o.getOrderId());
+                        cancelled++;
+                    } catch (RuntimeException ex) {
+                        failed++;
+                        errors.add(o.getOrderId() + ": " + ex.getMessage());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Ошибка отмены ордеров: " + e.getMessage(), e);
+        }
+        result.put("totalCandidates", total);
+        result.put("cancelled", cancelled);
+        result.put("failed", failed);
+        result.put("errors", errors);
+        return result;
     }
 } 

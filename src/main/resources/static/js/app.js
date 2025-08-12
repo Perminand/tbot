@@ -1147,6 +1147,72 @@ async function topUpSandboxAccount() {
     }
 }
 
+// ==================== PANIC-STOP и лимиты ====================
+async function panicOn() {
+    try {
+        await fetch('/api/bot-control/panic-on', { method: 'POST' });
+        showSuccess('PANIC-STOP включен');
+    } catch (e) { showError('Не удалось включить PANIC-STOP'); }
+}
+async function panicOff() {
+    try {
+        await fetch('/api/bot-control/panic-off', { method: 'POST' });
+        showSuccess('PANIC-STOP снят');
+    } catch (e) { showError('Не удалось снять PANIC-STOP'); }
+}
+async function cancelAllOrders() {
+    if (!accountId) { showError('Нет активного аккаунта'); return; }
+    if (!confirm('Отменить все активные ордера?')) return;
+    try {
+        const resp = await fetch('/api/bot-control/cancel-all?accountId=' + encodeURIComponent(accountId), { method: 'POST' });
+        if (resp.ok) showSuccess('Запрос на отмену всех ордеров принят');
+        else showError('Не удалось отправить отмену всех ордеров');
+    } catch (e) { showError('Ошибка отмены всех ордеров'); }
+}
+async function updateOrderLimit() {
+    const v = document.getElementById('maxOrdersPerMinute').value;
+    try {
+        const resp = await fetch('/api/bot-control/limit?maxPerMinute=' + encodeURIComponent(v), { method: 'POST' });
+        if (resp.ok) showSuccess('Лимит обновлен');
+        else showError('Не удалось обновить лимит');
+    } catch (e) { showError('Ошибка обновления лимита'); }
+}
+
+// ==================== RISK RULES ====================
+async function saveRiskRule() {
+    const figi = document.getElementById('riskFigi').value.trim();
+    const sl = document.getElementById('riskSl').value.trim();
+    const tp = document.getElementById('riskTp').value.trim();
+    if (!figi) { showError('Введите FIGI'); return; }
+    const params = new URLSearchParams();
+    params.append('figi', figi);
+    if (sl) params.append('stopLossPct', (parseFloat(sl)/100).toString());
+    if (tp) params.append('takeProfitPct', (parseFloat(tp)/100).toString());
+    try {
+        const resp = await fetch('/api/risk-rules', { method: 'POST', body: params });
+        if (resp.ok) { showSuccess('Правило сохранено'); loadRiskRule(); }
+        else showError('Не удалось сохранить правило');
+    } catch (e) { showError('Ошибка сохранения правила'); }
+}
+
+async function loadRiskRule() {
+    const figi = document.getElementById('riskFigi').value.trim();
+    if (!figi) { showError('Введите FIGI'); return; }
+    try {
+        const resp = await fetch('/api/risk-rules/' + encodeURIComponent(figi));
+        const data = await resp.json();
+        const el = document.getElementById('riskRuleResult');
+        if (data && data.figi) {
+            const rule = data;
+            el.textContent = `SL=${(rule.stopLossPct??0)*100}% TP=${(rule.takeProfitPct??0)*100}% Active=${rule.active}`;
+        } else if (data && data.rule === null) {
+            el.textContent = 'Правило не найдено';
+        } else {
+            el.textContent = 'Нет данных';
+        }
+    } catch (e) { showError('Ошибка загрузки правила'); }
+}
+
 // Инициализация формы пополнения баланса
 document.addEventListener('DOMContentLoaded', function() {
     const topUpForm = document.getElementById('topUpForm');
@@ -1369,6 +1435,33 @@ async function analyzePortfolio() {
         console.error('Error analyzing portfolio:', error);
         showError('Ошибка при анализе портфеля');
     }
+}
+
+async function loadRiskMetrics() {
+    const acc = document.getElementById('portfolioAccountId').value || accountId;
+    if (!acc) { showError('Введите ID аккаунта'); return; }
+    try {
+        const resp = await fetch(`/api/risk/metrics?accountId=${encodeURIComponent(acc)}`);
+        if (resp.ok) {
+            const m = await resp.json();
+            const pv = document.getElementById('riskPv');
+            const pnl = document.getElementById('riskPnl');
+            const dd = document.getElementById('riskDd');
+            const lev = document.getElementById('riskLev');
+            if (pv) pv.textContent = valueToRUB(m.portfolioValue);
+            if (pnl) pnl.textContent = valueToRUB(m.dailyPnL);
+            if (dd) dd.textContent = ((m.dailyDrawdownPct || 0) * 100).toFixed(2) + '%';
+            if (lev) lev.textContent = (m.leverage || 1).toFixed(2) + 'x';
+        }
+    } catch (e) { console.error('Risk metrics error', e); }
+}
+
+function valueToRUB(v) {
+    try {
+        if (typeof v === 'string') return '₽' + parseFloat(v).toLocaleString();
+        if (typeof v === 'number') return '₽' + v.toLocaleString();
+        return '₽0';
+    } catch { return '₽0'; }
 }
 
 // Отображение анализа портфеля

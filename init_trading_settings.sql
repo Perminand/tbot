@@ -43,6 +43,31 @@ INSERT INTO trading_settings (setting_key, setting_value, description)
 VALUES ('margin_safety_pct', '0.50', 'Доля использования доступной маржи (0..1) для безопасного расчета лимитов')
 ON CONFLICT (setting_key) DO NOTHING;
 
+-- Риск-лимиты и стоп-правила по умолчанию
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('risk_default_sl_pct', '0.05', 'Стоп-лосс по умолчанию (доля, 0..1)')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('risk_default_tp_pct', '0.10', 'Тейк-профит по умолчанию (доля, 0..1)')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('risk_per_trade_pct', '0.01', 'Риск на сделку (доля портфеля, 0..1)')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('risk_daily_loss_limit_pct', '0.02', 'Дневной лимит убытка (0..1)')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('risk_max_position_share_pct', '0.05', 'Максимальная доля одного инструмента в портфеле (0..1)')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('risk_max_sector_share_pct', '0.20', 'Максимальная доля сектора в портфеле (0..1)')
+ON CONFLICT (setting_key) DO NOTHING;
+
 -- Создание индекса для быстрого поиска
 CREATE INDEX IF NOT EXISTS idx_trading_settings_key ON trading_settings(setting_key);
 

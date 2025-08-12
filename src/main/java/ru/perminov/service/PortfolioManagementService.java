@@ -30,6 +30,7 @@ public class PortfolioManagementService {
     
     private final DynamicInstrumentService dynamicInstrumentService;
     private final MarginService marginService;
+    private final RiskRuleService riskRuleService;
     
     // Целевые доли активов в портфеле
     private final Map<String, BigDecimal> targetAllocations = new HashMap<>();
@@ -63,22 +64,27 @@ public class PortfolioManagementService {
             
             if (position.getCurrentPrice() != null) {
                 try {
-                    // Извлекаем цену из строкового представления объекта
-                    String priceStr = position.getCurrentPrice().toString();
-                    log.debug("Price string for {}: {}", position.getFigi(), priceStr);
-                    
-                    // Ищем числовое значение в строке
-                    if (priceStr.contains("value=")) {
-                        String valuePart = priceStr.substring(priceStr.indexOf("value=") + 6);
-                        valuePart = valuePart.substring(0, valuePart.indexOf(","));
-                        currentPrice = new BigDecimal(valuePart);
+                    // Пробуем использовать правильный метод для Money
+                    if (position.getCurrentPrice() instanceof ru.tinkoff.piapi.core.models.Money) {
+                        ru.tinkoff.piapi.core.models.Money money = (ru.tinkoff.piapi.core.models.Money) position.getCurrentPrice();
+                        currentPrice = money.getValue();
+                        log.debug("Цена для {} через getValue(): {}", position.getFigi(), currentPrice);
                     } else {
-                        // Попробуем найти любое число в строке
-                        String[] parts = priceStr.split("[^0-9.]");
-                        for (String part : parts) {
-                            if (!part.isEmpty() && part.matches("\\d+\\.?\\d*")) {
-                                currentPrice = new BigDecimal(part);
-                                break;
+                        // Фоллбек на парсинг строки
+                        String priceStr = position.getCurrentPrice().toString();
+                        log.debug("Price string for {}: {}", position.getFigi(), priceStr);
+                        
+                        if (priceStr.contains("value=")) {
+                            String valuePart = priceStr.substring(priceStr.indexOf("value=") + 6);
+                            valuePart = valuePart.substring(0, valuePart.indexOf(","));
+                            currentPrice = new BigDecimal(valuePart);
+                        } else {
+                            String[] parts = priceStr.split("[^0-9.]");
+                            for (String part : parts) {
+                                if (!part.isEmpty() && part.matches("\\d+\\.?\\d*")) {
+                                    currentPrice = new BigDecimal(part);
+                                    break;
+                                }
                             }
                         }
                     }
@@ -285,6 +291,35 @@ public class PortfolioManagementService {
                     }
                     
                     if (lots > 0) {
+                        // Применяем стоп-правила если заданы (обрезаем размер позиции до стоп-риска)
+                        PortfolioAnalysis finalAnalysis = portfolioAnalysis;
+                        final int lotsBeforeRisk = lots;
+                        java.util.concurrent.atomic.AtomicInteger adjustedLots = new java.util.concurrent.atomic.AtomicInteger(lotsBeforeRisk);
+                        riskRuleService.findByFigi(figi).ifPresent(rule -> {
+                            if (rule.getStopLossPct() != null) {
+                                // мягкое ограничение: не превышать 1% портфеля на сделку при заданном SL
+                                BigDecimal maxRiskPerTrade = finalAnalysis.getTotalValue().multiply(new BigDecimal("0.01"));
+                                BigDecimal allowedCost = maxRiskPerTrade.divide(new BigDecimal(rule.getStopLossPct()), 0, RoundingMode.DOWN);
+                                BigDecimal allowedLots = allowedCost.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN);
+                                if (allowedLots.compareTo(BigDecimal.valueOf(adjustedLots.get())) < 0) {
+                                    log.info("Ограничение по риску: сокращаем лоты {} -> {}", adjustedLots.get(), allowedLots);
+                                    adjustedLots.set(allowedLots.intValue());
+                                }
+                            }
+                        });
+                        // Если явного правила нет — применяем дефолты из настроек
+                        if (adjustedLots.get() == lotsBeforeRisk) {
+                            double slDefault = riskRuleService.getDefaultStopLossPct();
+                            BigDecimal maxRiskPerTrade = finalAnalysis.getTotalValue().multiply(BigDecimal.valueOf(riskRuleService.getRiskPerTradePct()));
+                            BigDecimal allowedCost = maxRiskPerTrade.divide(BigDecimal.valueOf(slDefault), 0, RoundingMode.DOWN);
+                            BigDecimal allowedLots = allowedCost.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN);
+                            if (allowedLots.compareTo(BigDecimal.valueOf(adjustedLots.get())) < 0) {
+                                adjustedLots.set(allowedLots.intValue());
+                                log.info("Дефолтное ограничение по риску: лоты {} -> {}", lotsBeforeRisk, adjustedLots.get());
+                            }
+                        }
+                        lots = adjustedLots.get();
+
                         String actionType = hasPosition ? "докупка" : "покупка";
                         BigDecimal totalCost = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
                         log.info("Размещение ордера на {}: {} лотов по цене {} (общая стоимость: {})", 
