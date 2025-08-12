@@ -250,10 +250,9 @@ public class PortfolioManagementService {
                 BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
                 log.info("Доступные средства для покупки: {}, покупательная способность: {}", availableCash, buyingPower);
 
-                // Если маржа включена, но недоступна для аккаунта — работаем только на кэш
+                // Если маржа включена, но недоступна для аккаунта — продолжаем с фоллбек-логикой внутри MarginService
                 if (marginService.isMarginEnabled() && !marginService.isMarginOperationalForAccount(accountId)) {
-                    log.warn("Маржа включена в настройках, но недоступна для аккаунта {}. Будем использовать только кэш.", accountId);
-                    buyingPower = availableCash;
+                    log.warn("Маржа включена в настройках, но недоступна для аккаунта {}. Используем расчеты по настройкам (без реальных атрибутов).", accountId);
                 }
                 
                 if (buyingPower.compareTo(BigDecimal.ZERO) > 0) {
@@ -284,9 +283,9 @@ public class PortfolioManagementService {
                     
                     // Дополнительная проверка: достаточно ли средств для покупки хотя бы 1 лота
                     if (buyingPower.compareTo(trend.getCurrentPrice()) < 0) {
-                        log.warn("Недостаточно средств для покупки даже 1 лота. Нужно: {}, Доступно: {}", trend.getCurrentPrice(), availableCash);
+                        log.warn("Недостаточно средств для покупки даже 1 лота. Нужно: {}, Доступно: {}", trend.getCurrentPrice(), buyingPower);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                            "Недостаточно средств для покупки 1 лота", String.format("Нужно: %.2f, Доступно: %.2f", trend.getCurrentPrice(), availableCash));
+                            "Недостаточно средств для покупки 1 лота", String.format("Нужно: %.2f, Доступно: %.2f", trend.getCurrentPrice(), buyingPower));
                         return;
                     }
                     

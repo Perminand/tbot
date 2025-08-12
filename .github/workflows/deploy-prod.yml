@@ -1,0 +1,121 @@
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: 'Optional: image tag to deploy (default: prod-latest on main, or the pushed tag)'
+        required: false
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: prod-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push-image:
+    name: Build and Push Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ github.sha }}
+            type=ref,event=tag
+            type=raw,value=prod-latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy over SSH
+    needs: build-and-push-image
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (for copying compose file)
+        uses: actions/checkout@v4
+
+      - name: Resolve image reference
+        id: image
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            echo "IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}" >> $GITHUB_OUTPUT
+          else
+            echo "IMAGE=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:prod-latest" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Copy docker-compose.production.yml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          port: ${{ secrets.PRODUCTION_SSH_PORT }}
+          source: "docker-compose.production.yml"
+          target: ${{ secrets.PRODUCTION_PATH }}
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          IMAGE: ${{ steps.image.outputs.IMAGE }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          TINKOFF_SANDBOX_TOKEN: ${{ secrets.TINKOFF_SANDBOX_TOKEN }}
+          TINKOFF_PRODUCTION_TOKEN: ${{ secrets.TINKOFF_PRODUCTION_TOKEN }}
+          GHCR_PAT: ${{ secrets.GHCR_PAT }}
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          port: ${{ secrets.PRODUCTION_SSH_PORT }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            mkdir -p ${{ secrets.PRODUCTION_PATH }}
+            cd ${{ secrets.PRODUCTION_PATH }}
+
+            echo "IMAGE=$IMAGE" > .env
+            echo "DB_PASSWORD=$DB_PASSWORD" >> .env
+            echo "TINKOFF_SANDBOX_TOKEN=$TINKOFF_SANDBOX_TOKEN" >> .env
+            echo "TINKOFF_PRODUCTION_TOKEN=$TINKOFF_PRODUCTION_TOKEN" >> .env
+
+            docker login ${{ env.REGISTRY }} -u "${{ github.actor }}" -p "$GHCR_PAT"
+            docker compose -f docker-compose.production.yml pull
+            docker compose -f docker-compose.production.yml up -d --remove-orphans
+            docker image prune -f
+
+

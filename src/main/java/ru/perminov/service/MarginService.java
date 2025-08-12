@@ -93,12 +93,15 @@ public class MarginService {
             if (attrs != null) {
                 BigDecimal liquid = toBigDecimal(attrs.getLiquidPortfolio());
                 BigDecimal starting = toBigDecimal(attrs.getStartingMargin());
+                BigDecimal minimal = toBigDecimal(attrs.getMinimalMargin());
+                BigDecimal missing = toBigDecimal(attrs.getAmountOfMissingFunds());
                 BigDecimal safety = getSafetyPct();
-                BigDecimal extra = liquid.subtract(starting);
-                if (extra.signum() < 0) extra = BigDecimal.ZERO;
-                BigDecimal bp = cash.add(extra.multiply(safety)).setScale(2, RoundingMode.DOWN);
-                log.info("Покупательная способность (реальная маржа): liquid={}, starting={}, extra={}, safety={}, bp={}",
-                        liquid, starting, extra, safety, bp);
+                // Свободная маржа = max(liquid - minimal, 0). Если есть недостающие средства, вычтем их
+                BigDecimal freeMargin = liquid.subtract(minimal).subtract(missing.max(BigDecimal.ZERO));
+                if (freeMargin.signum() < 0) freeMargin = BigDecimal.ZERO;
+                BigDecimal bp = cash.add(freeMargin.multiply(safety)).setScale(2, RoundingMode.DOWN);
+                log.info("Покупательная способность (реальная маржа): liquid={}, starting={}, minimal={}, missing={}, safety={}, freeMargin={}, bp={}",
+                        liquid, starting, minimal, missing, safety, freeMargin, bp);
                 return bp.max(BigDecimal.ZERO);
             }
         }
