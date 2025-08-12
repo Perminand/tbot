@@ -3,7 +3,7 @@ package ru.perminov.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import ru.tinkoff.piapi.core.InvestApi;
+// import ru.tinkoff.piapi.core.InvestApi; // unused
 import ru.tinkoff.piapi.contract.v1.HistoricCandle;
 import ru.tinkoff.piapi.contract.v1.CandleInterval;
 
@@ -21,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MarketAnalysisService {
     
     private final InvestApiManager investApiManager;
+    @SuppressWarnings("unused")
     private final BotLogService botLogService;
     private final Map<String, List<HistoricCandle>> candleCache = new ConcurrentHashMap<>();
     
@@ -31,8 +32,10 @@ public class MarketAnalysisService {
         String cacheKey = figi + "_" + interval + "_" + days;
         
         return candleCache.computeIfAbsent(cacheKey, k -> {
-            Instant from = Instant.now().minus(days, ChronoUnit.DAYS);
+            // Ограничим период по правилам API для выбранного интервала
+            int safeDays = Math.min(days, getMaxDaysForInterval(interval));
             Instant to = Instant.now();
+            Instant from = to.minus(safeDays, ChronoUnit.DAYS);
             
             try {
                 return investApiManager.getCurrentInvestApi().getMarketDataService()
@@ -42,6 +45,22 @@ public class MarketAnalysisService {
                 return List.of();
             }
         });
+    }
+
+    // Максимально допустимая глубина периода в днях для каждого интервала (по ограничениям Tinkoff Invest API)
+    private int getMaxDaysForInterval(CandleInterval interval) {
+        switch (interval) {
+            case CANDLE_INTERVAL_1_MIN:
+            case CANDLE_INTERVAL_5_MIN:
+            case CANDLE_INTERVAL_15_MIN:
+                return 7;   // для минутных обычно до 7 дней
+            case CANDLE_INTERVAL_HOUR:
+                return 365; // до 1 года
+            case CANDLE_INTERVAL_DAY:
+                return 3650; // до 10 лет
+            default:
+                return 365;
+        }
     }
     
     /**

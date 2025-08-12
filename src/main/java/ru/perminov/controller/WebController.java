@@ -19,7 +19,7 @@ public class WebController {
      */
     @GetMapping
     public String index() {
-        return "redirect:/dashboard";
+        return "forward:/index.html";
     }
     
     /**
@@ -46,7 +46,7 @@ public class WebController {
      */
     @GetMapping("/dashboard")
     public String dashboard() {
-        return "dashboard";
+        return "forward:/index.html";
     }
     
     /**
@@ -54,7 +54,7 @@ public class WebController {
      */
     @GetMapping("/instruments")
     public String instruments() {
-        return "instruments";
+        return "forward:/index.html";
     }
     
     /**
@@ -62,7 +62,7 @@ public class WebController {
      */
     @GetMapping("/portfolio")
     public String portfolio() {
-        return "portfolio";
+        return "forward:/index.html";
     }
     
     /**
@@ -70,7 +70,7 @@ public class WebController {
      */
     @GetMapping("/orders")
     public String orders() {
-        return "orders";
+        return "forward:/index.html";
     }
     
     /**
@@ -78,7 +78,7 @@ public class WebController {
      */
     @GetMapping("/trading")
     public String trading() {
-        return "trading";
+        return "forward:/index.html";
     }
     
     /**
@@ -86,7 +86,7 @@ public class WebController {
      */
     @GetMapping("/settings")
     public String settings() {
-        return "settings";
+        return "forward:/index.html";
     }
     
     /**
@@ -94,7 +94,7 @@ public class WebController {
      */
     @GetMapping("/analysis")
     public String analysis() {
-        return "analysis";
+        return "forward:/index.html";
     }
     
     /**
@@ -102,6 +102,6 @@ public class WebController {
      */
     @GetMapping("/logs")
     public String logs() {
-        return "logs";
+        return "forward:/index.html";
     }
 } 

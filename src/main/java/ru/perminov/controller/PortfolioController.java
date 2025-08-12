@@ -6,6 +6,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.perminov.service.PortfolioService;
 import ru.perminov.service.InvestApiManager;
+import ru.perminov.service.AccountService;
 import ru.perminov.service.InstrumentNameService;
 import ru.perminov.dto.PortfolioDto;
 import ru.tinkoff.piapi.core.models.Portfolio;
@@ -20,6 +21,7 @@ import java.util.Map;
 public class PortfolioController {
     private final PortfolioService portfolioService;
     private final InvestApiManager investApiManager;
+    private final AccountService accountService;
 
     @GetMapping
     public ResponseEntity<?> getPortfolio(@RequestParam("accountId") String accountId) {
@@ -29,6 +31,18 @@ public class PortfolioController {
             // Автоматически определяем режим по типу счета
             String currentMode = investApiManager.getCurrentMode();
             log.info("Current mode: {}", currentMode);
+            
+            // Проверка, что запрошенный accountId принадлежит текущему режиму/токену
+            boolean accountExists = accountService.getAccounts().stream()
+                    .anyMatch(a -> a.getId().equals(accountId));
+            if (!accountExists) {
+                log.warn("Запрошен портфель для accountId {}, которого нет среди счетов текущего режима {}", accountId, currentMode);
+                Map<String, Object> error = new HashMap<>();
+                error.put("error", "Аккаунт не принадлежит текущему режиму: " + currentMode);
+                error.put("accountId", accountId);
+                error.put("mode", currentMode);
+                return ResponseEntity.badRequest().body(error);
+            }
             
             Portfolio portfolio = portfolioService.getEnrichedPortfolio(accountId);
             log.info("Portfolio retrieved successfully, positions count: {}", 

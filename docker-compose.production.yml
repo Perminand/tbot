@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: tbot_postgres
+    environment:
+      POSTGRES_DB: tbot_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-your_secure_password_here}
+    ports:
+      - "5432:5432"  # Используем стандартный порт PostgreSQL
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - tbot_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tbot_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Spring Boot Application
+  tbot-app:
+    build: .
+    container_name: tbot_app
+    environment:
+      # Database Configuration
+      DB_URL: jdbc:postgresql://postgres:5432/tbot_db
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-your_secure_password_here}
+      
+      # Tinkoff API Configuration
+      TINKOFF_SANDBOX_TOKEN: ${TINKOFF_SANDBOX_TOKEN}
+      TINKOFF_PRODUCTION_TOKEN: ${TINKOFF_PRODUCTION_TOKEN}
+      
+      # Application Configuration
+      SPRING_PROFILES_ACTIVE: production
+      JAVA_OPTS: -Xmx1g -Xms512m
+      
+      # Server Configuration
+      SERVER_PORT: 8080  # Используем стандартный порт HTTP
+    ports:
+      - "80:8080"  # Пробрасываем на стандартный HTTP порт
+      - "8080:8080"  # Дублируем для совместимости
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - tbot_network
+    restart: unless-stopped
+    volumes:
+      - app_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Nginx Reverse Proxy (опционально)
+  nginx:
+    image: nginx:alpine
+    container_name: tbot_nginx
+    ports:
+      - "443:443"  # HTTPS
+      - "80:80"    # HTTP (редирект на HTTPS)
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro  # SSL сертификаты
+    depends_on:
+      - tbot-app
+    networks:
+      - tbot_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  app_logs:
+    driver: local
+
+networks:
+  tbot_network:
+    driver: bridge
+
+

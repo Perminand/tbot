@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: tbot_postgres
+    environment:
+      POSTGRES_DB: tbot_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - tbot_network
+    restart: unless-stopped
+
+  # Spring Boot Application
+  tbot-app:
+    build: .
+    container_name: tbot_app
+    environment:
+      # Database Configuration
+      DB_URL: jdbc:postgresql://postgres:5432/tbot_db
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      
+      # Tinkoff API Configuration
+      TINKOFF_SANDBOX_TOKEN: ${TINKOFF_SANDBOX_TOKEN:-t.CRkcaE_K19MSklxNKVqJ2rcohwl5CGpwN6Hxp58mdase_kEotm5eXbt2PAlURvHZ6UkhGEPueod2VM7Op4jChg}
+      TINKOFF_PRODUCTION_TOKEN: ${TINKOFF_PRODUCTION_TOKEN:-t.0CTznpaRfqz_r6xbq0XY_sDcgYQVVMJ9ZAsEy4_i91P8IL2QIN5Jf0E8XDbx0gJcjpnNxXcuKuYWHxSEsl2zMw}
+      
+      # Application Configuration
+      SPRING_PROFILES_ACTIVE: docker
+      JAVA_OPTS: -Xmx1g -Xms512m
+      
+      # Server Configuration
+      SERVER_PORT: 8080
+    ports:
+      - "8080:8080"  # Основной порт
+      - "8081:8080"  # Альтернативный порт для совместимости
+    depends_on:
+      - postgres
+    networks:
+      - tbot_network
+    restart: unless-stopped
+    volumes:
+      - app_logs:/app/logs
+
+volumes:
+  postgres_data:
+    driver: local
+  app_logs:
+    driver: local
+
+networks:
+  tbot_network:
+    driver: bridge
+
+

@@ -7,11 +7,7 @@ import org.springframework.stereotype.Service;
 import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Position;
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
-import ru.tinkoff.piapi.contract.v1.MoneyValue;
-import ru.tinkoff.piapi.contract.v1.Quotation;
-import ru.tinkoff.piapi.contract.v1.Share;
-import ru.tinkoff.piapi.contract.v1.Bond;
-import ru.tinkoff.piapi.contract.v1.Etf;
+// import ru.tinkoff.piapi.contract.v1.MoneyValue; // unused
 import ru.perminov.dto.ShareDto;
 
 import java.math.BigDecimal;
@@ -31,8 +27,9 @@ public class PortfolioManagementService {
     private final OrderService orderService;
     private final MarketAnalysisService marketAnalysisService;
     private final BotLogService botLogService;
-    private final InstrumentService instrumentService;
+    
     private final DynamicInstrumentService dynamicInstrumentService;
+    private final MarginService marginService;
     
     // Целевые доли активов в портфеле
     private final Map<String, BigDecimal> targetAllocations = new HashMap<>();
@@ -244,9 +241,16 @@ public class PortfolioManagementService {
             if ("BUY".equals(action)) {
                 // Проверяем, есть ли свободные средства
                 BigDecimal availableCash = getAvailableCash(portfolioAnalysis);
-                log.info("Доступные средства для покупки: {}", availableCash);
+                BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
+                log.info("Доступные средства для покупки: {}, покупательная способность: {}", availableCash, buyingPower);
+
+                // Если маржа включена, но недоступна для аккаунта — работаем только на кэш
+                if (marginService.isMarginEnabled() && !marginService.isMarginOperationalForAccount(accountId)) {
+                    log.warn("Маржа включена в настройках, но недоступна для аккаунта {}. Будем использовать только кэш.", accountId);
+                    buyingPower = availableCash;
+                }
                 
-                if (availableCash.compareTo(BigDecimal.ZERO) > 0) {
+                if (buyingPower.compareTo(BigDecimal.ZERO) > 0) {
                     // Проверяем, есть ли уже позиция по этому инструменту
                     boolean hasPosition = portfolioAnalysis.getPositionValues().containsKey(figi) && 
                                         portfolioAnalysis.getPositionValues().get(figi).compareTo(BigDecimal.ZERO) > 0;
@@ -255,11 +259,11 @@ public class PortfolioManagementService {
                     BigDecimal buyAmount;
                     if (hasPosition) {
                         // Докупаем - используем меньшую сумму (2% от доступных средств)
-                        buyAmount = availableCash.multiply(BigDecimal.valueOf(0.02));
+                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.02));
                         log.info("Докупаем позицию по {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     } else {
                         // Первая покупка - используем меньшую сумму (5% от доступных средств)
-                        buyAmount = availableCash.multiply(BigDecimal.valueOf(0.05));
+                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.05));
                         log.info("Первая покупка {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     }
                     
@@ -273,7 +277,7 @@ public class PortfolioManagementService {
                     int lots = buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
                     
                     // Дополнительная проверка: достаточно ли средств для покупки хотя бы 1 лота
-                    if (availableCash.compareTo(trend.getCurrentPrice()) < 0) {
+                    if (buyingPower.compareTo(trend.getCurrentPrice()) < 0) {
                         log.warn("Недостаточно средств для покупки даже 1 лота. Нужно: {}, Доступно: {}", trend.getCurrentPrice(), availableCash);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                             "Недостаточно средств для покупки 1 лота", String.format("Нужно: %.2f, Доступно: %.2f", trend.getCurrentPrice(), availableCash));
@@ -310,7 +314,7 @@ public class PortfolioManagementService {
                 } else {
                     log.warn("Нет свободных средств для покупки");
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                        "Нет свободных средств", "Доступно: " + availableCash);
+                        "Нет свободных средств", "Доступно: " + buyingPower);
                 }
             } else if ("SELL".equals(action)) {
                 // Проверяем, есть ли позиция по этому инструменту
@@ -347,9 +351,33 @@ public class PortfolioManagementService {
                             "Нет позиции для продажи", "FIGI: " + figi);
                     }
                 } else {
-                    log.warn("Нет позиции для продажи по инструменту {}", figi);
-                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                        "Нет позиции для продажи", "FIGI: " + figi);
+                    // Позиции нет. Рассматриваем открытие шорта, если это разрешено и доступно
+                    if (marginService.canOpenShort(figi) && marginService.isMarginOperationalForAccount(accountId)) {
+                        BigDecimal targetShortAmount = marginService.calculateTargetShortAmount(accountId, portfolioAnalysis);
+                        if (targetShortAmount.compareTo(trend.getCurrentPrice()) >= 0) {
+                            int lots = targetShortAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
+                            log.info("Открытие шорта по {}: {} лотов", figi, lots);
+                            botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                "Открытие шорта", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                            try {
+                                orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
+                                botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                    "Шорт открыт", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                            } catch (Exception e) {
+                                log.error("Ошибка открытия шорта: {}", e.getMessage());
+                                botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                    "Ошибка открытия шорта", e.getMessage());
+                            }
+                        } else {
+                            log.warn("Недостаточно лимита для шорта по {}", figi);
+                        }
+                    } else if (marginService.canOpenShort(figi) && !marginService.isMarginOperationalForAccount(accountId)) {
+                        log.warn("Шорт разрешен настройками, но недоступен для аккаунта {} (песочница/нет маржинальных атрибутов)", accountId);
+                    } else {
+                        log.warn("Нет позиции для продажи по инструменту {}", figi);
+                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                            "Нет позиции для продажи", "FIGI: " + figi);
+                    }
                 }
             } else {
                 log.info("Действие HOLD - никаких операций не выполняем");
@@ -627,6 +655,10 @@ public class PortfolioManagementService {
                 break;
             case BEARISH:
                 score = score.add(BigDecimal.valueOf(5));
+                break;
+            default:
+                // UNKNOWN or other values
+                score = score.add(BigDecimal.valueOf(0));
                 break;
         }
         

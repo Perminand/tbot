@@ -875,6 +875,58 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Margin Trading Settings -->
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-percentage me-2"></i>Маржинальная торговля</h5>
+                        </div>
+                        <div class="card-body">
+                            <div id="marginStatusNote" class="alert alert-info d-none"></div>
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="marginEnabled">
+                                        <label class="form-check-label" for="marginEnabled">Включить маржинальную торговлю</label>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="marginAllowShort">
+                                        <label class="form-check-label" for="marginAllowShort">Разрешить короткие позиции (шорт)</label>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mt-1">
+                                <div class="col-md-4">
+                                    <label for="marginMaxUtilizationPct" class="form-label">Доля портфеля на маржинальные покупки (0..1)</label>
+                                    <input type="number" step="0.01" min="0" max="1" class="form-control" id="marginMaxUtilizationPct" placeholder="0.30">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="marginMaxShortPct" class="form-label">Доля портфеля на шорт (0..1)</label>
+                                    <input type="number" step="0.01" min="0" max="1" class="form-control" id="marginMaxShortPct" placeholder="0.10">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="marginMaxLeverage" class="form-label">Максимальное кредитное плечо (информационно)</label>
+                                    <input type="number" step="0.01" min="1" class="form-control" id="marginMaxLeverage" placeholder="1.30">
+                                </div>
+                            </div>
+
+                            <div class="mt-3">
+                                <button class="btn btn-primary" onclick="saveMarginSettings()">
+                                    <i class="fas fa-save me-1"></i>Сохранить настройки
+                                </button>
+                                <button class="btn btn-outline-secondary ms-2" onclick="loadMarginSettings()">
+                                    <i class="fas fa-sync-alt me-1"></i>Обновить
+                                </button>
+                                <button class="btn btn-outline-info ms-2" onclick="showMarginAttributes()">
+                                    <i class="fas fa-eye me-1"></i>Показать лимиты маржи
+                                </button>
+                            </div>
+                            <div id="marginAttrs" class="mt-3 d-none"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>

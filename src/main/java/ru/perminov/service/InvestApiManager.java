@@ -4,6 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import ru.tinkoff.piapi.core.InvestApi;
+import ru.perminov.repository.TradingSettingsRepository;
+import ru.perminov.model.TradingSettings;
 
 import jakarta.annotation.PostConstruct;
 
@@ -22,11 +24,30 @@ public class InvestApiManager {
     
     private InvestApi currentInvestApi;
     private String currentMode;
+    private static final String TRADING_MODE_KEY = "trading_mode";
+
+    private final TradingSettingsRepository settingsRepository;
     
+    public InvestApiManager(TradingSettingsRepository settingsRepository) {
+        this.settingsRepository = settingsRepository;
+    }
+
     @PostConstruct
     public void init() {
-        // Инициализируем с режимом по умолчанию
-        switchToMode(defaultMode);
+        // Пытаемся прочитать режим из БД, чтобы не путать sandbox/production при рестарте
+        try {
+            TradingSettings settings = settingsRepository.findByKey(TRADING_MODE_KEY).orElse(null);
+            String initialMode = settings != null ? settings.getValue() : defaultMode;
+            // Если токен для сохраненного режима не настроен, падаем назад на defaultMode
+            if (!isTokenConfigured(initialMode)) {
+                log.warn("Токен для сохраненного режима {} не настроен. Используем defaultMode={}.", initialMode, defaultMode);
+                initialMode = defaultMode;
+            }
+            switchToMode(initialMode);
+        } catch (Exception e) {
+            log.warn("Не удалось прочитать режим из БД: {}. Используем defaultMode={}.", e.getMessage(), defaultMode);
+            switchToMode(defaultMode);
+        }
     }
     
     /**

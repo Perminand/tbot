@@ -131,6 +131,41 @@ docker system df
 
 ## Устранение неполадок
 
+### Порт недоступен
+
+Если порт 8081 (или другой) недоступен, попробуйте:
+
+1. **Проверьте, не занят ли порт:**
+   ```bash
+   # Linux/Mac
+   netstat -tuln | grep :8081
+   
+   # Windows
+   netstat -an | findstr :8081
+   ```
+
+2. **Используйте другой порт:**
+   ```bash
+   # Измените в docker-compose.yml
+   ports:
+     - "8080:8080"  # Вместо 8081
+   ```
+
+3. **Откройте порт в firewall:**
+   ```bash
+   # Ubuntu/Debian
+   sudo ufw allow 8081/tcp
+   
+   # CentOS/RHEL
+   sudo firewall-cmd --permanent --add-port=8081/tcp
+   sudo firewall-cmd --reload
+   ```
+
+4. **Используйте простую конфигурацию:**
+   ```bash
+   docker-compose -f docker-compose.simple.yml up -d
+   ```
+
 ### Приложение не запускается
 ```bash
 # Проверьте логи

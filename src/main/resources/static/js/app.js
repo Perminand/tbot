@@ -44,7 +44,42 @@ document.addEventListener('DOMContentLoaded', function() {
     console.log('Trading Bot Web Interface initialized');
     loadTradingModeStatus();
     loadAccountId();
-    loadDashboard();
+    // Определяем секцию по URL-пути или hash
+    const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+    const hash = window.location.hash.replace('#', '');
+    let section = 'dashboard';
+    const pathToSection = {
+        '': 'dashboard',
+        'dashboard': 'dashboard',
+        'instruments': 'instruments',
+        'portfolio': 'portfolio',
+        'orders': 'orders',
+        'trading': 'trading-bot',
+        'settings': 'settings',
+        'analysis': 'analysis',
+        'logs': 'trading-bot'
+    };
+    if (pathToSection[path]) section = pathToSection[path];
+    if (hash && document.getElementById(`${hash}-section`)) section = hash;
+    showSection(section);
+    
+    // Обрабатываем навигацию назад/вперед в браузере
+    window.addEventListener('popstate', function() {
+        const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+        const pathToSection = {
+            '': 'dashboard',
+            'dashboard': 'dashboard',
+            'instruments': 'instruments',
+            'portfolio': 'portfolio',
+            'orders': 'orders',
+            'trading': 'trading-bot',
+            'settings': 'settings',
+            'analysis': 'analysis',
+            'logs': 'trading-bot'
+        };
+        const target = pathToSection[path] || 'dashboard';
+        showSection(target);
+    });
 });
 
 // Переключение между разделами
@@ -61,7 +96,43 @@ function showSection(sectionName) {
     document.querySelectorAll('.nav-link').forEach(link => {
         link.classList.remove('active');
     });
-    event.target.classList.add('active');
+    if (event && event.target && event.target.classList) {
+        event.target.classList.add('active');
+    } else {
+        // Подсветим ссылку по sectionName
+        const map = {
+            'dashboard': 'Dashboard',
+            'instruments': 'Инструменты',
+            'portfolio': 'Портфель',
+            'orders': 'Ордера',
+            'trading-bot': 'Торговый бот',
+            'analysis': 'Анализ',
+            'settings': 'Настройки'
+        };
+        const text = map[sectionName];
+        if (text) {
+            document.querySelectorAll('.nav-link').forEach(link => {
+                if (link.textContent.trim() === text) link.classList.add('active');
+            });
+        }
+    }
+    
+    // Обновим адресную строку для прямых ссылок
+    const sectionToPath = {
+        'dashboard': '/dashboard',
+        'instruments': '/instruments',
+        'portfolio': '/portfolio',
+        'orders': '/orders',
+        'trading-bot': '/trading',
+        'analysis': '/analysis',
+        'settings': '/settings'
+    };
+    if (sectionToPath[sectionName]) {
+        const newUrl = sectionToPath[sectionName];
+        if (window.location.pathname !== newUrl) {
+            window.history.pushState({ section: sectionName }, '', newUrl);
+        }
+    }
     
     currentSection = sectionName;
     
@@ -88,6 +159,11 @@ function showSection(sectionName) {
             break;
         case 'analysis':
             // Анализ загружается по требованию
+            break;
+        case 'settings':
+            // При открытии настроек обновим статус и маржинальные настройки
+            loadTradingModeStatus();
+            loadMarginSettings();
             break;
     }
 }
@@ -117,6 +193,103 @@ async function loadAccountId() {
         }
     } catch (error) {
         console.error('Error loading accountId:', error);
+    }
+}
+
+// ==================== МАРЖИНАЛЬНАЯ ТОРГОВЛЯ ====================
+async function loadMarginSettings() {
+    try {
+        const response = await fetch('/api/margin/status');
+        if (!response.ok) return;
+        const data = await response.json();
+        const enabled = document.getElementById('marginEnabled');
+        const allowShort = document.getElementById('marginAllowShort');
+        const maxUtil = document.getElementById('marginMaxUtilizationPct');
+        const maxShort = document.getElementById('marginMaxShortPct');
+        const maxLev = document.getElementById('marginMaxLeverage');
+        if (enabled) enabled.checked = !!data.enabled;
+        if (allowShort) allowShort.checked = !!data.allowShort;
+        if (maxUtil && data.maxUtilizationPct != null) maxUtil.value = data.maxUtilizationPct;
+        if (maxShort && data.maxShortPct != null) maxShort.value = data.maxShortPct;
+        if (maxLev && data.maxLeverage != null) maxLev.value = data.maxLeverage;
+        const note = document.getElementById('marginStatusNote');
+        if (note) {
+            note.classList.remove('d-none');
+            note.innerHTML = `<i class="fas fa-info-circle me-1"></i>Текущие значения загружены.`;
+        }
+    } catch (e) {
+        console.error('Error loading margin settings', e);
+    }
+}
+
+async function saveMarginSettings() {
+    try {
+        const enabled = document.getElementById('marginEnabled')?.checked;
+        const allowShort = document.getElementById('marginAllowShort')?.checked;
+        const maxUtil = document.getElementById('marginMaxUtilizationPct')?.value;
+        const maxShort = document.getElementById('marginMaxShortPct')?.value;
+        const maxLev = document.getElementById('marginMaxLeverage')?.value;
+        
+        const params = new URLSearchParams();
+        if (enabled != null) params.append('enabled', enabled);
+        if (allowShort != null) params.append('allowShort', allowShort);
+        if (maxUtil) params.append('maxUtilizationPct', maxUtil);
+        if (maxShort) params.append('maxShortPct', maxShort);
+        if (maxLev) params.append('maxLeverage', maxLev);
+        
+        const response = await fetch('/api/margin/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: params
+        });
+        if (response.ok) {
+            showSuccess('Настройки маржинальной торговли сохранены');
+            await loadMarginSettings();
+        } else {
+            showError('Не удалось сохранить настройки маржинальной торговли');
+        }
+    } catch (e) {
+        console.error('Error saving margin settings', e);
+        showError('Ошибка сохранения настроек маржинальной торговли');
+    }
+}
+
+async function showMarginAttributes() {
+    try {
+        if (!accountId) {
+            showError('Нет активного аккаунта');
+            return;
+        }
+        const response = await fetch(`/api/margin/attributes?accountId=${encodeURIComponent(accountId)}`, {
+            headers: { 'Accept': 'application/json' }
+        });
+        if (response.ok) {
+            const ct = response.headers.get('content-type') || '';
+            if (!ct.includes('application/json')) {
+                const text = await response.text();
+                throw new Error(text || 'Сервис вернул не-JSON ответ');
+            }
+            const data = await response.json();
+            const box = document.getElementById('marginAttrs');
+            if (box) {
+                box.classList.remove('d-none');
+                box.innerHTML = `
+                    <div class="alert alert-info">
+                        <div><strong>Ликвидный портфель:</strong> ${data.liquidPortfolio}</div>
+                        <div><strong>Начальная маржа:</strong> ${data.startingMargin}</div>
+                        <div><strong>Минимальная маржа:</strong> ${data.minimalMargin}</div>
+                        <div><strong>Уровень достаточности средств:</strong> ${data.fundsSufficiencyLevel}</div>
+                        <div><strong>Недостающие средства:</strong> ${data.amountOfMissingFunds}</div>
+                        <div><strong>Скорректированная маржа:</strong> ${data.correctedMargin}</div>
+                    </div>`;
+            }
+        } else {
+            const text = await response.text();
+            showError(text || 'Не удалось получить атрибуты маржи');
+        }
+    } catch (e) {
+        console.error('Error loading margin attributes', e);
+        showError('Ошибка получения атрибутов маржи');
     }
 }
 

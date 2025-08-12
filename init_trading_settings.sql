@@ -18,6 +18,31 @@ ON CONFLICT (setting_key) DO UPDATE SET
     description = EXCLUDED.description,
     updated_at = CURRENT_TIMESTAMP;
 
+-- Настройки маржинальной торговли (значения по умолчанию)
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('margin_enabled', 'false', 'Включить маржинальную торговлю')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('margin_allow_short', 'false', 'Разрешить открытие коротких позиций')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('margin_max_utilization_pct', '0.30', 'Доля портфеля на маржинальные покупки (0..1)')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('margin_max_short_pct', '0.10', 'Доля портфеля на шорт (0..1)')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('margin_max_leverage', '1.30', 'Максимальное кредитное плечо (инфо)')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('margin_safety_pct', '0.50', 'Доля использования доступной маржи (0..1) для безопасного расчета лимитов')
+ON CONFLICT (setting_key) DO NOTHING;
+
 -- Создание индекса для быстрого поиска
 CREATE INDEX IF NOT EXISTS idx_trading_settings_key ON trading_settings(setting_key);
 
