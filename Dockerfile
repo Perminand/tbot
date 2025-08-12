@@ -31,12 +31,12 @@ RUN mkdir -p /app/logs && \
 # Переключение на непривилегированного пользователя
 USER appuser
 
-# Открытие порта
-EXPOSE 8081
+# Открытие порта (приложение слушает 8080 в production)
+EXPOSE 8080
 
 # Переменные окружения по умолчанию
 ENV JAVA_OPTS="-Xmx512m -Xms256m"
-ENV SPRING_PROFILES_ACTIVE="docker"
+ENV SPRING_PROFILES_ACTIVE="production"
 
 # Команда запуска
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

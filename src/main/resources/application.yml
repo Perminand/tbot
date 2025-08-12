@@ -1,6 +1,6 @@
 spring:
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5433/tbot_db}
+    url: ${DB_URL:jdbc:postgresql://postgres:5432/tbot_db}
     username: ${DB_USER:postgres}
     password: ${DB_PASSWORD:password}
     driver-class-name: org.postgresql.Driver
@@ -58,12 +58,12 @@ smart-analysis:
 # Logging Configuration
 logging:
   level:
-    ru.perminov: DEBUG
-    org.springframework.web: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE 
+    ru.perminov: INFO
+    org.springframework.web: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN 
 server:
-  port: 8081
+  port: 8080
 
 tbank:
   api:
