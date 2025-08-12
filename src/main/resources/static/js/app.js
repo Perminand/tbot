@@ -293,6 +293,34 @@ async function showMarginAttributes() {
     }
 }
 
+async function showBuyingPower() {
+    try {
+        if (!accountId) {
+            showError('Нет активного аккаунта');
+            return;
+        }
+        const resp = await fetch(`/api/margin/buying-power?accountId=${encodeURIComponent(accountId)}`, {
+            headers: { 'Accept': 'application/json' }
+        });
+        if (!resp.ok) {
+            const t = await resp.text();
+            throw new Error(t || 'Ошибка получения покупательной способности');
+        }
+        const data = await resp.json();
+        const box = document.getElementById('marginBp');
+        if (box) {
+            box.classList.remove('d-none');
+            box.innerHTML = `
+                <div class="alert alert-warning">
+                    <div><strong>Кэш:</strong> ${formatPrice(data.cash)}</div>
+                    <div><strong>Покупательная способность (BP):</strong> ${formatPrice(data.buyingPower)}</div>
+                </div>`;
+        }
+    } catch (e) {
+        showError(e.message || String(e));
+    }
+}
+
 // Создание аккаунта в песочнице
 async function createSandboxAccount() {
     if (tradingMode !== 'sandbox') {

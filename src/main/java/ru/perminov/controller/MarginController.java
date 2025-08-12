@@ -6,6 +6,8 @@ import org.springframework.web.bind.annotation.*;
 import ru.perminov.model.TradingSettings;
 import ru.perminov.repository.TradingSettingsRepository;
 import ru.perminov.service.MarginService;
+import ru.perminov.service.PortfolioManagementService;
+import ru.tinkoff.piapi.core.models.Position;
 import ru.tinkoff.piapi.contract.v1.GetMarginAttributesResponse;
 
 import java.math.BigDecimal;
@@ -18,6 +20,7 @@ import java.util.Map;
 public class MarginController {
 
     private final MarginService marginService;
+    private final PortfolioManagementService portfolioManagementService;
     private final TradingSettingsRepository settingsRepository;
 
     @GetMapping("/status")
@@ -73,6 +76,30 @@ public class MarginController {
             body.put("fundsSufficiencyLevel", toQuotation(attrs.getFundsSufficiencyLevel()));
             body.put("amountOfMissingFunds", toDecimal(attrs.getAmountOfMissingFunds()));
             body.put("correctedMargin", toDecimal(attrs.getCorrectedMargin()));
+            return ResponseEntity.ok(body);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    /**
+     * Получение покупательной способности (BP) на основе портфеля и настроек маржи
+     */
+    @GetMapping("/buying-power")
+    public ResponseEntity<?> getBuyingPower(@RequestParam("accountId") String accountId) {
+        try {
+            var analysis = portfolioManagementService.analyzePortfolio(accountId);
+            java.math.BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, analysis);
+            java.math.BigDecimal cash = analysis.getPositions().stream()
+                    .filter(p -> "currency".equals(p.getInstrumentType()))
+                    .map(Position::getQuantity)
+                    .findFirst()
+                    .orElse(java.math.BigDecimal.ZERO);
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("accountId", accountId);
+            body.put("cash", cash);
+            body.put("buyingPower", buyingPower);
             return ResponseEntity.ok(body);
         } catch (Exception e) {
             return ResponseEntity.internalServerError().body(Map.of("error", e.getMessage()));
