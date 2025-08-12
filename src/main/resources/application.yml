@@ -27,6 +27,9 @@ tinkoff:
 app:
   name: Tinkoff Trading Bot
   version: 1.0.0
+  security:
+    username: ${APP_USERNAME:admin}
+    password: ${APP_PASSWORD:admin}
 
 # Dynamic Instruments Configuration
 dynamic-instruments:

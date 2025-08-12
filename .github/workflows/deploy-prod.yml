@@ -98,13 +98,15 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           TINKOFF_SANDBOX_TOKEN: ${{ secrets.TINKOFF_SANDBOX_TOKEN }}
           TINKOFF_PRODUCTION_TOKEN: ${{ secrets.TINKOFF_PRODUCTION_TOKEN }}
+          APP_USERNAME: ${{ secrets.APP_USERNAME }}
+          APP_PASSWORD: ${{ secrets.APP_PASSWORD }}
           GHCR_PAT: ${{ secrets.GHCR_PAT }}
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_SSH_PORT }}
-          envs: IMAGE,DB_PASSWORD,TINKOFF_SANDBOX_TOKEN,TINKOFF_PRODUCTION_TOKEN,GHCR_PAT
+          envs: IMAGE,DB_PASSWORD,TINKOFF_SANDBOX_TOKEN,TINKOFF_PRODUCTION_TOKEN,APP_USERNAME,APP_PASSWORD,GHCR_PAT
           script_stop: true
           script: |
             set -euo pipefail
@@ -129,6 +131,8 @@ jobs:
             echo "DB_PASSWORD=$DB_PASSWORD" >> .env
             echo "TINKOFF_SANDBOX_TOKEN=$TINKOFF_SANDBOX_TOKEN" >> .env
             echo "TINKOFF_PRODUCTION_TOKEN=$TINKOFF_PRODUCTION_TOKEN" >> .env
+            echo "APP_USERNAME=$APP_USERNAME" >> .env
+            echo "APP_PASSWORD=$APP_PASSWORD" >> .env
             
             echo "Debug: Created .env file:"
             cat .env
