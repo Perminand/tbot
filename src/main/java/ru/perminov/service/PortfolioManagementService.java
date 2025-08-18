@@ -332,6 +332,20 @@ public class PortfolioManagementService {
                             orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
                                 "Ордер на " + actionType + " размещен", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                            // Авто-установка SL/TP по дефолтным настройкам, если для FIGI ещё нет правил
+                            try {
+                                if (riskRuleService.findByFigi(figi).isEmpty()) {
+                                    double sl = riskRuleService.getDefaultStopLossPct();
+                                    double tp = riskRuleService.getDefaultTakeProfitPct();
+                                    riskRuleService.upsert(figi, sl, tp, true);
+                                    log.info("Установлены уровни SL/TP для {}: SL={}%, TP={}%, активированы", figi, sl * 100, tp * 100);
+                                    botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                        "Установлены SL/TP",
+                                        String.format("FIGI: %s, SL: %.2f%%, TP: %.2f%%", figi, sl * 100, tp * 100));
+                                }
+                            } catch (Exception e) {
+                                log.warn("Не удалось установить правила SL/TP для {}: {}", figi, e.getMessage());
+                            }
                         } catch (Exception e) {
                             log.error("Ошибка размещения ордера на {}: {}", actionType, e.getMessage());
                             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
@@ -397,6 +411,20 @@ public class PortfolioManagementService {
                                 orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
                                 botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                     "Шорт открыт", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                                // Авто-установка SL/TP по дефолтным настройкам, если для FIGI ещё нет правил
+                                try {
+                                    if (riskRuleService.findByFigi(figi).isEmpty()) {
+                                        double sl = riskRuleService.getDefaultStopLossPct();
+                                        double tp = riskRuleService.getDefaultTakeProfitPct();
+                                        riskRuleService.upsert(figi, sl, tp, true);
+                                        log.info("Установлены уровни SL/TP для {}: SL={}%, TP={}%, активированы (шорт)", figi, sl * 100, tp * 100);
+                                        botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                            "Установлены SL/TP (шорт)",
+                                            String.format("FIGI: %s, SL: %.2f%%, TP: %.2f%%", figi, sl * 100, tp * 100));
+                                    }
+                                } catch (Exception e) {
+                                    log.warn("Не удалось установить правила SL/TP для {} (шорт): {}", figi, e.getMessage());
+                                }
                             } catch (Exception e) {
                                 log.error("Ошибка открытия шорта: {}", e.getMessage());
                                 botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING,
