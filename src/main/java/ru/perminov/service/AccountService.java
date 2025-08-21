@@ -3,10 +3,8 @@ package ru.perminov.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import ru.tinkoff.piapi.core.InvestApi;
 import ru.tinkoff.piapi.contract.v1.Account;
 import ru.tinkoff.piapi.contract.v1.MoneyValue;
-import ru.tinkoff.piapi.contract.v1.Quotation;
 
 import java.util.List;
 
@@ -18,6 +16,10 @@ public class AccountService {
     private final TradingModeService tradingModeService;
 
     public List<Account> getAccounts() {
+        // В песочнице читаем список аккаунтов через SandboxService, в проде — через UserService
+        if (tradingModeService.isSandboxMode()) {
+            return investApiManager.getCurrentInvestApi().getSandboxService().getAccounts().join();
+        }
         return investApiManager.getCurrentInvestApi().getUserService().getAccounts().join();
     }
 

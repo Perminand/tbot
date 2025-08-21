@@ -31,6 +31,8 @@ public class PortfolioManagementService {
     private final DynamicInstrumentService dynamicInstrumentService;
     private final MarginService marginService;
     private final RiskRuleService riskRuleService;
+    private final AdvancedTradingStrategyService advancedTradingStrategyService;
+    private final TradingSettingsService tradingSettingsService;
     
     // Целевые доли активов в портфеле
     private final Map<String, BigDecimal> targetAllocations = new HashMap<>();
@@ -227,21 +229,41 @@ public class PortfolioManagementService {
                 return;
             }
             
-            // Анализ тренда
+            // Анализ тренда + ATR
             MarketAnalysisService.TrendAnalysis trend = 
                 marketAnalysisService.analyzeTrend(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
+            int atrPeriod = tradingSettingsService.getInt("atr.period", 14);
+            java.math.BigDecimal atr = marketAnalysisService.calculateATR(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY, atrPeriod);
+            if (trend.getCurrentPrice().compareTo(java.math.BigDecimal.ZERO) > 0) {
+                java.math.BigDecimal atrPct = atr.divide(trend.getCurrentPrice(), 6, java.math.RoundingMode.HALF_UP);
+                double minAtrPct = tradingSettingsService.getDouble("atr.min.pct", 0.002);
+                double maxAtrPct = tradingSettingsService.getDouble("atr.max.pct", 0.08);
+                // Фильтр слишком низкой волатильности (шум) и экстремальной волатильности
+                if (atrPct.compareTo(java.math.BigDecimal.valueOf(minAtrPct)) < 0 || atrPct.compareTo(java.math.BigDecimal.valueOf(maxAtrPct)) > 0) {
+                    log.info("ATR-фильтр: пропускаем {} (ATR%={})", figi, atrPct);
+                    return;
+                }
+            }
             
             // Анализ портфеля
             PortfolioAnalysis portfolioAnalysis = analyzePortfolio(accountId);
             
-            // Получаем рекомендуемое действие из анализа торговой возможности
+            // Получаем рекомендуемое действие из продвинутого анализа сигналов
+            AdvancedTradingStrategyService.TradingSignal advSignal = advancedTradingStrategyService.analyzeTradingSignal(figi, accountId);
+            String actionByAdvanced = advSignal.getAction();
+
+            // Базовый оппортьюнити для логирования и метрик (сохранено)
             TradingOpportunity opportunity = analyzeTradingOpportunity(figi, accountId);
             if (opportunity == null) {
                 log.warn("Не удалось проанализировать торговую возможность для {}", figi);
                 return;
             }
             
-            String action = opportunity.getRecommendedAction();
+            // Сведение решений: отдаём приоритет продвинутому сигналу при достаточной силе
+            double minStrength = tradingSettingsService.getDouble("signal.min.strength", 50.0);
+            String action = actionByAdvanced != null && !"HOLD".equals(actionByAdvanced) &&
+                (advSignal.getStrength() != null && advSignal.getStrength().compareTo(java.math.BigDecimal.valueOf(minStrength)) > 0)
+                ? actionByAdvanced : opportunity.getRecommendedAction();
             log.info("Выполняем торговую операцию для {}: {}", figi, action);
             
             if ("BUY".equals(action)) {
@@ -280,6 +302,19 @@ public class PortfolioManagementService {
                     }
                     
                     int lots = buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
+
+                    // ATR-кап размера позиции: ограничиваем стоимость позиции  по отношению к ATR
+                    if (atr.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                        java.math.BigDecimal maxRiskPerTrade = portfolioAnalysis.getTotalValue().multiply(java.math.BigDecimal.valueOf(riskRuleService.getRiskPerTradePct()));
+                        // Если стоп ~ 1*ATR, то стоимость позиции <= maxRisk / ATR
+                        java.math.BigDecimal allowedLotsByAtr = maxRiskPerTrade.divide(atr, 0, RoundingMode.DOWN);
+                        java.math.BigDecimal allowedLotsByPrice = allowedLotsByAtr.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN);
+                        int capLots = allowedLotsByPrice.intValue();
+                        if (capLots > 0 && lots > capLots) {
+                            log.info("ATR-кап позиции: лоты {} -> {} (ATR={}, maxRisk={})", lots, capLots, atr, maxRiskPerTrade);
+                            lots = capLots;
+                        }
+                    }
                     
                     // Дополнительная проверка: достаточно ли средств для покупки хотя бы 1 лота
                     if (buyingPower.compareTo(trend.getCurrentPrice()) < 0) {

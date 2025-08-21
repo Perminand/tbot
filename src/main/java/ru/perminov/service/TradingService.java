@@ -4,12 +4,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import ru.tinkoff.piapi.core.InvestApi;
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
-import ru.tinkoff.piapi.contract.v1.OrderType;
 import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
 import ru.tinkoff.piapi.contract.v1.OrderState;
-import ru.tinkoff.piapi.contract.v1.Quotation;
 
 import java.math.BigDecimal;
 
@@ -19,6 +16,7 @@ import java.math.BigDecimal;
 public class TradingService {
     
     private final InvestApiManager investApiManager;
+    private final OrderService orderService;
     
     /**
      * Размещение рыночного ордера на покупку
@@ -26,15 +24,8 @@ public class TradingService {
     public Mono<String> placeMarketBuyOrder(String figi, int lots, String accountId) {
         return Mono.fromCallable(() -> {
             log.info("Попытка размещения рыночного ордера на покупку: figi={}, lots={}, accountId={}", figi, lots, accountId);
-            String orderId = generateOrderId();
-            log.info("Сгенерирован orderId: {}", orderId);
-            
-            PostOrderResponse response = investApiManager.getCurrentInvestApi().getOrdersService().postOrderSync(
-                    figi, lots, null, OrderDirection.ORDER_DIRECTION_BUY, 
-                    accountId, OrderType.ORDER_TYPE_MARKET, orderId);
-            
-            log.info("Размещен рыночный ордер на покупку: {} лотов {}", lots, figi);
-            log.info("Ответ от API: {}", response);
+            PostOrderResponse response = orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
+            log.info("Размещен рыночный ордер на покупку через OrderService: {} лотов {}", lots, figi);
             return response.toString();
         }).doOnError(error -> {
             log.error("Ошибка при размещении ордера на покупку: {}", error.getMessage());
@@ -47,12 +38,8 @@ public class TradingService {
      */
     public Mono<String> placeMarketSellOrder(String figi, int lots, String accountId) {
         return Mono.fromCallable(() -> {
-            String orderId = generateOrderId();
-            
-            PostOrderResponse response = investApiManager.getCurrentInvestApi().getOrdersService().postOrderSync(
-                    figi, lots, null, OrderDirection.ORDER_DIRECTION_SELL, 
-                    accountId, OrderType.ORDER_TYPE_MARKET, orderId);
-            log.info("Размещен рыночный ордер на продажу: {} лотов {}", lots, figi);
+            PostOrderResponse response = orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
+            log.info("Размещен рыночный ордер на продажу через OrderService: {} лотов {}", lots, figi);
             return response.toString();
         }).doOnError(error -> log.error("Ошибка при размещении ордера на продажу: {}", error.getMessage()));
     }
@@ -64,18 +51,9 @@ public class TradingService {
         return Mono.fromCallable(() -> {
             OrderDirection orderDirection = "buy".equalsIgnoreCase(direction) ? 
                     OrderDirection.ORDER_DIRECTION_BUY : OrderDirection.ORDER_DIRECTION_SELL;
-            
-            Quotation priceQuotation = Quotation.newBuilder()
-                    .setUnits((long) price.longValue())
-                    .setNano((int) ((price.doubleValue() - price.longValue()) * 1_000_000_000))
-                    .build();
-            
-            String orderId = generateOrderId();
-            
-            PostOrderResponse response = investApiManager.getCurrentInvestApi().getOrdersService().postOrderSync(
-                    figi, lots, priceQuotation, orderDirection, 
-                    accountId, OrderType.ORDER_TYPE_LIMIT, orderId);
-            log.info("Размещен лимитный ордер: {} лотов {} по цене {}", lots, figi, price);
+            String priceStr = price.stripTrailingZeros().toPlainString();
+            PostOrderResponse response = orderService.placeLimitOrder(figi, lots, orderDirection, accountId, priceStr);
+            log.info("Размещен лимитный ордер через OrderService: {} лотов {} по цене {}", lots, figi, price);
             return response.toString();
         }).doOnError(error -> log.error("Ошибка при размещении лимитного ордера: {}", error.getMessage()));
     }

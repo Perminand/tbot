@@ -164,6 +164,7 @@ function showSection(sectionName) {
             // При открытии настроек обновим статус и маржинальные настройки
             loadTradingModeStatus();
             loadMarginSettings();
+            loadHardStopsSettings();
             break;
     }
 }
@@ -1181,6 +1182,37 @@ async function panicOn() {
         await fetch('/api/bot-control/panic-on', { method: 'POST' });
         showSuccess('PANIC-STOP включен');
     } catch (e) { showError('Не удалось включить PANIC-STOP'); }
+}
+
+// ==================== HARD STOPS (OCO) ====================
+async function loadHardStopsSettings() {
+    try {
+        const resp1 = await fetch('/api/settings/get?key=hard_stops.enabled');
+        const resp2 = await fetch('/api/settings/get?key=hard_stops.trailing.enabled');
+        if (resp1.ok) {
+            const v = await resp1.text();
+            const el = document.getElementById('hardStopsEnabled');
+            if (el) el.checked = (v === 'true');
+        }
+        if (resp2.ok) {
+            const v = await resp2.text();
+            const el = document.getElementById('hardStopsTrailingEnabled');
+            if (el) el.checked = (v === 'true');
+        }
+    } catch (e) { console.warn('Hard stops settings load error', e); }
+}
+
+async function saveHardStopsSettings() {
+    try {
+        const enabled = document.getElementById('hardStopsEnabled')?.checked ? 'true' : 'false';
+        const trailing = document.getElementById('hardStopsTrailingEnabled')?.checked ? 'true' : 'false';
+        const b1 = new URLSearchParams({ key: 'hard_stops.enabled', value: enabled, description: 'Enable hard OCO stops in production' });
+        const b2 = new URLSearchParams({ key: 'hard_stops.trailing.enabled', value: trailing, description: 'Enable trailing with OCO re-posting' });
+        const r1 = await fetch('/api/settings/set', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: b1 });
+        const r2 = await fetch('/api/settings/set', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: b2 });
+        if (r1.ok && r2.ok) showSuccess('Настройки жёстких стопов сохранены');
+        else showError('Не удалось сохранить настройки жёстких стопов');
+    } catch (e) { showError('Ошибка сохранения настроек жёстких стопов'); }
 }
 async function panicOff() {
     try {

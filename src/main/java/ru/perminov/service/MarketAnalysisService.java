@@ -23,7 +23,9 @@ public class MarketAnalysisService {
     private final InvestApiManager investApiManager;
     @SuppressWarnings("unused")
     private final BotLogService botLogService;
+    private final ApiRateLimiter apiRateLimiter;
     private final Map<String, List<HistoricCandle>> candleCache = new ConcurrentHashMap<>();
+    // private static final int NANO_SCALE = 9;
     
     /**
      * Получение свечей для анализа
@@ -38,6 +40,7 @@ public class MarketAnalysisService {
             Instant from = to.minus(safeDays, ChronoUnit.DAYS);
             
             try {
+                apiRateLimiter.acquire();
                 return investApiManager.getCurrentInvestApi().getMarketDataService()
                     .getCandlesSync(figi, from, to, interval);
             } catch (Exception e) {
@@ -45,6 +48,46 @@ public class MarketAnalysisService {
                 return List.of();
             }
         });
+    }
+
+    /**
+     * Преобразование Quotation в BigDecimal
+     */
+    private BigDecimal toBigDecimal(ru.tinkoff.piapi.contract.v1.Quotation q) {
+        if (q == null) return BigDecimal.ZERO;
+        String nano = String.format("%09d", q.getNano());
+        return new BigDecimal(q.getUnits() + "." + nano);
+    }
+
+    /**
+     * Расчет Average True Range (ATR)
+     * Возвращает абсолютное значение ATR в тех же единицах, что и цена
+     */
+    public BigDecimal calculateATR(String figi, CandleInterval interval, int period) {
+        // Берем запас свечей для корректного TR (нужен prevClose)
+        List<HistoricCandle> candles = getCandles(figi, interval, Math.max(period + 5, period * 2));
+        if (candles.size() < period + 1) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal trSum = BigDecimal.ZERO;
+        for (int i = 1; i <= period; i++) {
+            HistoricCandle cur = candles.get(i);
+            HistoricCandle prev = candles.get(i - 1);
+
+            BigDecimal high = toBigDecimal(cur.getHigh());
+            BigDecimal low = toBigDecimal(cur.getLow());
+            BigDecimal prevClose = toBigDecimal(prev.getClose());
+
+            BigDecimal highLow = high.subtract(low).abs();
+            BigDecimal highPrevClose = high.subtract(prevClose).abs();
+            BigDecimal lowPrevClose = low.subtract(prevClose).abs();
+
+            BigDecimal tr = highLow.max(highPrevClose).max(lowPrevClose);
+            trSum = trSum.add(tr);
+        }
+
+        return trSum.divide(BigDecimal.valueOf(period), 6, RoundingMode.HALF_UP);
     }
 
     // Максимально допустимая глубина периода в днях для каждого интервала (по ограничениям Tinkoff Invest API)

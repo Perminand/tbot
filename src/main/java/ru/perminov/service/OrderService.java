@@ -22,10 +22,12 @@ import java.util.concurrent.ExecutionException;
 public class OrderService {
     private final InvestApiManager investApiManager;
     private final BotControlService botControlService;
+    private final ApiRateLimiter apiRateLimiter;
 
     public List<OrderState> getOrders(String accountId) {
         try {
             log.info("Получение ордеров для аккаунта: {}", accountId);
+            apiRateLimiter.acquire();
             CompletableFuture<List<OrderState>> future = investApiManager.getCurrentInvestApi().getOrdersService().getOrders(accountId);
             List<OrderState> orders = future.get();
             log.info("Получено {} ордеров для аккаунта {}", orders.size(), accountId);
@@ -54,6 +56,7 @@ public class OrderService {
                 .setNano(0)
                 .build();
             
+            apiRateLimiter.acquire();
             CompletableFuture<PostOrderResponse> future = investApiManager.getCurrentInvestApi().getOrdersService().postOrder(
                 figi,
                 lots,
@@ -86,6 +89,7 @@ public class OrderService {
                 .setNano(Integer.parseInt(price.split("\\.")[1] + "000000000".substring(price.split("\\.")[1].length())))
                 .build();
             
+            apiRateLimiter.acquire();
             CompletableFuture<PostOrderResponse> future = investApiManager.getCurrentInvestApi().getOrdersService().postOrder(
                 figi,
                 lots,
@@ -110,6 +114,7 @@ public class OrderService {
     public void cancelOrder(String accountId, String orderId) {
         try {
             log.info("Отмена ордера: accountId={}, orderId={}", accountId, orderId);
+            apiRateLimiter.acquire();
             CompletableFuture<java.time.Instant> future = investApiManager.getCurrentInvestApi().getOrdersService().cancelOrder(accountId, orderId);
             java.time.Instant cancelTime = future.get();
             log.info("Ордер успешно отменен: accountId={}, orderId={}, cancelTime={}", accountId, orderId, cancelTime);

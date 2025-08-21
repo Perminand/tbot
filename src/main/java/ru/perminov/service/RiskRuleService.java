@@ -38,6 +38,13 @@ public class RiskRuleService {
     public double getRiskPerTradePct() {
         return settingsRepository.findByKey("risk_per_trade_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.01);
     }
+
+    /**
+     * Дефолтный трейлинг-стоп в долях (например, 0.05 = 5%)
+     */
+    public double getDefaultTrailingStopPct() {
+        return settingsRepository.findByKey("risk_default_trailing_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.05);
+    }
 }
 
 

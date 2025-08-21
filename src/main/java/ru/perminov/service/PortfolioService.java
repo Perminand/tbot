@@ -5,20 +5,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import ru.tinkoff.piapi.core.InvestApi;
 import ru.tinkoff.piapi.core.models.Portfolio;
-import ru.tinkoff.piapi.core.models.Position;
-import ru.tinkoff.piapi.contract.v1.Share;
-import ru.tinkoff.piapi.contract.v1.Bond;
-import ru.tinkoff.piapi.contract.v1.Etf;
 import ru.perminov.dto.PortfolioDto;
-
-import java.util.List;
-import java.util.concurrent.ExecutionException;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class PortfolioService {
     private final InvestApiManager investApiManager;
+    private final ApiRateLimiter apiRateLimiter;
+    private final java.util.Map<String, CacheEntry> portfolioCache = new java.util.concurrent.ConcurrentHashMap<>();
+    private final TradingSettingsService tradingSettingsService;
     // private final InstrumentService instrumentService;
 
     public Portfolio getPortfolio(String accountId) {
@@ -31,7 +27,18 @@ public class PortfolioService {
                 throw new RuntimeException("InvestApi не инициализирован");
             }
             
+            // Кэш с TTL
+            long ttlMs = tradingSettingsService.getInt("portfolio.cache.ttl_ms", 5000);
+            CacheEntry cached = portfolioCache.get(accountId);
+            long now = System.currentTimeMillis();
+            if (cached != null && (now - cached.timestampMs) < ttlMs) {
+                return cached.portfolio;
+            }
+
+            // Глобальный лимитер API
+            apiRateLimiter.acquire();
             Portfolio portfolio = api.getOperationsService().getPortfolio(accountId).join();
+            portfolioCache.put(accountId, new CacheEntry(portfolio, now));
             log.info("Портфель успешно загружен для accountId: {}, позиций: {}", 
                     accountId, portfolio.getPositions() != null ? portfolio.getPositions().size() : 0);
             
@@ -66,3 +73,12 @@ public class PortfolioService {
         }
     }
 } 
+
+class CacheEntry {
+    final ru.tinkoff.piapi.core.models.Portfolio portfolio;
+    final long timestampMs;
+    CacheEntry(ru.tinkoff.piapi.core.models.Portfolio p, long t) {
+        this.portfolio = p;
+        this.timestampMs = t;
+    }
+}

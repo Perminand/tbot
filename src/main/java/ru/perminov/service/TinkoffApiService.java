@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
-import ru.tinkoff.piapi.core.InvestApi;
 import ru.tinkoff.piapi.contract.v1.InstrumentStatus;
 
 @Slf4j
@@ -13,12 +12,14 @@ import ru.tinkoff.piapi.contract.v1.InstrumentStatus;
 public class TinkoffApiService {
     
     private final InvestApiManager investApiManager;
+    private final ApiRateLimiter apiRateLimiter;
     
     /**
      * Получение списка инструментов
      */
     public Mono<String> getInstruments() {
         return Mono.fromCallable(() -> {
+            apiRateLimiter.acquire();
             var response = investApiManager.getCurrentInvestApi().getInstrumentsService().getSharesSync(InstrumentStatus.INSTRUMENT_STATUS_ALL);
             log.info("Получен список инструментов");
             return response.toString();
@@ -41,6 +42,7 @@ public class TinkoffApiService {
      */
     public Mono<String> getPortfolio(String accountId) {
         return Mono.fromCallable(() -> {
+            apiRateLimiter.acquire();
             var response = investApiManager.getCurrentInvestApi().getOperationsService().getPortfolioSync(accountId);
             log.info("Получен портфель для аккаунта: {}", accountId);
             return response.toString();
@@ -52,6 +54,7 @@ public class TinkoffApiService {
      */
     public Mono<String> getAccounts() {
         return Mono.fromCallable(() -> {
+            apiRateLimiter.acquire();
             var response = investApiManager.getCurrentInvestApi().getUserService().getAccountsSync();
             log.info("Получен список аккаунтов");
             return response.toString();
@@ -63,6 +66,7 @@ public class TinkoffApiService {
      */
     public Mono<String> getMarketData(String figi) {
         return Mono.fromCallable(() -> {
+            apiRateLimiter.acquire();
             var response = investApiManager.getCurrentInvestApi().getMarketDataService().getLastPricesSync(java.util.List.of(figi));
             log.info("Получены рыночные данные для: {}", figi);
             return response.toString();

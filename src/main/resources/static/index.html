@@ -905,6 +905,52 @@
                             <div id="riskRuleResult" class="mt-2 text-muted"></div>
                         </div>
                     </div>
+
+                    <!-- Hard Stops (Production) -->
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-lock me-2"></i>Жёсткие стоп‑ордера (продакшн)</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="alert alert-warning">
+                                <i class="fas fa-info-circle me-1"></i>
+                                При включении бот будет ставить реальные OCO‑ордера (take‑profit + stop‑loss) у брокера в продакшене
+                                сразу после входа. Редактирование уровней выполняется через переустановку OCO (новые уровни → отмена старых).
+                                В песочнице эта функция недоступна.
+                            </div>
+                            <div class="row g-3 align-items-center">
+                                <div class="col-md-6">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="hardStopsEnabled">
+                                        <label class="form-check-label" for="hardStopsEnabled">
+                                            Включить жёсткие стопы (продакшн‑режим)
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="hardStopsTrailingEnabled">
+                                        <label class="form-check-label" for="hardStopsTrailingEnabled">
+                                            Включить трэйлинг: при улучшении цены переустанавливать стоп
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="small text-muted mt-2">
+                                - Стоп‑лосс и тейк‑профит берутся из правил по FIGI или из дефолтов в настройках.<br>
+                                - Для «редактирования» уровней бот создаёт новую OCO‑связку и отменяет старую (без окна без защиты).<br>
+                                - Учитываются биржевые ограничения: шаг цены, статус торгов, лимиты API.
+                            </div>
+                            <div class="mt-3">
+                                <button class="btn btn-primary" onclick="saveHardStopsSettings()">
+                                    <i class="fas fa-save me-1"></i>Сохранить настройки
+                                </button>
+                                <button class="btn btn-outline-secondary ms-2" onclick="loadHardStopsSettings()">
+                                    <i class="fas fa-sync-alt me-1"></i>Обновить
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     
                     <!-- Sandbox Account Management -->
                     <div class="card mt-4">
