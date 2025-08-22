@@ -47,42 +47,6 @@ public class OrderService {
                 throw new IllegalStateException("Превышен лимит ордеров в минуту");
             }
             
-            // Дополнительная проверка для продажи: проверяем реальную доступность лотов
-            if (direction == OrderDirection.ORDER_DIRECTION_SELL) {
-                try {
-                    var portfolio = investApiManager.getCurrentInvestApi().getOperationsService().getPortfolio(accountId).get();
-                    var position = portfolio.getPositions().stream()
-                        .filter(p -> p.getFigi().equals(figi))
-                        .findFirst()
-                        .orElse(null);
-                    
-                    if (position != null) {
-                        long availableLots = position.getBalance().getLots();
-                        long blockedLots = position.getBlockedLots().getLots();
-                        long totalLots = position.getQuantity().getLots();
-                        
-                        log.info("Проверка доступности лотов для продажи {}: запрошено={}, доступно={}, заблокировано={}, всего={}", 
-                            figi, lots, availableLots, blockedLots, totalLots);
-                        
-                        if (lots > availableLots) {
-                            log.warn("Попытка продать больше лотов, чем доступно: запрошено={}, доступно={}", lots, availableLots);
-                            if (availableLots > 0) {
-                                lots = (int) availableLots;
-                                log.info("Уменьшаем количество лотов до доступного: {}", lots);
-                            } else {
-                                throw new IllegalStateException("Нет доступных лотов для продажи: доступно=" + availableLots + ", заблокировано=" + blockedLots);
-                            }
-                        }
-                    } else {
-                        log.warn("Позиция не найдена для продажи: {}", figi);
-                        throw new IllegalStateException("Позиция не найдена для продажи: " + figi);
-                    }
-                } catch (Exception e) {
-                    log.warn("Ошибка проверки доступности лотов для продажи {}: {}", figi, e.getMessage());
-                    // Продолжаем выполнение, но с осторожностью
-                }
-            }
-            
             // Дополнительная проверка: если лотов слишком много, уменьшаем до разумного лимита
             if (lots > 100) {
                 log.warn("Слишком много лотов для размещения: {} -> 100", lots);

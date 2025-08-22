@@ -277,43 +277,6 @@ public class PortfolioManagementService {
                     log.warn("Маржа включена в настройках, но недоступна для аккаунта {}. Используем расчеты по настройкам (без реальных атрибутов).", accountId);
                 }
                 
-                // СТРОГАЯ ПРОВЕРКА РЕАЛЬНЫХ ДОСТУПНЫХ СРЕДСТВ
-                BigDecimal realAvailableFunds = BigDecimal.ZERO;
-                try {
-                    if (marginService.isMarginOperationalForAccount(accountId)) {
-                        // Получаем реальные маржинальные атрибуты
-                        var marginAttrs = marginService.getAccountMarginAttributes(accountId);
-                        if (marginAttrs != null) {
-                            BigDecimal liquid = marginService.toBigDecimal(marginAttrs.getLiquidPortfolio());
-                            BigDecimal minimal = marginService.toBigDecimal(marginAttrs.getMinimalMargin());
-                            BigDecimal missing = marginService.toBigDecimal(marginAttrs.getAmountOfMissingFunds());
-                            
-                            // Реально доступные средства = liquid - minimal - missing
-                            realAvailableFunds = liquid.subtract(minimal).subtract(missing.max(BigDecimal.ZERO));
-                            if (realAvailableFunds.compareTo(BigDecimal.ZERO) < 0) {
-                                realAvailableFunds = BigDecimal.ZERO;
-                            }
-                            
-                            log.info("Реальные маржинальные атрибуты: liquid={}, minimal={}, missing={}, доступно={}", 
-                                liquid, minimal, missing, realAvailableFunds);
-                        }
-                    } else {
-                        // Фоллбек на наличные средства
-                        realAvailableFunds = availableCash;
-                        log.info("Используем наличные средства как доступные: {}", realAvailableFunds);
-                    }
-                } catch (Exception e) {
-                    log.warn("Ошибка получения реальных маржинальных атрибутов: {}. Используем наличные: {}", e.getMessage(), availableCash);
-                    realAvailableFunds = availableCash;
-                }
-                
-                if (realAvailableFunds.compareTo(BigDecimal.ZERO) <= 0) {
-                    log.warn("Нет реальных доступных средств для покупки. Доступно: {}", realAvailableFunds);
-                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                        "Нет реальных доступных средств", String.format("Доступно: %.2f", realAvailableFunds));
-                    return;
-                }
-                
                 if (buyingPower.compareTo(BigDecimal.ZERO) > 0) {
                     // Проверяем, есть ли уже позиция по этому инструменту
                     boolean hasPosition = portfolioAnalysis.getPositionValues().containsKey(figi) && 
@@ -323,11 +286,11 @@ public class PortfolioManagementService {
                     BigDecimal buyAmount;
                     if (hasPosition) {
                         // Докупаем - используем меньшую сумму (1% от доступных средств)
-                        buyAmount = realAvailableFunds.multiply(BigDecimal.valueOf(0.01));
+                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.01));
                         log.info("Докупаем позицию по {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     } else {
                         // Первая покупка - используем меньшую сумму (2% от доступных средств)
-                        buyAmount = realAvailableFunds.multiply(BigDecimal.valueOf(0.02));
+                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.02));
                         log.info("Первая покупка {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     }
                     
@@ -353,35 +316,24 @@ public class PortfolioManagementService {
                         }
                     }
                     
-                    // ФИНАЛЬНАЯ ПРОВЕРКА: достаточно ли реальных средств для покупки
-                    BigDecimal requiredAmount = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
-                    if (realAvailableFunds.compareTo(requiredAmount) < 0) {
-                        log.warn("Недостаточно реальных средств для покупки {} лотов. Нужно: {}, Доступно: {}", 
-                            lots, requiredAmount, realAvailableFunds);
+                    // Дополнительная проверка: достаточно ли средств для покупки хотя бы 1 лота
+                    if (buyingPower.compareTo(trend.getCurrentPrice()) < 0) {
+                        log.warn("Недостаточно средств для покупки даже 1 лота. Нужно: {}, Доступно: {}", trend.getCurrentPrice(), buyingPower);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                            "Недостаточно реальных средств", String.format("Лотов: %d, Нужно: %.2f, Доступно: %.2f", 
-                                lots, requiredAmount, realAvailableFunds));
-                        
-                        // Пытаемся купить хотя бы 1 лот
-                        if (realAvailableFunds.compareTo(trend.getCurrentPrice()) >= 0) {
-                            lots = 1;
-                            log.info("Уменьшаем количество лотов до 1 (минимально возможное)");
-                        } else {
-                            log.warn("Недостаточно средств даже для 1 лота. Нужно: {}, Доступно: {}", trend.getCurrentPrice(), realAvailableFunds);
-                            return;
-                        }
+                            "Недостаточно средств для покупки 1 лота", String.format("Нужно: %.2f, Доступно: %.2f", trend.getCurrentPrice(), buyingPower));
+                        return;
                     }
                     
                     // Дополнительная проверка реальной доступности средств через API
                     try {
                         BigDecimal realAvailableCash = getAvailableCash(portfolioAnalysis);
-                        BigDecimal requiredAmountForCheck = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
-                        if (realAvailableCash.compareTo(requiredAmountForCheck) < 0) {
+                        BigDecimal requiredAmount = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
+                        if (realAvailableCash.compareTo(requiredAmount) < 0) {
                             log.warn("Реальная проверка: недостаточно средств для покупки {} лотов. Нужно: {}, Доступно: {}", 
-                                lots, requiredAmountForCheck, realAvailableCash);
+                                lots, requiredAmount, realAvailableCash);
                             botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                                 "Недостаточно реальных средств", String.format("Лотов: %d, Нужно: %.2f, Доступно: %.2f", 
-                                    lots, requiredAmountForCheck, realAvailableCash));
+                                    lots, requiredAmount, realAvailableCash));
                             return;
                         }
                     } catch (Exception e) {
@@ -474,13 +426,9 @@ public class PortfolioManagementService {
                         .findFirst()
                         .orElse(null);
                     
-                    if (position != null) {
-                        // Используем примерное количество лотов для продажи
-                        // Детальная проверка доступности будет в OrderService
-                        int lots = 1; // Продаем 1 лот, OrderService проверит доступность
-                        
-                        log.info("Размещение ордера на продажу: {} лотов по цене {}", 
-                            lots, trend.getCurrentPrice());
+                    if (position != null && position.getQuantity().compareTo(BigDecimal.ZERO) > 0) {
+                        int lots = position.getQuantity().intValue();
+                        log.info("Размещение ордера на продажу: {} лотов по цене {}", lots, trend.getCurrentPrice());
                         
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
                             "Размещение ордера на продажу", String.format("FIGI: %s, Лотов: %d, Цена: %.2f", 
@@ -498,9 +446,9 @@ public class PortfolioManagementService {
                             // НЕ останавливаем выполнение, продолжаем с другими инструментами
                         }
                     } else {
-                        log.warn("Позиция не найдена в списке для инструмента {}", figi);
+                        log.warn("Нет позиции для продажи по инструменту {}", figi);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                            "Позиция не найдена", "FIGI: " + figi);
+                            "Нет позиции для продажи", "FIGI: " + figi);
                     }
                 } else {
                     // Позиции нет. Рассматриваем открытие шорта, если это разрешено и доступно
