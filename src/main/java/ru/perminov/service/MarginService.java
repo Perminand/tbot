@@ -192,7 +192,7 @@ public class MarginService {
                 .orElse(defaultValue);
     }
 
-    private BigDecimal toBigDecimal(ru.tinkoff.piapi.contract.v1.MoneyValue m) {
+    public BigDecimal toBigDecimal(ru.tinkoff.piapi.contract.v1.MoneyValue m) {
         if (m == null) return BigDecimal.ZERO;
         return BigDecimal.valueOf(m.getUnits()).add(BigDecimal.valueOf(m.getNano(), 9));
     }

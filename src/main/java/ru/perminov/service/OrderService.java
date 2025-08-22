@@ -46,6 +46,13 @@ public class OrderService {
             if (!botControlService.tryReserveOrderSlot()) {
                 throw new IllegalStateException("Превышен лимит ордеров в минуту");
             }
+            
+            // Дополнительная проверка: если лотов слишком много, уменьшаем до разумного лимита
+            if (lots > 100) {
+                log.warn("Слишком много лотов для размещения: {} -> 100", lots);
+                lots = 100;
+            }
+            
             String orderId = UUID.randomUUID().toString();
             log.info("Размещение рыночного ордера: figi={}, lots={}, direction={}, accountId={}, orderId={}", 
                     figi, lots, direction, accountId, orderId);
@@ -72,9 +79,22 @@ public class OrderService {
                     response.getOrderId(), response.getExecutionReportStatus());
             return response;
         } catch (InterruptedException | ExecutionException e) {
+            String errorMsg = e.getMessage();
             log.error("Ошибка при размещении рыночного ордера: figi={}, lots={}, direction={}, accountId={}, error={}", 
-                    figi, lots, direction, accountId, e.getMessage(), e);
-            throw new RuntimeException("Ошибка при размещении рыночного ордера: " + e.getMessage(), e);
+                    figi, lots, direction, accountId, errorMsg, e);
+            
+            // Детальный анализ ошибки
+            if (errorMsg != null) {
+                if (errorMsg.contains("Недостаточно активов") || errorMsg.contains("30042")) {
+                    log.error("ОШИБКА НЕДОСТАТОЧНО СРЕДСТВ: {}", errorMsg);
+                } else if (errorMsg.contains("Инструмент недоступен") || errorMsg.contains("30043")) {
+                    log.error("ОШИБКА ИНСТРУМЕНТ НЕДОСТУПЕН: {}", errorMsg);
+                } else if (errorMsg.contains("Превышен лимит") || errorMsg.contains("30044")) {
+                    log.error("ОШИБКА ПРЕВЫШЕН ЛИМИТ: {}", errorMsg);
+                }
+            }
+            
+            throw new RuntimeException("Ошибка при размещении рыночного ордера: " + errorMsg, e);
         }
     }
 

@@ -285,12 +285,12 @@ public class PortfolioManagementService {
                     // Определяем размер покупки в зависимости от наличия позиции
                     BigDecimal buyAmount;
                     if (hasPosition) {
-                        // Докупаем - используем меньшую сумму (2% от доступных средств)
-                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.02));
+                        // Докупаем - используем меньшую сумму (1% от доступных средств)
+                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.01));
                         log.info("Докупаем позицию по {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     } else {
-                        // Первая покупка - используем меньшую сумму (5% от доступных средств)
-                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.05));
+                        // Первая покупка - используем меньшую сумму (2% от доступных средств)
+                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.02));
                         log.info("Первая покупка {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     }
                     
@@ -322,6 +322,23 @@ public class PortfolioManagementService {
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                             "Недостаточно средств для покупки 1 лота", String.format("Нужно: %.2f, Доступно: %.2f", trend.getCurrentPrice(), buyingPower));
                         return;
+                    }
+                    
+                    // Дополнительная проверка реальной доступности средств через API
+                    try {
+                        BigDecimal realAvailableCash = getAvailableCash(portfolioAnalysis);
+                        BigDecimal requiredAmount = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
+                        if (realAvailableCash.compareTo(requiredAmount) < 0) {
+                            log.warn("Реальная проверка: недостаточно средств для покупки {} лотов. Нужно: {}, Доступно: {}", 
+                                lots, requiredAmount, realAvailableCash);
+                            botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                                "Недостаточно реальных средств", String.format("Лотов: %d, Нужно: %.2f, Доступно: %.2f", 
+                                    lots, requiredAmount, realAvailableCash));
+                            return;
+                        }
+                    } catch (Exception e) {
+                        log.warn("Ошибка проверки реальных средств для {}: {}", figi, e.getMessage());
+                        // Продолжаем выполнение, но с осторожностью
                     }
                     
                     if (lots > 0) {
@@ -439,6 +456,30 @@ public class PortfolioManagementService {
                         BigDecimal targetShortAmount = marginService.calculateTargetShortAmount(accountId, portfolioAnalysis);
                         if (targetShortAmount.compareTo(trend.getCurrentPrice()) >= 0) {
                             int lots = targetShortAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
+                            
+                            // Дополнительная проверка реальной доступности маржи для шорта
+                            try {
+                                var marginAttrs = marginService.getAccountMarginAttributes(accountId);
+                                if (marginAttrs != null) {
+                                    BigDecimal liquid = marginService.toBigDecimal(marginAttrs.getLiquidPortfolio());
+                                    BigDecimal minimal = marginService.toBigDecimal(marginAttrs.getMinimalMargin());
+                                    BigDecimal availableMargin = liquid.subtract(minimal);
+                                    BigDecimal requiredMargin = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
+                                    
+                                    if (availableMargin.compareTo(requiredMargin) < 0) {
+                                        log.warn("Реальная проверка маржи: недостаточно для шорта {} лотов. Нужно: {}, Доступно: {}", 
+                                            lots, requiredMargin, availableMargin);
+                                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                                            "Недостаточно маржи для шорта", String.format("Лотов: %d, Нужно: %.2f, Доступно: %.2f", 
+                                                lots, requiredMargin, availableMargin));
+                                        return;
+                                    }
+                                }
+                            } catch (Exception e) {
+                                log.warn("Ошибка проверки маржи для шорта {}: {}", figi, e.getMessage());
+                                // Продолжаем выполнение, но с осторожностью
+                            }
+                            
                             log.info("Открытие шорта по {}: {} лотов", figi, lots);
                             botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                 "Открытие шорта", String.format("FIGI: %s, Лотов: %d", figi, lots));
