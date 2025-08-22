@@ -792,7 +792,7 @@ public class PortfolioManagementService {
                 score = score.add(BigDecimal.valueOf(15));
                 break;
             case BEARISH:
-                score = score.add(BigDecimal.valueOf(5));
+                score = score.add(BigDecimal.valueOf(25)); // Увеличиваем score для BEARISH тренда
                 break;
             default:
                 // UNKNOWN or other values
@@ -805,8 +805,8 @@ public class PortfolioManagementService {
             // Перепроданность - хорошая возможность для покупки
             score = score.add(BigDecimal.valueOf(25));
         } else if (rsi.compareTo(BigDecimal.valueOf(70)) > 0) {
-            // Перекупленность - возможность для продажи
-            score = score.add(BigDecimal.valueOf(20));
+            // Перекупленность - возможность для продажи/шорта
+            score = score.add(BigDecimal.valueOf(30)); // Увеличиваем score для перекупленности
         } else {
             // Нейтральная зона
             score = score.add(BigDecimal.valueOf(10));
@@ -815,6 +815,11 @@ public class PortfolioManagementService {
         // Оценка SMA
         if (sma20.compareTo(sma50) > 0) {
             score = score.add(BigDecimal.valueOf(15));
+        } else {
+            // BEARISH тренд + SMA20 < SMA50 = хорошая возможность для шорта
+            if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BEARISH) {
+                score = score.add(BigDecimal.valueOf(20));
+            }
         }
         
         // Оценка волатильности (если цена не равна нулю)
@@ -829,7 +834,7 @@ public class PortfolioManagementService {
      * Определение рекомендуемого действия
      */
     private String determineRecommendedAction(MarketAnalysisService.TrendAnalysis trendAnalysis, BigDecimal rsi, boolean hasPosition) {
-        // Логика для принятия торговых решений с учетом возможности докупки и продажи
+        // Логика для принятия торговых решений с учетом возможности докупки, продажи и шортов
         
         if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BULLISH) {
             if (rsi.compareTo(BigDecimal.valueOf(40)) < 0) {
@@ -841,9 +846,9 @@ public class PortfolioManagementService {
             }
         } else if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BEARISH) {
             if (rsi.compareTo(BigDecimal.valueOf(70)) > 0) {
-                return hasPosition ? "SELL" : "HOLD"; // Сильная продажа при перекупленности
+                return "SELL"; // Сильная продажа при перекупленности (шорт или закрытие позиции)
             } else if (rsi.compareTo(BigDecimal.valueOf(50)) > 0) {
-                return hasPosition ? "SELL" : "HOLD"; // Умеренная продажа при нисходящем тренде
+                return hasPosition ? "SELL" : "SELL"; // Умеренная продажа при нисходящем тренде (шорт)
             } else if (rsi.compareTo(BigDecimal.valueOf(30)) < 0) {
                 return "BUY"; // Покупка при сильной перепроданности даже в нисходящем тренде
             }
@@ -853,7 +858,7 @@ public class PortfolioManagementService {
         if (rsi.compareTo(BigDecimal.valueOf(35)) < 0) {
             return "BUY"; // Докупаем при сильной перепроданности
         } else if (rsi.compareTo(BigDecimal.valueOf(65)) > 0) {
-            return hasPosition ? "SELL" : "HOLD"; // Продаем только если есть позиция
+            return hasPosition ? "SELL" : "SELL"; // Продажа при перекупленности (шорт или закрытие позиции)
         }
         
         return "HOLD";
