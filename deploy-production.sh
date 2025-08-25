@@ -148,61 +148,13 @@ cleanup_images() {
     fi
 }
 
-# Инициализация базы данных
-init_database() {
-    log "Инициализируем базу данных..."
-    
-    # Ждем, пока PostgreSQL будет готов
-    log "Ожидание готовности PostgreSQL..."
-    local max_attempts=30
-    local attempt=1
-    
-    while [ $attempt -le $max_attempts ]; do
-        if docker exec tbot_postgres pg_isready -U postgres > /dev/null 2>&1; then
-            log "PostgreSQL готов!"
-            break
-        fi
-        
-        if [ $attempt -eq $max_attempts ]; then
-            error "PostgreSQL не готов после $max_attempts попыток"
-            return 1
-        fi
-        
-        log "Попытка $attempt/$max_attempts: PostgreSQL еще не готов, ждем..."
-        sleep 10
-        attempt=$((attempt + 1))
-    done
-    
-    # Создаем базу данных если она не существует
-    log "Проверка существования базы данных tbot_db..."
-    if ! docker exec tbot_postgres psql -U postgres -lqt | cut -d \| -f 1 | grep -qw tbot_db; then
-        log "Создание базы данных tbot_db..."
-        docker exec tbot_postgres createdb -U postgres tbot_db
-        log "База данных tbot_db создана успешно!"
-    else
-        log "База данных tbot_db уже существует."
-    fi
-    
-    # Выполняем инициализационный скрипт
-    log "Выполнение инициализационного скрипта..."
-    if [ -f "init-db.sql" ]; then
-        docker exec -i tbot_postgres psql -U postgres -d tbot_db < init-db.sql
-        log "Инициализационный скрипт выполнен успешно!"
-    else
-        warn "Файл init-db.sql не найден, пропускаем инициализацию"
-    fi
-}
-
 # Сборка и запуск
 build_and_start() {
     log "Собираем и запускаем приложение..."
     docker-compose -f docker-compose.production.yml up --build -d
     
     log "Ожидаем запуска сервисов..."
-    sleep 30
-    
-    # Инициализируем базу данных
-    init_database
+    sleep 60
 }
 
 # Проверка статуса

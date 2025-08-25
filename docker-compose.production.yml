@@ -6,7 +6,7 @@ services:
     image: postgres:15-alpine
     container_name: tbot_postgres
     environment:
-      POSTGRES_DB: tbot_db  # Используем дефолтную базу данных
+      POSTGRES_DB: tbot_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:-your_secure_password_here}
     ports:
@@ -18,7 +18,7 @@ services:
       - tbot_network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d tbot_db"]
       interval: 10s
       timeout: 5s
       retries: 5
