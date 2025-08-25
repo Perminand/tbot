@@ -98,152 +98,168 @@ setup_firewall() {
             ufw allow 8080/tcp
             ufw allow 22/tcp  # SSH
         fi
-    elif command -v firewall-cmd &> /dev/null; then
-        log "Firewalld активен, открываем порты..."
-        firewall-cmd --permanent --add-port=80/tcp
-        firewall-cmd --permanent --add-port=443/tcp
-        firewall-cmd --permanent --add-port=8080/tcp
-        firewall-cmd --reload
-    else
-        warn "Firewall не обнаружен, убедитесь что порты открыты вручную"
     fi
 }
 
 # Создание .env файла
 create_env_file() {
-    if [[ ! -f .env ]]; then
-        log "Создаем файл .env с переменными окружения"
+    log "Создаем файл .env..."
+    
+    if [ ! -f .env ]; then
         cat > .env << EOF
-# Tinkoff API Tokens (ОБЯЗАТЕЛЬНО ИЗМЕНИТЕ!)
-TINKOFF_SANDBOX_TOKEN=your_sandbox_token_here
-TINKOFF_PRODUCTION_TOKEN=your_production_token_here
-
 # Database Configuration
 DB_PASSWORD=your_secure_password_here
+
+# Tinkoff API Configuration
+TINKOFF_SANDBOX_TOKEN=your_sandbox_token_here
+TINKOFF_PRODUCTION_TOKEN=your_production_token_here
 
 # Application Configuration
 SPRING_PROFILES_ACTIVE=production
 JAVA_OPTS=-Xmx1g -Xms512m
+
+# Security Configuration
+APP_USERNAME=admin
+APP_PASSWORD=admin
+
+# Logging Configuration
+LOGGING_LEVEL_ROOT=INFO
+LOGGING_LEVEL_RU_PERMINOV=DEBUG
+
+# Docker Image
+IMAGE=tbot-app:latest
 EOF
-        error "Файл .env создан. ОБЯЗАТЕЛЬНО отредактируйте его с вашими реальными токенами и паролями!"
-        exit 1
+        warn "Создан файл .env с дефолтными значениями. Отредактируйте его перед запуском!"
     else
         log "Файл .env уже существует"
+    fi
+}
+
+# Сборка образа
+build_image() {
+    log "Собираем Docker образ..."
+    
+    # Проверяем наличие Dockerfile
+    if [ ! -f Dockerfile ]; then
+        error "Dockerfile не найден"
+        exit 1
+    fi
+    
+    # Собираем образ
+    docker build -t tbot-app:latest .
+    
+    if [ $? -eq 0 ]; then
+        log "Образ успешно собран"
+    else
+        error "Ошибка при сборке образа"
+        exit 1
     fi
 }
 
 # Остановка существующих контейнеров
 stop_existing_containers() {
     log "Останавливаем существующие контейнеры..."
-    docker-compose -f docker-compose.production.yml down --remove-orphans || true
-}
-
-# Очистка старых образов
-cleanup_images() {
-    read -p "Удалить старые образы для экономии места? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        log "Удаляем старые образы..."
-        docker system prune -f
+    
+    # Останавливаем контейнеры если они запущены
+    if docker ps -q --filter "name=tbot_app" | grep -q .; then
+        docker stop tbot_app
+        log "Контейнер tbot_app остановлен"
+    fi
+    
+    if docker ps -q --filter "name=tbot_postgres" | grep -q .; then
+        docker stop tbot_postgres
+        log "Контейнер tbot_postgres остановлен"
+    fi
+    
+    # Удаляем контейнеры
+    if docker ps -aq --filter "name=tbot_app" | grep -q .; then
+        docker rm tbot_app
+        log "Контейнер tbot_app удален"
+    fi
+    
+    if docker ps -aq --filter "name=tbot_postgres" | grep -q .; then
+        docker rm tbot_postgres
+        log "Контейнер tbot_postgres удален"
     fi
 }
 
-# Сборка и запуск
-build_and_start() {
-    log "Собираем и запускаем приложение..."
-    docker-compose -f docker-compose.production.yml up --build -d
+# Запуск приложения
+start_application() {
+    log "Запускаем приложение..."
     
-    log "Ожидаем запуска сервисов..."
-    sleep 60
+    # Запускаем с production конфигурацией
+    docker-compose -f docker-compose.production.yml up -d
+    
+    if [ $? -eq 0 ]; then
+        log "Приложение запущено"
+    else
+        error "Ошибка при запуске приложения"
+        exit 1
+    fi
 }
 
-# Проверка статуса
-check_status() {
-    log "Проверяем статус сервисов..."
-    docker-compose -f docker-compose.production.yml ps
+# Проверка здоровья приложения
+check_health() {
+    log "Проверяем здоровье приложения..."
     
-    log "Проверяем логи приложения..."
-    docker-compose -f docker-compose.production.yml logs --tail=20 tbot-app
-}
-
-# Проверка доступности
-check_availability() {
-    log "Проверяем доступность приложения..."
+    # Ждем запуска приложения
+    sleep 30
     
-    local endpoints=("http://localhost:80" "http://localhost:8080" "http://localhost/health")
-    local available=false
+    # Проверяем статус контейнеров
+    if docker ps --filter "name=tbot_app" --filter "status=running" | grep -q tbot_app; then
+        log "Контейнер tbot_app запущен"
+    else
+        error "Контейнер tbot_app не запущен"
+        docker logs tbot_app
+        exit 1
+    fi
     
-    for endpoint in "${endpoints[@]}"; do
-        if curl -f -s "$endpoint" > /dev/null 2>&1; then
-            log "✅ Приложение доступно по адресу: $endpoint"
-            available=true
+    if docker ps --filter "name=tbot_postgres" --filter "status=running" | grep -q tbot_postgres; then
+        log "Контейнер tbot_postgres запущен"
+    else
+        error "Контейнер tbot_postgres не запущен"
+        docker logs tbot_postgres
+        exit 1
+    fi
+    
+    # Проверяем доступность приложения
+    local max_attempts=30
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+            log "Приложение доступно по адресу http://localhost:8080"
             break
+        else
+            if [ $attempt -eq $max_attempts ]; then
+                error "Приложение не отвечает после $max_attempts попыток"
+                docker logs tbot_app
+                exit 1
+            fi
+            warn "Попытка $attempt/$max_attempts: приложение еще не готово..."
+            sleep 10
+            attempt=$((attempt + 1))
         fi
     done
-    
-    if [ "$available" = false ]; then
-        error "Приложение недоступно. Проверьте логи:"
-        docker-compose -f docker-compose.production.yml logs tbot-app
-        return 1
-    fi
-}
-
-# Диагностика проблем
-diagnose_issues() {
-    log "Выполняем диагностику..."
-    
-    # Проверка контейнеров
-    if ! docker-compose -f docker-compose.production.yml ps | grep -q "Up"; then
-        error "Контейнеры не запущены"
-        docker-compose -f docker-compose.production.yml logs
-        return 1
-    fi
-    
-    # Проверка сети
-    if ! docker network ls | grep -q "tbot_network"; then
-        error "Docker сеть не создана"
-        return 1
-    fi
-    
-    # Проверка портов
-    if ! netstat -tuln | grep -q ":80 "; then
-        warn "Порт 80 не слушается"
-    fi
-    
-    if ! netstat -tuln | grep -q ":8080 "; then
-        warn "Порт 8080 не слушается"
-    fi
-    
-    log "Диагностика завершена"
 }
 
 # Основная функция
 main() {
-    log "Начинаем развертывание Tinkoff Trading Bot на удаленном сервере"
+    log "Начинаем развертывание Tinkoff Trading Bot..."
     
     check_requirements
     check_ports
     setup_firewall
     create_env_file
+    build_image
     stop_existing_containers
-    cleanup_images
-    build_and_start
-    check_status
+    start_application
+    check_health
     
-    if check_availability; then
-        log "🎉 Развертывание успешно завершено!"
-        log "Веб-интерфейс доступен по адресам:"
-        log "  - HTTP: http://your-server-ip"
-        log "  - HTTP: http://your-server-ip:8080"
-        log "  - HTTPS: https://your-server-ip (если настроен SSL)"
-        log ""
-        log "Для просмотра логов используйте:"
-        log "  docker-compose -f docker-compose.production.yml logs -f tbot-app"
-    else
-        error "❌ Развертывание завершилось с ошибками"
-        diagnose_issues
-        exit 1
-    fi
+    log "Развертывание завершено успешно!"
+    log "Приложение доступно по адресу: http://localhost:8080"
+    log "Для просмотра логов используйте: docker logs tbot_app"
+    log "Для остановки: docker-compose -f docker-compose.production.yml down"
 }
 
 # Запуск основной функции
