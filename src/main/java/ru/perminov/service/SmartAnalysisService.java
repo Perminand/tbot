@@ -125,7 +125,7 @@ public class SmartAnalysisService {
             List<ShareDto> positions = new ArrayList<>();
             
             for (Position position : analysis.getPositions()) {
-                if (position.getQuantity().compareTo(BigDecimal.ZERO) > 0 && 
+                if (position.getQuantity().compareTo(BigDecimal.ZERO) != 0 && 
                     !"currency".equals(position.getInstrumentType())) {
                     
                     // Конвертируем Position в ShareDto

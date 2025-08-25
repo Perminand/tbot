@@ -86,10 +86,13 @@ public class MarginService {
      */
     public BigDecimal getAvailableBuyingPower(String accountId, PortfolioManagementService.PortfolioAnalysis analysis) {
         BigDecimal cash = extractCashFromPortfolio(analysis);
-        // Не позволяем отрицательному кэшу «съедать» покупательную способность.
-        // Для целей расчета BP ниже считаем кэш неотрицательным.
-        BigDecimal nonNegativeCash = cash.max(BigDecimal.ZERO);
-        if (!isMarginEnabled()) return nonNegativeCash;
+        // Если кэш отрицательный, возвращаем 0 - покупки невозможны
+        if (cash.compareTo(BigDecimal.ZERO) < 0) {
+            log.warn("Отрицательные средства: {}, покупательная способность = 0", cash);
+            return BigDecimal.ZERO;
+        }
+        
+        if (!isMarginEnabled()) return cash;
         // Если можем получить реальные маржинальные атрибуты – используем их
         if (isMarginOperationalForAccount(accountId)) {
             var attrs = getAccountMarginAttributes(accountId);
@@ -102,7 +105,7 @@ public class MarginService {
                 // Свободная маржа = max(liquid - minimal, 0). Если есть недостающие средства, вычтем их
                 BigDecimal freeMargin = liquid.subtract(minimal).subtract(missing.max(BigDecimal.ZERO));
                 if (freeMargin.signum() < 0) freeMargin = BigDecimal.ZERO;
-                BigDecimal bp = nonNegativeCash.add(freeMargin.multiply(safety)).setScale(2, RoundingMode.DOWN);
+                BigDecimal bp = cash.add(freeMargin.multiply(safety)).setScale(2, RoundingMode.DOWN);
                 log.info("Покупательная способность (реальная маржа): liquid={}, starting={}, minimal={}, missing={}, safety={}, freeMargin={}, bp={}",
                         liquid, starting, minimal, missing, safety, freeMargin, bp);
                 return bp.max(BigDecimal.ZERO);
@@ -111,7 +114,7 @@ public class MarginService {
         // Фоллбек на конфиг
         BigDecimal portfolioValue = analysis.getTotalValue();
         BigDecimal additional = portfolioValue.multiply(getMaxUtilizationPct());
-        BigDecimal buyingPower = nonNegativeCash.add(additional).setScale(2, RoundingMode.DOWN);
+        BigDecimal buyingPower = cash.add(additional).setScale(2, RoundingMode.DOWN);
         log.info("Покупательная способность (по настройке): cash={}, extra={}, total={}", cash, additional, buyingPower);
         return buyingPower.max(BigDecimal.ZERO);
     }

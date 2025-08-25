@@ -272,6 +272,14 @@ public class PortfolioManagementService {
                 BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
                 log.info("Доступные средства для покупки: {}, покупательная способность: {}", availableCash, buyingPower);
 
+                // Дополнительная проверка: если реальные средства отрицательные, блокируем покупки
+                if (availableCash.compareTo(BigDecimal.ZERO) < 0) {
+                    log.warn("Реальные средства отрицательные ({}), блокируем покупки", availableCash);
+                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                        "Блокировка покупок", String.format("Отрицательные средства: %.2f", availableCash));
+                    return;
+                }
+
                 // Если маржа включена, но недоступна для аккаунта — продолжаем с фоллбек-логикой внутри MarginService
                 if (marginService.isMarginEnabled() && !marginService.isMarginOperationalForAccount(accountId)) {
                     log.warn("Маржа включена в настройках, но недоступна для аккаунта {}. Используем расчеты по настройкам (без реальных атрибутов).", accountId);
@@ -419,30 +427,33 @@ public class PortfolioManagementService {
             } else if ("SELL".equals(action)) {
                 // Проверяем, есть ли позиция по этому инструменту
                 BigDecimal positionValue = portfolioAnalysis.getPositionValues().get(figi);
-                if (positionValue != null && positionValue.compareTo(BigDecimal.ZERO) > 0) {
+                if (positionValue != null && positionValue.compareTo(BigDecimal.ZERO) != 0) {
                     // Находим позицию для получения количества лотов
                     Position position = portfolioAnalysis.getPositions().stream()
                         .filter(p -> p.getFigi().equals(figi))
                         .findFirst()
                         .orElse(null);
                     
-                    if (position != null && position.getQuantity().compareTo(BigDecimal.ZERO) > 0) {
-                        int lots = position.getQuantity().intValue();
-                        log.info("Размещение ордера на продажу: {} лотов по цене {}", lots, trend.getCurrentPrice());
+                    if (position != null && position.getQuantity().compareTo(BigDecimal.ZERO) != 0) {
+                        int lots = Math.abs(position.getQuantity().intValue()); // Берем абсолютное значение
+                        boolean isShortPosition = position.getQuantity().compareTo(BigDecimal.ZERO) < 0;
+                        
+                        String actionDescription = isShortPosition ? "закрытие шорта" : "продажа";
+                        log.info("Размещение ордера на {}: {} лотов по цене {}", actionDescription, lots, trend.getCurrentPrice());
                         
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                            "Размещение ордера на продажу", String.format("FIGI: %s, Лотов: %d, Цена: %.2f", 
+                            "Размещение ордера на " + actionDescription, String.format("FIGI: %s, Лотов: %d, Цена: %.2f", 
                                 figi, lots, trend.getCurrentPrice()));
                         
                         // Размещаем реальный ордер
                         try {
                             orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                                "Ордер на продажу размещен", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                                "Ордер на " + actionDescription + " размещен", String.format("FIGI: %s, Лотов: %d", figi, lots));
                         } catch (Exception e) {
-                            log.error("Ошибка размещения ордера на продажу: {}", e.getMessage());
+                            log.error("Ошибка размещения ордера на {}: {}", actionDescription, e.getMessage());
                             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                                "Ошибка размещения ордера на продажу", e.getMessage());
+                                "Ошибка размещения ордера на " + actionDescription, e.getMessage());
                             // НЕ останавливаем выполнение, продолжаем с другими инструментами
                         }
                     } else {
@@ -515,6 +526,66 @@ public class PortfolioManagementService {
                         log.warn("Нет позиции для продажи по инструменту {}", figi);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                             "Нет позиции для продажи", "FIGI: " + figi);
+                    }
+                }
+            } else if ("BUY".equals(action)) {
+                // Проверяем, есть ли шорт-позиция для закрытия
+                BigDecimal positionValue = portfolioAnalysis.getPositionValues().get(figi);
+                if (positionValue != null && positionValue.compareTo(BigDecimal.ZERO) < 0) {
+                    // Находим шорт-позицию для получения количества лотов
+                    Position position = portfolioAnalysis.getPositions().stream()
+                        .filter(p -> p.getFigi().equals(figi))
+                        .findFirst()
+                        .orElse(null);
+                    
+                    if (position != null && position.getQuantity().compareTo(BigDecimal.ZERO) < 0) {
+                        int lots = Math.abs(position.getQuantity().intValue()); // Берем абсолютное значение
+                        log.info("Закрытие шорта: {} лотов по цене {}", lots, trend.getCurrentPrice());
+                        
+                        botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+                            "Закрытие шорта", String.format("FIGI: %s, Лотов: %d, Цена: %.2f", 
+                                figi, lots, trend.getCurrentPrice()));
+                        
+                        // Размещаем реальный ордер на покупку для закрытия шорта
+                        try {
+                            orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                            botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+                                "Шорт закрыт", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                        } catch (Exception e) {
+                            log.error("Ошибка закрытия шорта: {}", e.getMessage());
+                            botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+                                "Ошибка закрытия шорта", e.getMessage());
+                            // НЕ останавливаем выполнение, продолжаем с другими инструментами
+                        }
+                    } else {
+                        log.warn("Нет шорт-позиции для закрытия по инструменту {}", figi);
+                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                            "Нет шорт-позиции для закрытия", "FIGI: " + figi);
+                    }
+                } else {
+                    // Нет шорт-позиции, но есть сигнал на покупку - это обычная покупка
+                    // Проверяем, есть ли свободные средства
+                    BigDecimal availableCash = getAvailableCash(portfolioAnalysis);
+                    BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
+                    
+                    // Дополнительная проверка: если реальные средства отрицательные, блокируем покупки
+                    if (availableCash.compareTo(BigDecimal.ZERO) < 0) {
+                        log.warn("Реальные средства отрицательные ({}), блокируем покупки", availableCash);
+                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                            "Блокировка покупок", String.format("Отрицательные средства: %.2f", availableCash));
+                        return;
+                    }
+                    
+                    if (buyingPower.compareTo(BigDecimal.ZERO) > 0) {
+                        // Логика покупки (аналогично BUY выше)
+                        // ... (можно вынести в отдельный метод)
+                        log.info("Покупка нового инструмента: {} (покупательная способность: {})", figi, buyingPower);
+                        botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
+                            "Покупка нового инструмента", String.format("FIGI: %s, Покупательная способность: %.2f", figi, buyingPower));
+                    } else {
+                        log.warn("Нет свободных средств для покупки нового инструмента {}", figi);
+                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                            "Нет средств для покупки", "FIGI: " + figi);
                     }
                 }
             } else {
@@ -684,12 +755,22 @@ public class PortfolioManagementService {
                     continue;
                 }
                 
-                // Анализируем только позиции с количеством > 0
-                if (position.getQuantity().compareTo(BigDecimal.ZERO) > 0) {
+                // Анализируем позиции с количеством != 0 (включая шорты)
+                if (position.getQuantity().compareTo(BigDecimal.ZERO) != 0) {
                     try {
                         TradingOpportunity opportunity = analyzeTradingOpportunity(position.getFigi(), accountId);
-                        if (opportunity != null && "SELL".equals(opportunity.getRecommendedAction())) {
-                            // Увеличиваем score для позиций, которые нужно продать
+                        
+                        // Определяем, является ли позиция шортом
+                        boolean isShortPosition = position.getQuantity().compareTo(BigDecimal.ZERO) < 0;
+                        
+                        // Для шортов логика обратная: если рекомендуют SELL, то нужно закрыть шорт (BUY)
+                        // Для длинных позиций: если рекомендуют SELL, то продаем
+                        String actionForPosition = isShortPosition ? 
+                            ("SELL".equals(opportunity.getRecommendedAction()) ? "BUY" : opportunity.getRecommendedAction()) :
+                            opportunity.getRecommendedAction();
+                        
+                        if (opportunity != null && ("SELL".equals(actionForPosition) || "BUY".equals(actionForPosition))) {
+                            // Увеличиваем score для позиций, которые нужно закрыть
                             opportunity = new TradingOpportunity(
                                 opportunity.getFigi(),
                                 opportunity.getCurrentPrice(),
@@ -698,15 +779,20 @@ public class PortfolioManagementService {
                                 opportunity.getSma20(),
                                 opportunity.getSma50(),
                                 opportunity.getScore().add(BigDecimal.valueOf(10)), // Бонус за существующую позицию
-                                "SELL"
+                                actionForPosition
                             );
                             sellOpportunities.add(opportunity);
                             
-                            log.info("Найдена возможность продажи: {} (Score: {})", 
-                                position.getFigi(), opportunity.getScore());
+                            String actionDescription = isShortPosition ? 
+                                ("BUY".equals(actionForPosition) ? "закрытия шорта" : "действия с шортом") :
+                                ("SELL".equals(actionForPosition) ? "продажи" : "действия с позицией");
+                            
+                            log.info("Найдена возможность {}: {} (Score: {}, Позиция: {})", 
+                                actionDescription, position.getFigi(), opportunity.getScore(), 
+                                isShortPosition ? "ШОРТ" : "ДЛИННАЯ");
                             botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.PORTFOLIO_MANAGEMENT, 
-                                "Найдена возможность продажи", String.format("FIGI: %s, Score: %.1f", 
-                                    position.getFigi(), opportunity.getScore()));
+                                "Найдена возможность " + actionDescription, String.format("FIGI: %s, Score: %.1f, Тип: %s", 
+                                    position.getFigi(), opportunity.getScore(), isShortPosition ? "ШОРТ" : "ДЛИННАЯ"));
                         }
                         
                         // Добавляем задержку между запросами
@@ -835,6 +921,7 @@ public class PortfolioManagementService {
      */
     private String determineRecommendedAction(MarketAnalysisService.TrendAnalysis trendAnalysis, BigDecimal rsi, boolean hasPosition) {
         // Логика для принятия торговых решений с учетом возможности докупки, продажи и шортов
+        // Примечание: проверка доступности средств выполняется в executeTradingStrategy
         
         if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BULLISH) {
             if (rsi.compareTo(BigDecimal.valueOf(40)) < 0) {
@@ -846,9 +933,9 @@ public class PortfolioManagementService {
             }
         } else if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BEARISH) {
             if (rsi.compareTo(BigDecimal.valueOf(70)) > 0) {
-                return "SELL"; // Сильная продажа при перекупленности (шорт или закрытие позиции)
+                return hasPosition ? "SELL" : "HOLD"; // Сильная продажа при перекупленности (только если есть позиция)
             } else if (rsi.compareTo(BigDecimal.valueOf(50)) > 0) {
-                return hasPosition ? "SELL" : "SELL"; // Умеренная продажа при нисходящем тренде (шорт)
+                return hasPosition ? "SELL" : "HOLD"; // Умеренная продажа при нисходящем тренде (только если есть позиция)
             } else if (rsi.compareTo(BigDecimal.valueOf(30)) < 0) {
                 return "BUY"; // Покупка при сильной перепроданности даже в нисходящем тренде
             }
@@ -858,7 +945,7 @@ public class PortfolioManagementService {
         if (rsi.compareTo(BigDecimal.valueOf(35)) < 0) {
             return "BUY"; // Докупаем при сильной перепроданности
         } else if (rsi.compareTo(BigDecimal.valueOf(65)) > 0) {
-            return hasPosition ? "SELL" : "SELL"; // Продажа при перекупленности (шорт или закрытие позиции)
+            return hasPosition ? "SELL" : "HOLD"; // Продажа при перекупленности (только если есть позиция)
         }
         
         return "HOLD";
