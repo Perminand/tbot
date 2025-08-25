@@ -6,14 +6,14 @@ services:
     image: postgres:15-alpine
     container_name: tbot_postgres
     environment:
-      POSTGRES_DB: postgres  # Используем дефолтную базу данных
+      POSTGRES_DB: tbot_db  # Используем дефолтную базу данных
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:-your_secure_password_here}
     ports:
       - "5432:5432"  # Используем стандартный порт PostgreSQL
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - tbot_network
     restart: unless-stopped
