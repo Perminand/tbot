@@ -88,7 +88,7 @@ jobs:
           username: ${{ secrets.PRODUCTION_USER }}
           key: ${{ secrets.PRODUCTION_SSH_KEY }}
           port: ${{ secrets.PRODUCTION_SSH_PORT }}
-          source: "docker-compose.production.yml,init.sql,nginx.conf"
+          source: "docker-compose.production.yml,init.sql,init_trading_settings.sql,create-database.sql,nginx.conf,fix-database.sh,fix-now.sh,quick-start.sh"
           target: ${{ secrets.PRODUCTION_PATH }}
 
       - name: Deploy via SSH
@@ -140,6 +140,20 @@ jobs:
             docker login ${{ env.REGISTRY }} -u "${{ github.actor }}" -p "$GHCR_PAT"
             docker compose -f docker-compose.production.yml pull
             docker compose -f docker-compose.production.yml up -d --remove-orphans
+            
+            # Ждем запуска PostgreSQL и проверяем базу данных
+            echo "Ожидаем запуска PostgreSQL..."
+            sleep 30
+            
+            # Проверяем, что база данных создана
+            if ! docker exec tbot_postgres psql -U postgres -d tbot_db -c "SELECT 1;" >/dev/null 2>&1; then
+                echo "База данных не создана, выполняем принудительную инициализацию..."
+                chmod +x fix-now.sh
+                ./fix-now.sh
+            else
+                echo "База данных tbot_db успешно создана"
+            fi
+            
             docker image prune -f
 
 

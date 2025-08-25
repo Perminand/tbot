@@ -1,53 +1,63 @@
 #!/bin/bash
 
-# Быстрый запуск Tinkoff Trading Bot
+# Быстрый старт и исправление проблемы с базой данных
 # Использование: ./quick-start.sh
 
-set -e
+echo "🚀 Быстрый старт и исправление базы данных"
 
-echo "🚀 Быстрый запуск Tinkoff Trading Bot..."
-
-# Проверяем наличие Docker
-if ! command -v docker &> /dev/null; then
-    echo "❌ Docker не установлен"
+# Проверяем, что мы в правильной директории
+if [ ! -f "docker-compose.production.yml" ]; then
+    echo "❌ Ошибка: docker-compose.production.yml не найден"
+    echo "Перейдите в директорию с проектом"
     exit 1
 fi
 
-# Проверяем наличие Docker Compose
-if ! command -v docker-compose &> /dev/null; then
-    echo "❌ Docker Compose не установлен"
-    exit 1
-fi
+echo "📋 Проверяем статус контейнеров..."
+docker compose -f docker-compose.production.yml ps
 
-# Останавливаем существующие контейнеры
-echo "🛑 Останавливаем существующие контейнеры..."
-docker-compose down --remove-orphans 2>/dev/null || true
+echo "🛑 Останавливаем контейнеры..."
+docker compose -f docker-compose.production.yml down
 
-# Собираем образ
-echo "🔨 Собираем Docker образ..."
-docker build -t tbot-app:latest .
+echo "🗑️ Удаляем том PostgreSQL..."
+docker volume rm tbot_postgres_data 2>/dev/null || echo "Том не найден, создаем новый"
 
-# Запускаем приложение
-echo "▶️ Запускаем приложение..."
-docker-compose up -d
+echo "🚀 Запускаем контейнеры..."
+docker compose -f docker-compose.production.yml up -d
 
-# Ждем запуска
-echo "⏳ Ждем запуска приложения..."
+echo "⏳ Ожидаем запуска PostgreSQL (30 секунд)..."
 sleep 30
 
-# Проверяем статус
-echo "📊 Проверяем статус..."
-docker-compose ps
+echo "🔍 Проверяем базу данных..."
+if docker exec tbot_postgres psql -U postgres -d tbot_db -c "SELECT 1;" >/dev/null 2>&1; then
+    echo "✅ База данных tbot_db успешно создана!"
+else
+    echo "❌ База данных не создана, выполняем дополнительную инициализацию..."
+    if [ -f "fix-now.sh" ]; then
+        chmod +x fix-now.sh
+        ./fix-now.sh
+    else
+        echo "⚠️ Скрипт fix-now.sh не найден, проверьте вручную"
+    fi
+fi
 
-# Проверяем доступность
-echo "🔍 Проверяем доступность приложения..."
-if curl -f http://localhost:8080/actuator/health > /dev/null 2>&1; then
+echo "🔍 Проверяем приложение..."
+sleep 10
+if curl -f http://localhost:8080/actuator/health >/dev/null 2>&1; then
     echo "✅ Приложение успешно запущено!"
     echo "🌐 Доступно по адресу: http://localhost:8080"
-    echo "📝 Логи: docker-compose logs -f tbot-app"
-    echo "🛑 Остановка: docker-compose down"
 else
-    echo "❌ Приложение не отвечает"
-    echo "📝 Проверьте логи: docker-compose logs tbot-app"
-    exit 1
+    echo "⚠️ Приложение не отвечает, проверьте логи:"
+    echo "docker compose -f docker-compose.production.yml logs -f"
 fi
+
+echo ""
+echo "📊 Статус контейнеров:"
+docker compose -f docker-compose.production.yml ps
+
+echo ""
+echo "🎉 Готово! Используйте следующие команды:"
+echo "  Логи: docker compose -f docker-compose.production.yml logs -f"
+echo "  База данных: docker exec -it tbot_postgres psql -U postgres -d tbot_db"
+echo "  Остановка: docker compose -f docker-compose.production.yml down"
+
+

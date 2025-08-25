@@ -13,8 +13,8 @@ services:
       - "5432:5432"  # Используем стандартный порт PostgreSQL
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./init_trading_settings.sql:/docker-entrypoint-initdb.d/init_trading_settings.sql
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql
+      - ./init_trading_settings.sql:/docker-entrypoint-initdb.d/02-init_trading_settings.sql
     networks:
       - tbot_network
     restart: unless-stopped
