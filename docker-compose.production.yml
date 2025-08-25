@@ -42,8 +42,8 @@ services:
       JAVA_OPTS: -Xmx1g -Xms512m
       
       # Security Configuration
-      APP_USERNAME: ${APP_USERNAME:-admin}
-      APP_PASSWORD: ${APP_PASSWORD:-admin}
+      APP_USERNAME: ${APP_USERNAME}
+      APP_PASSWORD: ${APP_PASSWORD}
       
       # Server Configuration
       SERVER_PORT: 8080  # Используем стандартный порт HTTP
