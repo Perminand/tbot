@@ -150,3 +150,4 @@ COMMENT ON VIEW portfolio_summary IS 'Сводка по портфелю';
 COMMENT ON VIEW active_orders IS 'Активные ордера';
 
 
+

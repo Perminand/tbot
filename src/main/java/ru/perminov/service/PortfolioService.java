@@ -19,7 +19,8 @@ public class PortfolioService {
 
     public Portfolio getPortfolio(String accountId) {
         try {
-            log.info("Запрос портфеля для accountId: {}", accountId);
+            String mode = investApiManager.getCurrentMode();
+            log.info("Запрос портфеля для accountId: {} (mode={})", accountId, mode);
             
             InvestApi api = investApiManager.getCurrentInvestApi();
             if (api == null) {
@@ -39,12 +40,12 @@ public class PortfolioService {
             apiRateLimiter.acquire();
             Portfolio portfolio = api.getOperationsService().getPortfolio(accountId).join();
             portfolioCache.put(accountId, new CacheEntry(portfolio, now));
-            log.info("Портфель успешно загружен для accountId: {}, позиций: {}", 
-                    accountId, portfolio.getPositions() != null ? portfolio.getPositions().size() : 0);
+            log.info("Портфель успешно загружен для accountId: {} (mode={}), позиций: {}", 
+                    accountId, mode, portfolio.getPositions() != null ? portfolio.getPositions().size() : 0);
             
             return portfolio;
         } catch (Exception e) {
-            log.error("Ошибка при получении портфеля для accountId: {}", accountId, e);
+            log.error("Ошибка при получении портфеля для accountId: {} (mode={})", accountId, investApiManager.getCurrentMode(), e);
             throw new RuntimeException("Ошибка при получении портфеля: " + e.getMessage(), e);
         }
     }

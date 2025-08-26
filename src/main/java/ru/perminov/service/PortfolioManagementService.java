@@ -27,6 +27,7 @@ public class PortfolioManagementService {
     private final OrderService orderService;
     private final MarketAnalysisService marketAnalysisService;
     private final BotLogService botLogService;
+    private final InvestApiManager investApiManager;
     
     private final DynamicInstrumentService dynamicInstrumentService;
     private final MarginService marginService;
@@ -674,9 +675,10 @@ public class PortfolioManagementService {
      */
     public List<TradingOpportunity> findBestTradingOpportunities(String accountId) {
         try {
-            log.info("Поиск лучших торговых возможностей для аккаунта: {}", accountId);
+            String mode = investApiManager != null ? investApiManager.getCurrentMode() : null;
+            log.info("Поиск лучших торговых возможностей для аккаунта: {} (mode={})", accountId, mode);
             botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.TRADING_STRATEGY, 
-                "Начало поиска торговых возможностей", "Аккаунт: " + accountId);
+                "Начало поиска торговых возможностей", "Аккаунт: " + accountId + (mode != null ? ", Режим: " + mode : ""));
             
             List<TradingOpportunity> opportunities = new ArrayList<>();
             
@@ -1005,9 +1007,10 @@ public class PortfolioManagementService {
      */
     public void executeAutomaticTrading(String accountId) {
         try {
-            log.info("Запуск автоматической торговли для аккаунта: {}", accountId);
+            String mode = investApiManager != null ? investApiManager.getCurrentMode() : null;
+            log.info("Запуск автоматической торговли для аккаунта: {} (mode={})", accountId, mode);
             botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                "Запуск автоматической торговли", "Аккаунт: " + accountId);
+                "Запуск автоматической торговли", "Аккаунт: " + accountId + (mode != null ? ", Режим: " + mode : ""));
             
             // 1. АНАЛИЗ ПОРТФЕЛЯ
             log.info("Начало анализа портфеля для аккаунта: {}", accountId);
@@ -1157,9 +1160,10 @@ public class PortfolioManagementService {
     public void startAutoMonitoring(String accountId) {
         this.autoMonitoringEnabled = true;
         this.monitoredAccountId = accountId;
-        log.info("Автоматический мониторинг включен для аккаунта: {}", accountId);
+        String mode = investApiManager != null ? investApiManager.getCurrentMode() : null;
+        log.info("Автоматический мониторинг включен для аккаунта: {} (mode={})", accountId, mode);
         botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-            "Автоматический мониторинг включен", "Аккаунт: " + accountId);
+            "Автоматический мониторинг включен", "Аккаунт: " + accountId + (mode != null ? ", Режим: " + mode : ""));
     }
     
     /**

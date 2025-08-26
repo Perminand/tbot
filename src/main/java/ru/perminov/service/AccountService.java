@@ -16,11 +16,13 @@ public class AccountService {
     private final TradingModeService tradingModeService;
 
     public List<Account> getAccounts() {
-        // В песочнице читаем список аккаунтов через SandboxService, в проде — через UserService
-        if (tradingModeService.isSandboxMode()) {
+        // Опираемся на текущий режим InvestApiManager, чтобы исключить рассинхрон
+        String currentMode = investApiManager.getCurrentMode();
+        if (currentMode != null && currentMode.equalsIgnoreCase("sandbox")) {
             return investApiManager.getCurrentInvestApi().getSandboxService().getAccounts().join();
+        } else {
+            return investApiManager.getCurrentInvestApi().getUserService().getAccounts().join();
         }
-        return investApiManager.getCurrentInvestApi().getUserService().getAccounts().join();
     }
 
     public String openSandboxAccount() {
