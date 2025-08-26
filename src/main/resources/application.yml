@@ -21,7 +21,7 @@ tinkoff:
     # Токен для реальной торговли (продакшн)
     production-token: ${TINKOFF_PRODUCTION_TOKEN:t.0CTznpaRfqz_r6xbq0XY_sDcgYQVVMJ9ZAsEy4_i91P8IL2QIN5Jf0E8XDbx0gJcjpnNxXcuKuYWHxSEsl2zMw}
     # Режим по умолчанию
-    default-mode: sandbox  # sandbox или production (РЕКОМЕНДУЕТСЯ: sandbox для тестирования)
+    default-mode: production  # sandbox или production (РЕКОМЕНДУЕТСЯ: sandbox для тестирования)
 
 # Application Configuration
 app:
