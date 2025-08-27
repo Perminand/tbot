@@ -2339,3 +2339,144 @@ function getCategoryDisplayName(category) {
         default: return category;
     }
 }
+
+// Функции быстрых действий
+function refreshDashboard() {
+    loadDashboard();
+}
+
+function emergencyStop() {
+    if (confirm('Вы уверены, что хотите экстренно остановить торговлю?')) {
+        // Здесь можно добавить логику экстренной остановки
+        showSuccess('Торговля остановлена');
+    }
+}
+
+function showAutoRefreshIndicator() {
+    const indicator = document.getElementById('autoRefreshIndicator');
+    if (indicator) {
+        indicator.style.display = 'block';
+    }
+}
+
+function hideAutoRefreshIndicator() {
+    const indicator = document.getElementById('autoRefreshIndicator');
+    if (indicator) {
+        indicator.style.display = 'none';
+    }
+}
+
+// Автообновление дашборда
+let dashboardRefreshInterval;
+
+function startDashboardAutoRefresh() {
+    // Останавливаем предыдущий интервал
+    if (dashboardRefreshInterval) {
+        clearInterval(dashboardRefreshInterval);
+    }
+    
+    // Запускаем автообновление каждые 30 секунд
+    dashboardRefreshInterval = setInterval(() => {
+        if (currentSection === 'dashboard') {
+            loadDashboard();
+        }
+    }, 30000);
+}
+
+function stopDashboardAutoRefresh() {
+    if (dashboardRefreshInterval) {
+        clearInterval(dashboardRefreshInterval);
+        dashboardRefreshInterval = null;
+    }
+}
+
+// Вспомогательные функции
+function getRiskLevelClass(riskLevel) {
+    switch (riskLevel) {
+        case 'LOW': return 'text-success';
+        case 'MEDIUM': return 'text-warning';
+        case 'HIGH': return 'text-danger';
+        default: return 'text-muted';
+    }
+}
+
+function getPnLClass(value) {
+    if (value > 0) return 'text-success';
+    if (value < 0) return 'text-danger';
+    return 'text-muted';
+}
+
+function formatPercent(value) {
+    if (value === null || value === undefined) return '0%';
+    return `${value > 0 ? '+' : ''}${value.toFixed(2)}%`;
+}
+
+// Обновляем функцию showSection для управления автообновлением
+function showSection(sectionName) {
+    // Скрыть все разделы
+    document.querySelectorAll('.section').forEach(section => {
+        section.style.display = 'none';
+    });
+    
+    // Показать выбранный раздел
+    document.getElementById(sectionName + '-section').style.display = 'block';
+    
+    // Обновить активную ссылку в навигации
+    document.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.remove('active');
+    });
+    if (event && event.target && event.target.classList) {
+        event.target.classList.add('active');
+    }
+    
+    // Обновить URL
+    currentSection = sectionName;
+    const sectionNames = {
+        'dashboard': 'Dashboard',
+        'instruments': 'Инструменты',
+        'portfolio': 'Портфель',
+        'orders': 'Ордера',
+        'trading-bot': 'Торговый бот',
+        'analysis': 'Анализ',
+        'settings': 'Настройки'
+    };
+    
+    const title = sectionNames[sectionName] || 'Dashboard';
+    document.title = `Tinkoff Auto Trading Bot - ${title}`;
+    
+    // Обновить URL в браузере
+    const url = sectionName === 'dashboard' ? '/dashboard' : `/${sectionName}`;
+    window.history.pushState({section: sectionName}, title, url);
+    
+    // Загрузить данные для раздела
+    switch (sectionName) {
+        case 'dashboard':
+            loadDashboard();
+            startDashboardAutoRefresh();
+            break;
+        case 'instruments':
+            loadInstruments();
+            stopDashboardAutoRefresh();
+            break;
+        case 'portfolio':
+            loadPortfolio();
+            stopDashboardAutoRefresh();
+            break;
+        case 'orders':
+            loadOrders();
+            stopDashboardAutoRefresh();
+            break;
+        case 'trading-bot':
+            loadTradingBotStatus();
+            stopDashboardAutoRefresh();
+            break;
+        case 'analysis':
+            loadAnalysis();
+            stopDashboardAutoRefresh();
+            break;
+        case 'settings':
+            loadSettings();
+            stopDashboardAutoRefresh();
+            break;
+    }
+}

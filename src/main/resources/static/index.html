@@ -202,6 +202,24 @@
                     </div>
                 </div>
                 
+                <!-- Индикатор автообновления -->
+                <div class="auto-refresh-indicator" id="autoRefreshIndicator">
+                    <i class="fas fa-sync-alt me-1"></i>Обновление...
+                </div>
+
+                <!-- Быстрые действия -->
+                <div class="quick-actions">
+                    <button class="quick-action-btn refresh" onclick="refreshDashboard()" title="Обновить дашборд">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button class="quick-action-btn emergency" onclick="emergencyStop()" title="Экстренная остановка">
+                        <i class="fas fa-stop"></i>
+                    </button>
+                    <button class="quick-action-btn settings" onclick="showSection('settings')" title="Настройки">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+                
                 <!-- Instruments Section -->
                 <div id="instruments-section" class="section" style="display: none;">
                     <div class="row mb-4">
