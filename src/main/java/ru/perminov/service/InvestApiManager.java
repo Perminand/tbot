@@ -19,7 +19,7 @@ public class InvestApiManager {
     @Value("${tinkoff.api.production-token}")
     private String productionToken;
     
-    @Value("${tinkoff.api.default-mode:sandbox}")
+    @Value("${tinkoff.api.default-mode:production}")
     private String defaultMode;
     
     private InvestApi currentInvestApi;
@@ -38,15 +38,38 @@ public class InvestApiManager {
         try {
             TradingSettings settings = settingsRepository.findByKey(TRADING_MODE_KEY).orElse(null);
             String initialMode = settings != null ? settings.getValue() : defaultMode;
-            // Если токен для сохраненного режима не настроен, падаем назад на defaultMode
+            
+            // Проверяем, что токен для сохраненного режима настроен
             if (!isTokenConfigured(initialMode)) {
-                log.warn("Токен для сохраненного режима {} не настроен. Используем defaultMode={}.", initialMode, defaultMode);
-                initialMode = defaultMode;
+                log.error("КРИТИЧЕСКАЯ ОШИБКА: Токен для режима {} не настроен!", initialMode);
+                log.error("Проверьте настройки токенов в application.yml или переменных окружения");
+                
+                // НЕ переключаемся автоматически на другой режим!
+                // Вместо этого пытаемся использовать режим по умолчанию
+                if (isTokenConfigured(defaultMode)) {
+                    log.warn("Используем режим по умолчанию: {}", defaultMode);
+                    initialMode = defaultMode;
+                } else {
+                    log.error("Токен для режима по умолчанию {} тоже не настроен!", defaultMode);
+                    log.error("Система не может быть инициализирована. Проверьте конфигурацию токенов.");
+                    throw new IllegalStateException("Не настроены токены для ни одного режима торговли");
+                }
             }
+            
             switchToMode(initialMode);
+            log.info("✅ InvestApiManager успешно инициализирован в режиме: {}", initialMode);
+            
         } catch (Exception e) {
-            log.warn("Не удалось прочитать режим из БД: {}. Используем defaultMode={}.", e.getMessage(), defaultMode);
-            switchToMode(defaultMode);
+            log.error("КРИТИЧЕСКАЯ ОШИБКА при инициализации InvestApiManager: {}", e.getMessage());
+            log.error("Система не может быть запущена. Проверьте:");
+            log.error("1. Настройки токенов в application.yml");
+            log.error("2. Переменные окружения TINKOFF_SANDBOX_TOKEN и TINKOFF_PRODUCTION_TOKEN");
+            log.error("3. Подключение к базе данных");
+            log.error("4. Права доступа к API Tinkoff");
+            
+            // НЕ переключаемся автоматически на sandbox!
+            // Вместо этого останавливаем инициализацию
+            throw new RuntimeException("Не удалось инициализировать InvestApiManager: " + e.getMessage(), e);
         }
     }
     
@@ -54,9 +77,17 @@ public class InvestApiManager {
      * Переключение на указанный режим
      */
     public synchronized void switchToMode(String mode) {
+        log.info("InvestApiManager.switchToMode() вызван с режимом: {} (текущий: {})", mode, currentMode);
+        
         if (currentMode != null && currentMode.equals(mode)) {
             log.debug("Режим {} уже активен", mode);
             return;
+        }
+        
+        // Дополнительная проверка безопасности
+        if (currentMode != null && "production".equals(currentMode) && "sandbox".equals(mode)) {
+            log.warn("⚠️ ВНИМАНИЕ: Попытка переключения с production на sandbox режим");
+            log.warn("Это может быть небезопасно во время активной торговли");
         }
         
         try {
@@ -64,13 +95,13 @@ public class InvestApiManager {
             
             // Просто заменяем предыдущий экземпляр
             if (currentInvestApi != null) {
-                log.info("Заменяем предыдущий InvestApi экземпляр");
+                log.info("Заменяем предыдущий InvestApi экземпляр (было: {}, стало: {})", currentMode, mode);
             }
             
             currentInvestApi = newInvestApi;
             currentMode = mode;
             
-            log.info("Успешно переключен на режим: {}", mode);
+            log.info("✅ Успешно переключен на режим: {}", mode);
             
         } catch (Exception e) {
             log.error("Ошибка при переключении на режим {}: {}", mode, e.getMessage());

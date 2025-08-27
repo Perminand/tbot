@@ -21,6 +21,7 @@ public class TradingBotScheduler {
     private final InstrumentService instrumentService;
     private final DynamicInstrumentService dynamicInstrumentService;
     private final SmartAnalysisService smartAnalysisService;
+    private final TradingModeProtectionService protectionService;
     
     // Список инструментов для мониторинга (можно вынести в конфигурацию)
     private final List<String> monitoredInstruments = List.of(
@@ -36,6 +37,15 @@ public class TradingBotScheduler {
     @Scheduled(fixedRate = 30000) // 30 секунд
     public void smartQuickMonitoring() {
         log.info("Запуск умного быстрого мониторинга (30 сек)");
+        
+        // Проверяем защиту режима торговли
+        if (!protectionService.validateTradingMode()) {
+            log.error("❌ ОСТАНОВКА МОНИТОРИНГА: Обнаружена рассинхронизация режимов торговли");
+            return;
+        }
+        
+        // Устанавливаем флаг активной торговли
+        protectionService.setTradingActive(true);
         
         try {
             List<String> accountIds = getAccountIds();
@@ -75,6 +85,9 @@ public class TradingBotScheduler {
         } catch (Exception e) {
             log.error("Ошибка при умном быстром мониторинге: {}", e.getMessage());
             // НЕ останавливаем планировщик, продолжаем работу
+        } finally {
+            // Снимаем флаг активной торговли
+            protectionService.setTradingActive(false);
         }
     }
     
@@ -85,6 +98,15 @@ public class TradingBotScheduler {
     @Scheduled(fixedRate = 120000) // 2 минуты
     public void smartFullMonitoring() {
         log.info("Запуск умного полного мониторинга (2 мин)");
+        
+        // Проверяем защиту режима торговли
+        if (!protectionService.validateTradingMode()) {
+            log.error("❌ ОСТАНОВКА МОНИТОРИНГА: Обнаружена рассинхронизация режимов торговли");
+            return;
+        }
+        
+        // Устанавливаем флаг активной торговли
+        protectionService.setTradingActive(true);
         
         try {
             List<String> accountIds = getAccountIds();
@@ -124,6 +146,9 @@ public class TradingBotScheduler {
         } catch (Exception e) {
             log.error("Ошибка при умном полном мониторинге: {}", e.getMessage());
             // НЕ останавливаем планировщик, продолжаем работу
+        } finally {
+            // Снимаем флаг активной торговли
+            protectionService.setTradingActive(false);
         }
     }
     
@@ -134,6 +159,12 @@ public class TradingBotScheduler {
     @Scheduled(cron = "0 0 9 * * ?")
     public void dailyPortfolioCheck() {
         log.info("Запуск ежедневной проверки портфеля");
+        
+        // Проверяем защиту режима торговли
+        if (!protectionService.validateTradingMode()) {
+            log.error("❌ ОСТАНОВКА ПРОВЕРКИ ПОРТФЕЛЯ: Обнаружена рассинхронизация режимов торговли");
+            return;
+        }
         
         try {
             List<String> accountIds = getAccountIds();
@@ -163,6 +194,12 @@ public class TradingBotScheduler {
     public void weeklyStrategyOptimization() {
         log.info("Запуск еженедельной оптимизации стратегии");
         
+        // Проверяем защиту режима торговли
+        if (!protectionService.validateTradingMode()) {
+            log.error("❌ ОСТАНОВКА ОПТИМИЗАЦИИ: Обнаружена рассинхронизация режимов торговли");
+            return;
+        }
+        
         try {
             // Получаем статистику умного анализа
             Map<String, Object> stats = smartAnalysisService.getAnalysisStats();
@@ -171,6 +208,10 @@ public class TradingBotScheduler {
             // Проверяем состояние резервного режима
             Map<String, Object> fallbackInfo = smartAnalysisService.getFallbackModeInfo();
             log.info("Информация о резервном режиме: {}", fallbackInfo);
+            
+            // Проверяем статус защиты режима торговли
+            String protectionStatus = protectionService.getProtectionStatus();
+            log.info("Статус защиты режима торговли: {}", protectionStatus);
             
             // Здесь можно добавить логику для:
             // - Анализа эффективности стратегии
@@ -202,47 +243,12 @@ public class TradingBotScheduler {
      * Обновление приоритета инструмента на основе анализа
      */
     private void updateInstrumentPriority(String figi, MarketAnalysisService.TrendAnalysis trend) {
-        int priority = 0;
-        
-        // Базовый приоритет
-        switch (trend.getTrend()) {
-            case BULLISH:
-                priority = 80;
-                break;
-            case BEARISH:
-                priority = 60;
-                break;
-            case SIDEWAYS:
-                priority = 40;
-                break;
-            case UNKNOWN:
-                priority = 20;
-                break;
-        }
-        
-        // Дополнительные бонусы за сигналы
-        if (trend.getSignal().contains("сильный") || trend.getSignal().contains("четкий")) {
-            priority += 20;
-        }
-        
-        smartAnalysisService.updateInstrumentPriority(figi, priority);
-    }
-    
-    /**
-     * Ручной запуск анализа портфеля
-     */
-    public void manualPortfolioAnalysis(String accountId) {
-        log.info("Ручной запуск анализа портфеля для аккаунта: {}", accountId);
-        
         try {
-            PortfolioManagementService.PortfolioAnalysis analysis = 
-                portfolioManagementService.analyzePortfolio(accountId);
-            
-            log.info("Анализ портфеля завершен. Общая стоимость: {}", analysis.getTotalValue());
-            log.info("Распределение по типам активов: {}", analysis.getAllocationPercentages());
-            
+            // Логика обновления приоритета на основе тренда
+            // Можно добавить в SmartAnalysisService
+            log.debug("Обновление приоритета для {}: тренд = {}", figi, trend.getTrend());
         } catch (Exception e) {
-            log.error("Ошибка при ручном анализе портфеля: {}", e.getMessage());
+            log.warn("Ошибка обновления приоритета для {}: {}", figi, e.getMessage());
         }
     }
     
@@ -252,10 +258,22 @@ public class TradingBotScheduler {
     public void manualTradingStrategy(String accountId, String figi) {
         log.info("Ручной запуск торговой стратегии для {} в аккаунте {}", figi, accountId);
         
+        // Проверяем защиту режима торговли
+        if (!protectionService.validateTradingMode()) {
+            log.error("❌ ОСТАНОВКА РУЧНОЙ ТОРГОВЛИ: Обнаружена рассинхронизация режимов торговли");
+            return;
+        }
+        
+        // Устанавливаем флаг активной торговли
+        protectionService.setTradingActive(true);
+        
         try {
             portfolioManagementService.executeTradingStrategy(accountId, figi);
         } catch (Exception e) {
             log.error("Ошибка при ручном запуске торговой стратегии: {}", e.getMessage());
+        } finally {
+            // Снимаем флаг активной торговли
+            protectionService.setTradingActive(false);
         }
     }
 } 

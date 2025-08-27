@@ -23,7 +23,7 @@ public class TradingModeService {
         this.investApiManager = investApiManager;
     }
     
-    @Value("${tinkoff.api.default-mode:sandbox}")
+    @Value("${tinkoff.api.default-mode:production}")
     private String defaultMode;
     
     private static final String TRADING_MODE_KEY = "trading_mode";
@@ -61,9 +61,18 @@ public class TradingModeService {
      * Переключение режима торговли
      */
     public boolean switchTradingMode(String mode) {
+        log.info("TradingModeService.switchTradingMode() вызван с режимом: {} (текущий: {})", mode, getCurrentMode());
+        
         if (!SANDBOX_MODE.equals(mode) && !PRODUCTION_MODE.equals(mode)) {
             log.error("Неверный режим торговли: {}", mode);
             return false;
+        }
+        
+        // Дополнительная проверка безопасности
+        String currentMode = getCurrentMode();
+        if (PRODUCTION_MODE.equals(currentMode) && SANDBOX_MODE.equals(mode)) {
+            log.warn("⚠️ ВНИМАНИЕ: Попытка переключения с production на sandbox режим");
+            log.warn("Это может быть небезопасно во время активной торговли");
         }
         
         try {
@@ -88,7 +97,7 @@ public class TradingModeService {
             settings.setValue(mode);
             settingsRepository.save(settings);
             
-            log.info("Режим торговли переключен на: {}", mode);
+            log.info("✅ Режим торговли переключен на: {}", mode);
             return true;
         } catch (Exception e) {
             log.error("Ошибка при переключении режима торговли: {}", e.getMessage());
@@ -123,18 +132,28 @@ public class TradingModeService {
      * Проверка безопасности переключения режима
      */
     public boolean isSafeToSwitch(String newMode) {
+        String currentMode = getCurrentMode();
+        log.info("Проверка безопасности переключения: {} -> {}", currentMode, newMode);
+        
         // В песочнице можно переключаться свободно
-        if (isSandboxMode()) {
+        if (SANDBOX_MODE.equals(currentMode)) {
+            log.info("Переключение из песочницы безопасно");
             return true;
         }
         
-        // В продакшене переключение в песочницу безопасно
-        if (SANDBOX_MODE.equals(newMode)) {
-            return true;
+        // В продакшене переключение в песочницу требует подтверждения
+        if (PRODUCTION_MODE.equals(currentMode) && SANDBOX_MODE.equals(newMode)) {
+            log.warn("⚠️ Переключение с production на sandbox требует подтверждения");
+            return false;
         }
         
         // Переключение в продакшн требует подтверждения
-        return false;
+        if (PRODUCTION_MODE.equals(newMode)) {
+            log.warn("⚠️ Переключение в production режим требует подтверждения");
+            return false;
+        }
+        
+        return true;
     }
     
     /**
@@ -150,16 +169,26 @@ public class TradingModeService {
      */
     public boolean resetToDefault() {
         try {
+            log.info("Сброс настроек режима торговли к значению по умолчанию: {}", defaultMode);
+            
             TradingSettings settings = getTradingModeSettings();
-            if (settings != null) {
-                settings.setValue(defaultMode);
-                settingsRepository.save(settings);
-                log.info("Настройки режима торговли сброшены к значениям по умолчанию");
-                return true;
+            if (settings == null) {
+                settings = new TradingSettings();
+                settings.setKey(TRADING_MODE_KEY);
+                settings.setDescription("Режим торговли (sandbox/production)");
             }
+            
+            settings.setValue(defaultMode);
+            settingsRepository.save(settings);
+            
+            // Переключаем InvestApi на режим по умолчанию
+            investApiManager.switchToMode(defaultMode);
+            
+            log.info("✅ Настройки сброшены к значению по умолчанию: {}", defaultMode);
+            return true;
         } catch (Exception e) {
             log.error("Ошибка при сбросе настроек: {}", e.getMessage());
+            return false;
         }
-        return false;
     }
 } 
