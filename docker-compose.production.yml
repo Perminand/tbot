@@ -9,8 +9,6 @@ services:
       POSTGRES_DB: tbot_db
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${DB_PASSWORD:-your_secure_password_here}
-    ports:
-      - "5432:5432"  # Используем стандартный порт PostgreSQL
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql

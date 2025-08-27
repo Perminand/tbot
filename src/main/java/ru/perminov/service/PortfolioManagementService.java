@@ -533,6 +533,7 @@ public class PortfolioManagementService {
                 // Проверяем, есть ли шорт-позиция для закрытия
                 BigDecimal positionValue = portfolioAnalysis.getPositionValues().get(figi);
                 if (positionValue != null && positionValue.compareTo(BigDecimal.ZERO) < 0) {
+                    log.info("Обнаружена шорт-позиция для закрытия: {} (значение: {})", figi, positionValue);
                     // Находим шорт-позицию для получения количества лотов
                     Position position = portfolioAnalysis.getPositions().stream()
                         .filter(p -> p.getFigi().equals(figi))
@@ -548,6 +549,8 @@ public class PortfolioManagementService {
                                 figi, lots, trend.getCurrentPrice()));
                         
                         // Размещаем реальный ордер на покупку для закрытия шорта
+                        // ВАЖНО: При закрытии шортов НЕ проверяем отрицательные средства,
+                        // так как это может привести к неконтролируемым убыткам
                         try {
                             orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
@@ -565,6 +568,7 @@ public class PortfolioManagementService {
                     }
                 } else {
                     // Нет шорт-позиции, но есть сигнал на покупку - это обычная покупка
+                    log.info("Обычная покупка (не закрытие шорта): {} (позиция: {})", figi, positionValue);
                     // Проверяем, есть ли свободные средства
                     BigDecimal availableCash = getAvailableCash(portfolioAnalysis);
                     BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
