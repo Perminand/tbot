@@ -43,6 +43,15 @@ INSERT INTO trading_settings (setting_key, setting_value, description)
 VALUES ('margin_safety_pct', '0.50', 'Доля использования доступной маржи (0..1) для безопасного расчета лимитов')
 ON CONFLICT (setting_key) DO NOTHING;
 
+-- Настройки для разрешения маржинальных покупок при отрицательных средствах
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('margin-trading.allow-negative-cash', 'true', 'Разрешить покупки при отрицательных средствах (используя плечо)')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('margin-trading.min-buying-power-ratio', '0.1', 'Минимальное отношение покупательной способности к стоимости покупки')
+ON CONFLICT (setting_key) DO NOTHING;
+
 -- Риск-лимиты и стоп-правила по умолчанию
 INSERT INTO trading_settings (setting_key, setting_value, description)
 VALUES ('risk_default_sl_pct', '0.05', 'Стоп-лосс по умолчанию (доля, 0..1)')

@@ -274,7 +274,7 @@ public class PortfolioManagementService {
                 log.info("Доступные средства для покупки: {}, покупательная способность: {}", availableCash, buyingPower);
 
                 // Проверка средств: блокируем покупки только если не разрешена маржинальная торговля
-                boolean allowNegativeCash = tradingSettingsService.getBoolean("margin.allow.negative.cash", false);
+                boolean allowNegativeCash = tradingSettingsService.getBoolean("margin-trading.allow-negative-cash", false);
                 if (availableCash.compareTo(BigDecimal.ZERO) < 0 && !allowNegativeCash) {
                     log.warn("Реальные средства отрицательные ({}), блокируем покупки (маржинальная торговля отключена)", availableCash);
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
@@ -293,7 +293,7 @@ public class PortfolioManagementService {
                 
                 // Дополнительная проверка для маржинальных операций
                 if (allowNegativeCash && availableCash.compareTo(BigDecimal.ZERO) < 0) {
-                    double minBuyingPowerRatio = tradingSettingsService.getDouble("margin.min.buying.power.ratio", 0.1);
+                    double minBuyingPowerRatio = tradingSettingsService.getDouble("margin-trading.min-buying-power-ratio", 0.1);
                     BigDecimal minRequiredBuyingPower = trend.getCurrentPrice().multiply(BigDecimal.valueOf(minBuyingPowerRatio));
                     
                     if (buyingPower.compareTo(minRequiredBuyingPower) < 0) {
