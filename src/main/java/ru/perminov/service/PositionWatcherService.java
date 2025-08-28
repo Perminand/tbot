@@ -24,6 +24,7 @@ public class PositionWatcherService {
     private final RiskRuleService riskRuleService;
     private final MarketAnalysisService marketAnalysisService;
     private final TradingSettingsService tradingSettingsService;
+    private final BotLogService botLogService;
 
     // Периодический контроль позиций: SL/TP/трейлинг
     @Scheduled(fixedRate = 15000) // каждые 15 секунд
@@ -34,7 +35,8 @@ public class PositionWatcherService {
                 Portfolio portfolio = portfolioService.getPortfolio(accountId);
                 for (Position p : portfolio.getPositions()) {
                     if ("currency".equals(p.getInstrumentType())) continue;
-                    if (p.getQuantity() == null || p.getQuantity().compareTo(BigDecimal.ZERO) <= 0) continue;
+                    // Обрабатываем как лонги (>0), так и шорты (<0). Пропускаем только нулевые позиции
+                    if (p.getQuantity() == null || p.getQuantity().compareTo(BigDecimal.ZERO) == 0) continue;
 
                     String figi = p.getFigi();
                     final BigDecimal currentPrice;
@@ -64,44 +66,98 @@ public class PositionWatcherService {
                         }
                         if (avgPrice == null || avgPrice.compareTo(BigDecimal.ZERO) <= 0) return;
 
-                        BigDecimal stopLossLevel = avgPrice.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(slPct))).setScale(4, RoundingMode.HALF_UP);
-                        BigDecimal takeProfitLevel = avgPrice.multiply(BigDecimal.ONE.add(BigDecimal.valueOf(tpPct))).setScale(4, RoundingMode.HALF_UP);
+                        boolean isShort = p.getQuantity().compareTo(BigDecimal.ZERO) < 0;
+                        int lotsAbs = Math.abs(p.getQuantity().intValue());
 
-                        // Long-позиции: SL ниже средней, TP выше средней
-                        if (currentPrice.compareTo(stopLossLevel) <= 0) {
-                            int lots = p.getQuantity().intValue();
-                            log.warn("Срабатывание SL по {}: price={} <= SL={} — закрываем {} лотов", figi, currentPrice, stopLossLevel, lots);
-                            orderService.placeMarketOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
-                            return;
-                        }
-                        if (currentPrice.compareTo(takeProfitLevel) >= 0) {
-                            // Частичные тейки: 50% на TP1, остальное держим до TP2
-                            String key = "tp.stage." + accountId + "." + figi;
-                            int stage = tradingSettingsService.getInt(key, 0);
-                            int lots = p.getQuantity().intValue();
-                            if (stage == 0) {
-                                int qty = Math.max(1, lots / 2);
-                                log.info("TP1 по {}: продаем {} из {} лотов", figi, qty, lots);
-                                orderService.placeMarketOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
-                                tradingSettingsService.upsert(key, "1", "TP1 hit");
-                                return;
-                            } else {
-                                log.info("TP2 по {}: закрываем остаток {} лотов", figi, lots);
+                        // Уровни SL/TP для лонга и шорта (зеркально)
+                        BigDecimal longStopLossLevel = avgPrice.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(slPct))).setScale(4, RoundingMode.HALF_UP);
+                        BigDecimal longTakeProfitLevel = avgPrice.multiply(BigDecimal.ONE.add(BigDecimal.valueOf(tpPct))).setScale(4, RoundingMode.HALF_UP);
+
+                        BigDecimal shortStopLossLevel = avgPrice.multiply(BigDecimal.ONE.add(BigDecimal.valueOf(slPct))).setScale(4, RoundingMode.HALF_UP);
+                        BigDecimal shortTakeProfitLevel = avgPrice.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(tpPct))).setScale(4, RoundingMode.HALF_UP);
+
+                        if (!isShort) {
+                            // Лонг‑позиции: SL ниже средней, TP выше средней
+                            if (currentPrice.compareTo(longStopLossLevel) <= 0) {
+                                int lots = p.getQuantity().intValue();
+                                log.warn("Срабатывание SL (лонг) по {}: price={} <= SL={} — продаем {} лотов", figi, currentPrice, longStopLossLevel, lots);
                                 orderService.placeMarketOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
-                                tradingSettingsService.upsert(key, "0", "TP cycle done");
                                 return;
                             }
+                            if (currentPrice.compareTo(longTakeProfitLevel) >= 0) {
+                                // Частичные тейки: 50% на TP1, остаток — TP2
+                                String key = "tp.stage." + accountId + "." + figi;
+                                int stage = tradingSettingsService.getInt(key, 0);
+                                int lots = p.getQuantity().intValue();
+                                if (stage == 0) {
+                                    int qty = Math.max(1, lots / 2);
+                                    log.info("TP1 (лонг) по {}: продаем {} из {} лотов", figi, qty, lots);
+                                    orderService.placeMarketOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
+                                    tradingSettingsService.upsert(key, "1", "TP1 hit (long)");
+                                    return;
+                                } else {
+                                    log.info("TP2 (лонг) по {}: продаем остаток {} лотов", figi, lots);
+                                    orderService.placeMarketOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
+                                    tradingSettingsService.upsert(key, "0", "TP cycle done (long)");
+                                    return;
+                                }
+                            }
+                        } else {
+                            // Шорт‑позиции: SL выше средней, TP ниже средней. Закрываем шорт покупкой
+                            if (currentPrice.compareTo(shortStopLossLevel) >= 0) {
+                                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                    "SL (шорт) сработал",
+                                    String.format("FIGI: %s, price=%s >= SL=%s, avg=%s, qty=%d, account=%s", figi, currentPrice, shortStopLossLevel, avgPrice, lotsAbs, accountId));
+                                log.warn("Срабатывание SL (шорт) по {}: price={} >= SL={} — закрываем {} лотов покупкой", figi, currentPrice, shortStopLossLevel, lotsAbs);
+                                orderService.placeMarketOrder(figi, lotsAbs, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                                botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                    "Закрыт шорт по SL",
+                                    String.format("FIGI: %s, buy %d, price=%s", figi, lotsAbs, currentPrice));
+                                return;
+                            }
+                            if (currentPrice.compareTo(shortTakeProfitLevel) <= 0) {
+                                String key = "tp.stage.short." + accountId + "." + figi;
+                                int stage = tradingSettingsService.getInt(key, 0);
+                                if (stage == 0) {
+                                    int qty = Math.max(1, lotsAbs / 2);
+                                    botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                        "TP1 (шорт) сработал",
+                                        String.format("FIGI: %s, price=%s <= TP=%s, avg=%s, close qty=%d/%d", figi, currentPrice, shortTakeProfitLevel, avgPrice, qty, lotsAbs));
+                                    log.info("TP1 (шорт) по {}: покупаем {} из {} лотов для частичного закрытия", figi, qty, lotsAbs);
+                                    orderService.placeMarketOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                                    botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                        "Частично закрыт шорт по TP1",
+                                        String.format("FIGI: %s, buy %d, price=%s", figi, qty, currentPrice));
+                                    tradingSettingsService.upsert(key, "1", "TP1 hit (short)");
+                                    return;
+                                } else {
+                                    botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                        "TP2 (шорт) сработал — закрываем остаток",
+                                        String.format("FIGI: %s, price=%s <= TP=%s, avg=%s, qty=%d", figi, currentPrice, shortTakeProfitLevel, avgPrice, lotsAbs));
+                                    log.info("TP2 (шорт) по {}: покупаем остаток {} лотов для полного закрытия", figi, lotsAbs);
+                                    orderService.placeMarketOrder(figi, lotsAbs, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                                    botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                        "Полностью закрыт шорт по TP2",
+                                        String.format("FIGI: %s, buy %d, price=%s", figi, lotsAbs, currentPrice));
+                                    tradingSettingsService.upsert(key, "0", "TP cycle done (short)");
+                                    return;
+                                }
+                            }
                         }
-                        // Примитивный трейлинг: подтягиваем SL до max(avg, price*(1-trailing))
+
+                        // Примитивный трейлинг: подтягиваем SL
                         double trailingPct = riskRuleService.getDefaultTrailingStopPct();
-                        BigDecimal trailingLevel = currentPrice.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(trailingPct)));
-                        if (trailingLevel.compareTo(stopLossLevel) > 0) {
-                            // В реальной системе тут должно быть обновление правила в БД, чтобы фиксировать новый SL
-                            log.info("Трейлинг SL по {}: {} -> {}", figi, stopLossLevel, trailingLevel);
-                            try {
-                                riskRuleService.upsert(figi, trailingPct, rule.getTakeProfitPct(), true);
-                            } catch (Exception ex) {
-                                log.debug("Не удалось подтянуть трейлинг SL по {}: {}", figi, ex.getMessage());
+                        if (!isShort) {
+                            BigDecimal trailingLevel = currentPrice.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(trailingPct)));
+                            if (trailingLevel.compareTo(longStopLossLevel) > 0) {
+                                log.info("Трейлинг SL (лонг) по {}: {} -> {}", figi, longStopLossLevel, trailingLevel);
+                                try { riskRuleService.upsert(figi, trailingPct, rule.getTakeProfitPct(), true); } catch (Exception ex) { log.debug("Не удалось подтянуть трейлинг SL по {}: {}", figi, ex.getMessage()); }
+                            }
+                        } else {
+                            BigDecimal trailingLevel = currentPrice.multiply(BigDecimal.ONE.add(BigDecimal.valueOf(trailingPct)));
+                            if (trailingLevel.compareTo(shortStopLossLevel) < 0) {
+                                log.info("Трейлинг SL (шорт) по {}: {} -> {}", figi, shortStopLossLevel, trailingLevel);
+                                try { riskRuleService.upsert(figi, trailingPct, rule.getTakeProfitPct(), true); } catch (Exception ex) { log.debug("Не удалось подтянуть трейлинг SL (шорт) по {}: {}", figi, ex.getMessage()); }
                             }
                         }
                     }
