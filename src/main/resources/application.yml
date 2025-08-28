@@ -40,6 +40,11 @@ dynamic-instruments:
     max-etfs: 30        # Максимум ETF (было 10)
     max-currencies: 10  # Максимум валют
 
+# Margin Trading Configuration
+margin-trading:
+  allow-negative-cash: true    # Разрешить покупки при отрицательных средствах (используя плечо)
+  min-buying-power-ratio: 0.1  # Минимальное отношение покупательной способности к стоимости покупки
+
 # Smart Analysis Configuration
 smart-analysis:
   quick-monitoring:

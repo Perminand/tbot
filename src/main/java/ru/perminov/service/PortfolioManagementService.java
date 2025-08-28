@@ -273,17 +273,37 @@ public class PortfolioManagementService {
                 BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
                 log.info("Доступные средства для покупки: {}, покупательная способность: {}", availableCash, buyingPower);
 
-                // Дополнительная проверка: если реальные средства отрицательные, блокируем покупки
-                if (availableCash.compareTo(BigDecimal.ZERO) < 0) {
-                    log.warn("Реальные средства отрицательные ({}), блокируем покупки", availableCash);
+                // Проверка средств: блокируем покупки только если не разрешена маржинальная торговля
+                boolean allowNegativeCash = tradingSettingsService.getBoolean("margin.allow.negative.cash", false);
+                if (availableCash.compareTo(BigDecimal.ZERO) < 0 && !allowNegativeCash) {
+                    log.warn("Реальные средства отрицательные ({}), блокируем покупки (маржинальная торговля отключена)", availableCash);
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                        "Блокировка покупок", String.format("Отрицательные средства: %.2f", availableCash));
+                        "Блокировка покупок", String.format("Отрицательные средства: %.2f (маржинальная торговля отключена)", availableCash));
                     return;
+                } else if (availableCash.compareTo(BigDecimal.ZERO) < 0 && allowNegativeCash) {
+                    log.info("Реальные средства отрицательные ({}), но маржинальная торговля разрешена. Используем плечо.", availableCash);
+                    botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                        "Маржинальная покупка", String.format("Отрицательные средства: %.2f, используем плечо", availableCash));
                 }
 
                 // Если маржа включена, но недоступна для аккаунта — продолжаем с фоллбек-логикой внутри MarginService
                 if (marginService.isMarginEnabled() && !marginService.isMarginOperationalForAccount(accountId)) {
                     log.warn("Маржа включена в настройках, но недоступна для аккаунта {}. Используем расчеты по настройкам (без реальных атрибутов).", accountId);
+                }
+                
+                // Дополнительная проверка для маржинальных операций
+                if (allowNegativeCash && availableCash.compareTo(BigDecimal.ZERO) < 0) {
+                    double minBuyingPowerRatio = tradingSettingsService.getDouble("margin.min.buying.power.ratio", 0.1);
+                    BigDecimal minRequiredBuyingPower = trend.getCurrentPrice().multiply(BigDecimal.valueOf(minBuyingPowerRatio));
+                    
+                    if (buyingPower.compareTo(minRequiredBuyingPower) < 0) {
+                        log.warn("Недостаточная покупательная способность для маржинальной операции. Требуется: {}, доступно: {}", 
+                                minRequiredBuyingPower, buyingPower);
+                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                            "Недостаточная покупательная способность", 
+                            String.format("Требуется: %.2f, доступно: %.2f", minRequiredBuyingPower, buyingPower));
+                        return;
+                    }
                 }
                 
                 if (buyingPower.compareTo(BigDecimal.ZERO) > 0) {
@@ -382,17 +402,22 @@ public class PortfolioManagementService {
 
                         String actionType = hasPosition ? "докупка" : "покупка";
                         BigDecimal totalCost = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
-                        log.info("Размещение ордера на {}: {} лотов по цене {} (общая стоимость: {})", 
-                            actionType, lots, trend.getCurrentPrice(), totalCost);
+                        
+                        // Определяем тип операции (маржинальная или обычная)
+                        String operationType = (allowNegativeCash && availableCash.compareTo(BigDecimal.ZERO) < 0) ? "маржинальная " : "";
+                        String fullActionType = operationType + actionType;
+                        
+                        log.info("Размещение ордера на {}: {} лотов по цене {} (общая стоимость: {}, доступные средства: {})", 
+                            fullActionType, lots, trend.getCurrentPrice(), totalCost, availableCash);
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                            "Размещение ордера на " + actionType, String.format("FIGI: %s, Лотов: %d, Цена: %.2f, Стоимость: %.2f", 
-                                figi, lots, trend.getCurrentPrice(), totalCost));
+                            "Размещение ордера на " + fullActionType, String.format("FIGI: %s, Лотов: %d, Цена: %.2f, Стоимость: %.2f, Средства: %.2f", 
+                                figi, lots, trend.getCurrentPrice(), totalCost, availableCash));
                         
                         // Размещаем реальный ордер
                         try {
                             orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                                "Ордер на " + actionType + " размещен", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                                "Ордер на " + fullActionType + " размещен", String.format("FIGI: %s, Лотов: %d", figi, lots));
                             // Авто-установка SL/TP по дефолтным настройкам, если для FIGI ещё нет правил
                             try {
                                 if (riskRuleService.findByFigi(figi).isEmpty()) {
