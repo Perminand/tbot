@@ -9,6 +9,8 @@ import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
 import ru.tinkoff.piapi.contract.v1.OrderType;
 import ru.tinkoff.piapi.contract.v1.Quotation;
+import ru.perminov.repository.OrderRepository;
+import ru.perminov.model.Order;
 
 import java.util.List;
 import java.util.Map;
@@ -23,6 +25,7 @@ public class OrderService {
     private final InvestApiManager investApiManager;
     private final BotControlService botControlService;
     private final ApiRateLimiter apiRateLimiter;
+    private final OrderRepository orderRepository;
 
     public List<OrderState> getOrders(String accountId) {
         try {
@@ -77,6 +80,25 @@ public class OrderService {
             PostOrderResponse response = future.get();
             log.info("Рыночный ордер успешно размещен: orderId={}, status={}", 
                     response.getOrderId(), response.getExecutionReportStatus());
+            try {
+                Order entity = new Order();
+                entity.setOrderId(response.getOrderId());
+                entity.setFigi(figi);
+                entity.setOperation(direction.name());
+                entity.setStatus(response.getExecutionReportStatus().name());
+                entity.setRequestedLots(java.math.BigDecimal.valueOf(lots));
+                entity.setExecutedLots(java.math.BigDecimal.ZERO);
+                entity.setPrice(java.math.BigDecimal.ZERO);
+                entity.setCurrency(null);
+                entity.setOrderDate(java.time.LocalDateTime.now());
+                entity.setOrderType(OrderType.ORDER_TYPE_MARKET.name());
+                entity.setMessage(null);
+                entity.setCommission(null);
+                entity.setAccountId(accountId);
+                orderRepository.save(entity);
+            } catch (Exception persistEx) {
+                log.warn("Не удалось сохранить ордер {} в БД: {}", response.getOrderId(), persistEx.getMessage());
+            }
             return response;
         } catch (InterruptedException | ExecutionException e) {
             String errorMsg = e.getMessage();
