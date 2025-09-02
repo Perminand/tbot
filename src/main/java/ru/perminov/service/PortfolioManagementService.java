@@ -34,6 +34,7 @@ public class PortfolioManagementService {
     private final RiskRuleService riskRuleService;
     private final AdvancedTradingStrategyService advancedTradingStrategyService;
     private final TradingSettingsService tradingSettingsService;
+    private final InstrumentNameService instrumentNameService;
     
     // Целевые доли активов в портфеле
     private final Map<String, BigDecimal> targetAllocations = new HashMap<>();
@@ -498,8 +499,25 @@ public class PortfolioManagementService {
                     }
                 } else {
                     // Позиции нет. Рассматриваем открытие шорта, если это разрешено и доступно
-                    if (marginService.canOpenShort(figi) && marginService.isMarginOperationalForAccount(accountId)) {
+                    String prettyName = instrumentNameService != null ? instrumentNameService.getInstrumentName(figi, "share") : figi;
+                    String prettyTicker = instrumentNameService != null ? instrumentNameService.getTicker(figi, "share") : figi;
+                    botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "Проверка возможности шорта",
+                        String.format("%s (%s), Account: %s, Price: %.4f — позиции нет, оцениваем шорт", prettyName, prettyTicker, accountId, trend.getCurrentPrice()));
+                    boolean marginEnabled = marginService.isMarginEnabled();
+                    boolean shortAllowed = marginService.isShortAllowed();
+                    boolean shortFlag = false;
+                    try { shortFlag = marginService.canOpenShort(figi); } catch (Exception ignore) {}
+                    boolean marginOperational = marginService.isMarginOperationalForAccount(accountId);
+                    log.info("Проверка шорта [{} {}] [accountId={}]: marginEnabled={}, shortAllowed={}, shortFlag={}, marginOperational={}, mode={}",
+                            prettyTicker, prettyName, accountId, marginEnabled, shortAllowed, shortFlag, marginOperational, investApiManager.getCurrentMode());
+
+                    if (shortFlag && marginOperational) {
                         BigDecimal targetShortAmount = marginService.calculateTargetShortAmount(accountId, portfolioAnalysis);
+                        log.info("Расчет лимита шорта [{} {}] [accountId={}]: targetShortAmount={}, price={}", prettyTicker, prettyName, accountId, targetShortAmount, trend.getCurrentPrice());
+                        botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
+                            "Лимит шорта рассчитан",
+                            String.format("%s (%s), Account: %s, Target: %.2f, Price: %.4f", prettyName, prettyTicker, accountId, targetShortAmount, trend.getCurrentPrice()));
                         if (targetShortAmount.compareTo(trend.getCurrentPrice()) >= 0) {
                             int lots = targetShortAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
                             
@@ -553,14 +571,21 @@ public class PortfolioManagementService {
                                     "Ошибка открытия шорта", e.getMessage());
                             }
                         } else {
-                            log.warn("Недостаточно лимита для шорта по {}", figi);
+                            log.warn("Недостаточно лимита для шорта по [{} {}]: targetShortAmount < price", prettyTicker, prettyName);
+                            botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                "Недостаточно лимита для шорта",
+                                String.format("%s (%s), Target: %.2f < Price: %.4f", prettyName, prettyTicker, targetShortAmount, trend.getCurrentPrice()));
                         }
-                    } else if (marginService.canOpenShort(figi) && !marginService.isMarginOperationalForAccount(accountId)) {
-                        log.warn("Шорт разрешен настройками, но недоступен для аккаунта {} (песочница/нет маржинальных атрибутов)", accountId);
+                    } else if (shortFlag && !marginOperational) {
+                        log.warn("Шорт-флаг инструмента=TRUE, но маржа недоступна для аккаунта {} (песочница/нет маржинальных атрибутов)", accountId);
+                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                            "Шорт недоступен для аккаунта",
+                            String.format("%s (%s), Account: %s, Mode: %s — нет маржинальных атрибутов", prettyName, prettyTicker, accountId, investApiManager.getCurrentMode()));
                     } else {
-                        log.warn("Нет позиции для продажи по инструменту {}", figi);
-                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                            "Нет позиции для продажи", "FIGI: " + figi);
+                        log.warn("Шорт невозможен [{} {}]: marginEnabled={}, shortAllowed={}, shortFlag={} — пропускаем", prettyTicker, prettyName, marginEnabled, shortAllowed, shortFlag);
+                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                            "Шорт невозможен",
+                            String.format("%s (%s), marginEnabled=%s, allowShort=%s, shortFlag=%s", prettyName, prettyTicker, marginEnabled, shortAllowed, shortFlag));
                     }
                 }
             } else if ("BUY".equals(action)) {

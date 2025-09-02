@@ -124,6 +124,7 @@ public class MarginService {
      */
     public boolean canOpenShort(String figi) {
         if (!isMarginEnabled() || !isShortAllowed()) {
+            log.info("canOpenShort: marginEnabled={}, shortAllowed={} -> FALSE", isMarginEnabled(), isShortAllowed());
             return false;
         }
         try {
@@ -137,6 +138,7 @@ public class MarginService {
             if (!shortEnabled) {
                 log.warn("Шорт недоступен для FIGI {} по флагу инструмента", figi);
             }
+            log.info("canOpenShort[{}]: shortEnabledFlag={}", figi, shortEnabled);
             return shortEnabled;
         } catch (Exception e) {
             log.error("Ошибка при проверке доступности шорта для {}: {}", figi, e.getMessage());
