@@ -1017,6 +1017,15 @@ public class PortfolioManagementService {
         // Логика для принятия торговых решений с учетом возможности докупки, продажи и шортов
         // Примечание: проверка доступности средств выполняется в executeTradingStrategy
         
+        // Вариант 1: встроить открытие шорта в стратегию
+        // Если нисходящий тренд и позиции нет — разрешаем SELL (вход в шорт) при признаках слабости/перекупленности
+        if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BEARISH && !hasPosition) {
+            // RSI выше 60 трактуем как риск продолжения снижения после перекупленности — инициируем шорт
+            if (rsi.compareTo(BigDecimal.valueOf(60)) > 0) {
+                return "SELL"; // трактуем SELL как вход в шорт при отсутствии позиции
+            }
+        }
+
         if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BULLISH) {
             if (rsi.compareTo(BigDecimal.valueOf(40)) < 0) {
                 return "BUY"; // Сильная покупка при перепроданности (докупаем или покупаем)
