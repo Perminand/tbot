@@ -1,6 +1,7 @@
 // Основные переменные
 let currentSection = 'dashboard';
 let portfolioChart = null;
+let balanceChart = null;
 let accountId = null;
 let tradingMode = 'sandbox';
 let currentInstrumentType = 'shares';
@@ -140,6 +141,7 @@ function showSection(sectionName) {
     switch(sectionName) {
         case 'dashboard':
             loadDashboard();
+            loadBalanceWidgets();
             break;
         case 'instruments':
             loadInstruments();
@@ -595,6 +597,71 @@ async function loadDashboard() {
         console.error('Dashboard loading failed:', error);
         showError('Ошибка загрузки данных дашборда');
     }
+}
+
+// ======= Баланс / PnL виджеты =======
+async function loadBalanceWidgets() {
+    try {
+        if (!accountId) return;
+        // Дневная сводка
+        const today = new Date().toISOString().slice(0,10);
+        const sumResp = await fetch(`/api/balance/daily-summary?accountId=${encodeURIComponent(accountId)}&date=${today}`);
+        if (sumResp.ok) {
+            const s = await sumResp.json();
+            const el = document.getElementById('dailyChange');
+            if (el && s) {
+                const val = parseFloat(s.totalChange || 0);
+                el.textContent = `₽${Number(val).toLocaleString(undefined,{maximumFractionDigits:2})}`;
+                el.className = `text-${val>0?'success':val<0?'danger':'secondary'}`;
+            }
+        }
+
+        // График баланса за последние 2 дня (или больше)
+        const from = new Date(Date.now() - 1000*60*60*24*2).toISOString();
+        const to = new Date().toISOString();
+        const snapsResp = await fetch(`/api/balance/snapshots?accountId=${encodeURIComponent(accountId)}&from=${from}&to=${to}`);
+        if (snapsResp.ok) {
+            const snaps = await snapsResp.json();
+            renderBalanceChart(snaps);
+        }
+    } catch (e) {
+        console.warn('Balance widgets load error', e);
+    }
+}
+
+function renderBalanceChart(snaps) {
+    try {
+        const canvas = document.getElementById('balanceChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const labels = snaps.map(s => new Date(s.capturedAt).toLocaleString());
+        const totals = snaps.map(s => Number(s.totalValue || 0));
+        if (balanceChart) {
+            balanceChart.destroy();
+        }
+        balanceChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Total Value',
+                    data: totals,
+                    borderColor: '#4e73df',
+                    backgroundColor: 'rgba(78,115,223,0.1)',
+                    tension: 0.2,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    x: { display: true },
+                    y: { display: true }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    } catch (e) { console.warn('renderBalanceChart error', e); }
 }
 
 // Обновление статистики дашборда
@@ -2452,6 +2519,7 @@ function showSection(sectionName) {
     switch (sectionName) {
         case 'dashboard':
             loadDashboard();
+            loadBalanceWidgets();
             startDashboardAutoRefresh();
             break;
         case 'instruments':
