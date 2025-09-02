@@ -51,6 +51,40 @@ public class MarketAnalysisService {
     }
 
     /**
+     * Получение свечей по заданному диапазону дат
+     */
+    public List<HistoricCandle> getCandles(String figi, CandleInterval interval, Instant from, Instant to) {
+        try {
+            // Учитываем лимиты API: если диапазон слишком большой для интервала, разобьем на чанки
+            int maxDays = getMaxDaysForInterval(interval);
+            long totalDays = java.time.Duration.between(from, to).toDays();
+            if (totalDays <= maxDays) {
+                apiRateLimiter.acquire();
+                return investApiManager.getCurrentInvestApi().getMarketDataService()
+                    .getCandlesSync(figi, from, to, interval);
+            }
+
+            List<HistoricCandle> all = new java.util.ArrayList<>();
+            Instant cursor = from;
+            while (cursor.isBefore(to)) {
+                Instant chunkEnd = cursor.plus(java.time.Period.ofDays(maxDays)).isBefore(to) ?
+                    cursor.plus(java.time.Period.ofDays(maxDays)) : to;
+                apiRateLimiter.acquire();
+                List<HistoricCandle> part = investApiManager.getCurrentInvestApi().getMarketDataService()
+                    .getCandlesSync(figi, cursor, chunkEnd, interval);
+                if (part != null && !part.isEmpty()) {
+                    all.addAll(part);
+                }
+                cursor = chunkEnd;
+            }
+            return all;
+        } catch (Exception e) {
+            log.error("Ошибка при получении свечей по диапазону для {}: {}", figi, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
      * Преобразование Quotation в BigDecimal
      */
     private BigDecimal toBigDecimal(ru.tinkoff.piapi.contract.v1.Quotation q) {

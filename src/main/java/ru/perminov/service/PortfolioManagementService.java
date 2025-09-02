@@ -276,14 +276,18 @@ public class PortfolioManagementService {
                 // Проверка средств: блокируем покупки только если не разрешена маржинальная торговля
                 boolean allowNegativeCash = tradingSettingsService.getBoolean("margin-trading.allow-negative-cash", false);
                 if (availableCash.compareTo(BigDecimal.ZERO) < 0 && !allowNegativeCash) {
-                    log.warn("Реальные средства отрицательные ({}), блокируем покупки (маржинальная торговля отключена)", availableCash);
+                    log.warn("Реальные средства отрицательные ({}), блокируем покупки (маржинальная торговля отключена) [figi={}, accountId={}, price={}]", 
+                            availableCash, figi, accountId, trend.getCurrentPrice());
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                        "Блокировка покупок", String.format("Отрицательные средства: %.2f (маржинальная торговля отключена)", availableCash));
+                        "Блокировка покупок", String.format("FIGI: %s, Account: %s, Price: %.4f, Отрицательные средства: %.2f (маржинальная торговля отключена)", 
+                            figi, accountId, trend.getCurrentPrice(), availableCash));
                     return;
                 } else if (availableCash.compareTo(BigDecimal.ZERO) < 0 && allowNegativeCash) {
-                    log.info("Реальные средства отрицательные ({}), но маржинальная торговля разрешена. Используем плечо.", availableCash);
+                    log.info("Реальные средства отрицательные ({}), но маржинальная торговля разрешена. Используем плечо. [figi={}, accountId={}, price={}]", 
+                            availableCash, figi, accountId, trend.getCurrentPrice());
                     botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                        "Маржинальная покупка", String.format("Отрицательные средства: %.2f, используем плечо", availableCash));
+                        "Маржинальная покупка", String.format("FIGI: %s, Account: %s, Price: %.4f, Отрицательные средства: %.2f — используем плечо", 
+                            figi, accountId, trend.getCurrentPrice(), availableCash));
                 }
 
                 // Если маржа включена, но недоступна для аккаунта — продолжаем с фоллбек-логикой внутри MarginService
@@ -297,11 +301,12 @@ public class PortfolioManagementService {
                     BigDecimal minRequiredBuyingPower = trend.getCurrentPrice().multiply(BigDecimal.valueOf(minBuyingPowerRatio));
                     
                     if (buyingPower.compareTo(minRequiredBuyingPower) < 0) {
-                        log.warn("Недостаточная покупательная способность для маржинальной операции. Требуется: {}, доступно: {}", 
-                                minRequiredBuyingPower, buyingPower);
+                        log.warn("Недостаточная покупательная способность для маржинальной операции [figi={}, accountId={}, price={}, ratio={}]. Требуется: {}, доступно: {}", 
+                                figi, accountId, trend.getCurrentPrice(), minBuyingPowerRatio, minRequiredBuyingPower, buyingPower);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                             "Недостаточная покупательная способность", 
-                            String.format("Требуется: %.2f, доступно: %.2f", minRequiredBuyingPower, buyingPower));
+                            String.format("FIGI: %s, Account: %s, Price: %.4f, Ratio: %.3f, Требуется: %.2f, Доступно: %.2f", 
+                                figi, accountId, trend.getCurrentPrice(), minBuyingPowerRatio, minRequiredBuyingPower, buyingPower));
                         return;
                     }
                 }
@@ -316,11 +321,13 @@ public class PortfolioManagementService {
                     if (hasPosition) {
                         // Докупаем - используем меньшую сумму (1% от доступных средств)
                         buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.01));
-                        log.info("Докупаем позицию по {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
+                        log.info("Докупаем позицию [figi={}, accountId={}, price={}] -> {} лотов", figi, accountId, trend.getCurrentPrice(), 
+                                buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     } else {
                         // Первая покупка - используем меньшую сумму (2% от доступных средств)
                         buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.02));
-                        log.info("Первая покупка {}: {} лотов", figi, buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
+                        log.info("Первая покупка [figi={}, accountId={}, price={}] -> {} лотов", figi, accountId, trend.getCurrentPrice(), 
+                                buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     }
                     
                     // Проверяем минимальную сумму для покупки (1 лот)
@@ -347,9 +354,11 @@ public class PortfolioManagementService {
                     
                     // Дополнительная проверка: достаточно ли средств для покупки хотя бы 1 лота
                     if (buyingPower.compareTo(trend.getCurrentPrice()) < 0) {
-                        log.warn("Недостаточно средств для покупки даже 1 лота. Нужно: {}, Доступно: {}", trend.getCurrentPrice(), buyingPower);
+                        log.warn("Недостаточно средств для покупки даже 1 лота [figi={}, accountId={}]. Нужно: {}, Доступно: {}", 
+                                figi, accountId, trend.getCurrentPrice(), buyingPower);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                            "Недостаточно средств для покупки 1 лота", String.format("Нужно: %.2f, Доступно: %.2f", trend.getCurrentPrice(), buyingPower));
+                            "Недостаточно средств для покупки 1 лота", String.format("FIGI: %s, Account: %s, Price: %.4f, Нужно: %.2f, Доступно: %.2f", 
+                                figi, accountId, trend.getCurrentPrice(), trend.getCurrentPrice(), buyingPower));
                         return;
                     }
                     
@@ -358,11 +367,11 @@ public class PortfolioManagementService {
                         BigDecimal realAvailableCash = getAvailableCash(portfolioAnalysis);
                         BigDecimal requiredAmount = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
                         if (realAvailableCash.compareTo(requiredAmount) < 0) {
-                            log.warn("Реальная проверка: недостаточно средств для покупки {} лотов. Нужно: {}, Доступно: {}", 
-                                lots, requiredAmount, realAvailableCash);
+                            log.warn("Реальная проверка: недостаточно средств [figi={}, accountId={}] для покупки {} лотов. Нужно: {}, Доступно: {}", 
+                                figi, accountId, lots, requiredAmount, realAvailableCash);
                             botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                                "Недостаточно реальных средств", String.format("Лотов: %d, Нужно: %.2f, Доступно: %.2f", 
-                                    lots, requiredAmount, realAvailableCash));
+                                "Недостаточно реальных средств", String.format("FIGI: %s, Account: %s, Price: %.4f, Лотов: %d, Нужно: %.2f, Доступно: %.2f", 
+                                    figi, accountId, trend.getCurrentPrice(), lots, requiredAmount, realAvailableCash));
                             return;
                         }
                     } catch (Exception e) {
