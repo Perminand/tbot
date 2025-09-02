@@ -55,7 +55,7 @@ public class PositionWatcherService {
                             double tp = riskRuleService.getDefaultTakeProfitPct();
                             return riskRuleService.upsert(figi, sl, tp, true);
                         });
-                        if (Boolean.FALSE.equals(rule.getActive())) return;
+                        if (Boolean.FALSE.equals(rule.getActive())) continue;
                         // Базовый SL/TP
                         Double slPct = rule.getStopLossPct() != null ? rule.getStopLossPct() : riskRuleService.getDefaultStopLossPct();
                         Double tpPct = rule.getTakeProfitPct() != null ? rule.getTakeProfitPct() : riskRuleService.getDefaultTakeProfitPct();
@@ -64,7 +64,7 @@ public class PositionWatcherService {
                         if (avgPrice == null || avgPrice.compareTo(BigDecimal.ZERO) <= 0) {
                             avgPrice = currentPrice;
                         }
-                        if (avgPrice == null || avgPrice.compareTo(BigDecimal.ZERO) <= 0) return;
+                        if (avgPrice == null || avgPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
 
                         boolean isShort = p.getQuantity().compareTo(BigDecimal.ZERO) < 0;
                         int lotsAbs = Math.abs(p.getQuantity().intValue());
