@@ -666,14 +666,53 @@ function renderBalanceChart(snaps) {
 
 // Обновление статистики дашборда
 function updateDashboardStats(portfolio) {
-    if (portfolio && portfolio.totalAmountShares) {
-        const totalValue = portfolio.totalAmountShares.units + portfolio.totalAmountShares.nano / 1000000000;
-        document.getElementById('totalValue').textContent = `₽${totalValue.toLocaleString()}`;
-        
-        if (portfolio.expectedYield) {
-            const profit = portfolio.expectedYield.units + portfolio.expectedYield.nano / 1000000000;
-            document.getElementById('totalProfit').textContent = `₽${profit.toLocaleString()}`;
+    try {
+        const toNum = (x) => {
+            if (x === null || x === undefined) return 0;
+            if (typeof x === 'number') return x;
+            const n = parseFloat(x);
+            return isNaN(n) ? 0 : n;
+        };
+        const amountVal = (a) => {
+            if (!a) return 0;
+            // Поддержка как нашего DTO (value) так и объектов TCS (units/nano)
+            const units = a.units !== undefined ? toNum(a.units) : toNum(a.value);
+            const nano = a.nano !== undefined ? toNum(a.nano) / 1e9 : 0;
+            return units + nano;
+        };
+
+        // Общая стоимость портфеля как сумма по типам
+        const totalValueNum = amountVal(portfolio.totalAmountShares)
+            + amountVal(portfolio.totalAmountBonds)
+            + amountVal(portfolio.totalAmountEtfs)
+            + amountVal(portfolio.totalAmountCurrencies);
+        const totalValueEl = document.getElementById('totalValue');
+        if (totalValueEl) {
+            totalValueEl.textContent = `₽${Number(totalValueNum).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
         }
+
+        // Прибыль: суммируем (currentPrice - averagePrice) * quantity по позициям
+        let totalProfitNum = 0;
+        if (Array.isArray(portfolio.positions)) {
+            totalProfitNum = portfolio.positions.reduce((sum, p) => {
+                const qty = toNum(p.quantity);
+                const cp = toNum(p.currentPrice);
+                const ap = toNum(p.averagePrice);
+                if (qty && cp && ap) return sum + (cp - ap) * qty;
+                return sum;
+            }, 0);
+        }
+        const profitEl = document.getElementById('totalProfit');
+        if (profitEl) {
+            profitEl.textContent = `₽${Number(totalProfitNum).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+            profitEl.className = totalProfitNum > 0 ? 'text-success' : (totalProfitNum < 0 ? 'text-danger' : 'text-secondary');
+        }
+    } catch (e) {
+        console.warn('updateDashboardStats error', e);
+        const totalValueEl = document.getElementById('totalValue');
+        const profitEl = document.getElementById('totalProfit');
+        if (totalValueEl) totalValueEl.textContent = '₽0';
+        if (profitEl) profitEl.textContent = '₽0';
     }
 }
 
