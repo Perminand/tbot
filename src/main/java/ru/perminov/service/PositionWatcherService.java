@@ -55,7 +55,7 @@ public class PositionWatcherService {
                             double tp = riskRuleService.getDefaultTakeProfitPct();
                             return riskRuleService.upsert(figi, sl, tp, true);
                         });
-                        if (Boolean.FALSE.equals(rule.getActive())) return;
+                        if (Boolean.FALSE.equals(rule.getActive())) continue;
                         // Базовый SL/TP
                         Double slPct = rule.getStopLossPct() != null ? rule.getStopLossPct() : riskRuleService.getDefaultStopLossPct();
                         Double tpPct = rule.getTakeProfitPct() != null ? rule.getTakeProfitPct() : riskRuleService.getDefaultTakeProfitPct();
@@ -64,7 +64,7 @@ public class PositionWatcherService {
                         if (avgPrice == null || avgPrice.compareTo(BigDecimal.ZERO) <= 0) {
                             avgPrice = currentPrice;
                         }
-                        if (avgPrice == null || avgPrice.compareTo(BigDecimal.ZERO) <= 0) return;
+                        if (avgPrice == null || avgPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
 
                         boolean isShort = p.getQuantity().compareTo(BigDecimal.ZERO) < 0;
                         int lotsAbs = Math.abs(p.getQuantity().intValue());
@@ -82,7 +82,7 @@ public class PositionWatcherService {
                                 int lots = p.getQuantity().intValue();
                                 log.warn("Срабатывание SL (лонг) по {}: price={} <= SL={} — продаем {} лотов", figi, currentPrice, longStopLossLevel, lots);
                                 orderService.placeMarketOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
-                                return;
+                                continue;
                             }
                             if (currentPrice.compareTo(longTakeProfitLevel) >= 0) {
                                 // Частичные тейки: 50% на TP1, остаток — TP2
@@ -94,12 +94,12 @@ public class PositionWatcherService {
                                     log.info("TP1 (лонг) по {}: продаем {} из {} лотов", figi, qty, lots);
                                     orderService.placeMarketOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
                                     tradingSettingsService.upsert(key, "1", "TP1 hit (long)");
-                                    return;
+                                    continue;
                                 } else {
                                     log.info("TP2 (лонг) по {}: продаем остаток {} лотов", figi, lots);
                                     orderService.placeMarketOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
                                     tradingSettingsService.upsert(key, "0", "TP cycle done (long)");
-                                    return;
+                                    continue;
                                 }
                             }
                         } else {
@@ -113,7 +113,7 @@ public class PositionWatcherService {
                                 botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                     "Закрыт шорт по SL",
                                     String.format("FIGI: %s, buy %d, price=%s", figi, lotsAbs, currentPrice));
-                                return;
+                                continue;
                             }
                             if (currentPrice.compareTo(shortTakeProfitLevel) <= 0) {
                                 String key = "tp.stage.short." + accountId + "." + figi;
@@ -129,7 +129,7 @@ public class PositionWatcherService {
                                         "Частично закрыт шорт по TP1",
                                         String.format("FIGI: %s, buy %d, price=%s", figi, qty, currentPrice));
                                     tradingSettingsService.upsert(key, "1", "TP1 hit (short)");
-                                    return;
+                                    continue;
                                 } else {
                                     botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.RISK_MANAGEMENT,
                                         "TP2 (шорт) сработал — закрываем остаток",
@@ -140,7 +140,7 @@ public class PositionWatcherService {
                                         "Полностью закрыт шорт по TP2",
                                         String.format("FIGI: %s, buy %d, price=%s", figi, lotsAbs, currentPrice));
                                     tradingSettingsService.upsert(key, "0", "TP cycle done (short)");
-                                    return;
+                                    continue;
                                 }
                             }
                         }
