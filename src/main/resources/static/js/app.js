@@ -577,6 +577,7 @@ async function loadDashboard() {
         if (portfolioResponse.ok) {
             const portfolio = await portfolioResponse.json();
             updateDashboardStats(portfolio);
+            renderPortfolioDistribution(portfolio);
         }
         
         // Загрузить ордера
@@ -592,6 +593,9 @@ async function loadDashboard() {
             const instruments = await instrumentsResponse.json();
             updateInstrumentsCount(instruments);
         }
+
+        // Загрузить последние события
+        await loadRecentEvents();
         
     } catch (error) {
         console.error('Dashboard loading failed:', error);
@@ -662,6 +666,103 @@ function renderBalanceChart(snaps) {
             }
         });
     } catch (e) { console.warn('renderBalanceChart error', e); }
+}
+
+// Рендер распределения портфеля (pie)
+function renderPortfolioDistribution(portfolio) {
+    try {
+        const canvas = document.getElementById('portfolioChart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+
+        const toNum = (x) => {
+            if (x === null || x === undefined) return 0;
+            if (typeof x === 'number') return x;
+            const n = parseFloat(x);
+            return isNaN(n) ? 0 : n;
+        };
+        const amountVal = (a) => {
+            if (!a) return 0;
+            const units = a?.units !== undefined ? toNum(a.units) : toNum(a.value);
+            const nano = a?.nano !== undefined ? toNum(a.nano) / 1e9 : 0;
+            return units + nano;
+        };
+
+        const dataVals = [
+            amountVal(portfolio.totalAmountShares),
+            amountVal(portfolio.totalAmountBonds),
+            amountVal(portfolio.totalAmountEtfs),
+            amountVal(portfolio.totalAmountCurrencies)
+        ];
+        const labels = ['Акции', 'Облигации', 'ETF', 'Валюта'];
+
+        // Если все нули — просто очищаем и выходим
+        const total = dataVals.reduce((a,b)=>a+b,0);
+        if (!total) {
+            if (window.portfolioChart) { window.portfolioChart.destroy(); }
+            const parent = canvas.parentElement;
+            if (parent) parent.querySelector('.no-data-msg')?.remove();
+            const msg = document.createElement('p');
+            msg.className = 'text-muted no-data-msg';
+            msg.textContent = 'Нет данных для построения графика';
+            parent.appendChild(msg);
+            return;
+        } else {
+            const parent = canvas.parentElement;
+            if (parent) parent.querySelector('.no-data-msg')?.remove();
+        }
+
+        if (window.portfolioChart) {
+            window.portfolioChart.destroy();
+        }
+        window.portfolioChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels,
+                datasets: [{
+                    data: dataVals,
+                    backgroundColor: ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+    } catch (e) { console.warn('renderPortfolioDistribution error', e); }
+}
+
+// Загрузка последних событий/операций
+async function loadRecentEvents() {
+    try {
+        const resp = await fetch('/api/dashboard/recent-events');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const list = (data && data.events) ? data.events : [];
+        const container = document.getElementById('recentOperations');
+        if (!container) return;
+        if (!list.length) {
+            container.innerHTML = '<p class="text-muted">Нет данных</p>';
+            return;
+        }
+        const html = list.map(e => {
+            const level = e.level || 'INFO';
+            const cat = e.category || '';
+            const details = e.details ? `<div class="small text-muted">${e.details}</div>` : '';
+            return `<div class="mb-2">
+                        <div><span class="badge bg-secondary me-1">${level}</span>
+                             <span class="badge bg-light text-dark me-1">${cat}</span>
+                             <span class="text-muted small">${e.timestamp || ''}</span>
+                        </div>
+                        <div>${e.message || ''}</div>
+                        ${details}
+                    </div>`;
+        }).join('');
+        container.innerHTML = html;
+    } catch (e) { console.warn('loadRecentEvents error', e); }
 }
 
 // Обновление статистики дашборда

@@ -600,7 +600,7 @@ public class PortfolioManagementService {
                                         riskRuleService.upsert(figi, sl, tp, true);
                                         log.info("Установлены уровни SL/TP для {}: SL={}%, TP={}%, активированы (шорт)", displayOf(figi), sl * 100, tp * 100);
                                         botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
-                                                                            "Установлены SL/TP (шорт)",
+                                            "Установлены SL/TP (шорт)",
                                 String.format("%s, SL: %.2f%%, TP: %.2f%%", displayOf(figi), sl * 100, tp * 100));
                                     }
                                 } catch (Exception e) {
@@ -624,7 +624,7 @@ public class PortfolioManagementService {
                             String.format("%s (%s), Account: %s, Mode: %s — нет маржинальных атрибутов", prettyName, prettyTicker, accountId, investApiManager.getCurrentMode()));
                     } else {
                         log.warn("Шорт невозможен [{} {}]: marginEnabled={}, shortAllowed={}, shortFlag={} — пропускаем", prettyTicker, prettyName, marginEnabled, shortAllowed, shortFlag);
-                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                             "Шорт невозможен",
                             String.format("%s (%s), marginEnabled=%s, allowShort=%s, shortFlag=%s", prettyName, prettyTicker, marginEnabled, shortAllowed, shortFlag));
                     }
@@ -1037,7 +1037,7 @@ public class PortfolioManagementService {
                 return "SELL"; // трактуем SELL как вход в шорт при отсутствии позиции
             }
         }
-
+        
         if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BULLISH) {
             if (rsi.compareTo(BigDecimal.valueOf(40)) < 0) {
                 return "BUY"; // Сильная покупка при перепроданности (докупаем или покупаем)
