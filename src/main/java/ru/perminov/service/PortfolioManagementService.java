@@ -1356,6 +1356,18 @@ public class PortfolioManagementService {
                             bestTradingOpportunity.getFigi(), bestTradingOpportunity.getRecommendedAction(), bestTradingOpportunity.getScore()));
                     
                     executeTradingStrategy(monitoredAccountId, bestTradingOpportunity.getFigi());
+                } else {
+                    // Объясняем, почему не торгуем в этот тик планировщика
+                    String reason;
+                    if (bestTradingOpportunity == null) {
+                        reason = "Нет подходящей возможности BUY/SELL";
+                    } else {
+                        reason = String.format("Низкий порог Score: %.1f ≤ 60 (действие: %s)",
+                                bestTradingOpportunity.getScore(), bestTradingOpportunity.getRecommendedAction());
+                    }
+                    log.info("Быстрый мониторинг: торговля пропущена — {}", reason);
+                    botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                            "Пропуск торговли", reason);
                 }
             }
             
