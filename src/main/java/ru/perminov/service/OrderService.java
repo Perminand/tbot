@@ -86,14 +86,33 @@ public class OrderService {
                 entity.setFigi(figi);
                 entity.setOperation(direction.name());
                 entity.setStatus(response.getExecutionReportStatus().name());
+                // Количества
                 entity.setRequestedLots(java.math.BigDecimal.valueOf(lots));
-                entity.setExecutedLots(java.math.BigDecimal.ZERO);
-                entity.setPrice(java.math.BigDecimal.ZERO);
+                try {
+                    // lotsExecuted есть в ответе
+                    entity.setExecutedLots(java.math.BigDecimal.valueOf(response.getLotsExecuted()));
+                } catch (Exception ignore) {
+                    entity.setExecutedLots(java.math.BigDecimal.ZERO);
+                }
+                // Цена исполнения, если есть
+                try {
+                    if (response.hasExecutedOrderPrice()) {
+                        entity.setPrice(moneyToBigDecimal(response.getExecutedOrderPrice()));
+                    } else if (response.hasInitialOrderPrice()) {
+                        entity.setPrice(moneyToBigDecimal(response.getInitialOrderPrice()));
+                    } else {
+                        entity.setPrice(java.math.BigDecimal.ZERO);
+                    }
+                } catch (Exception ex) {
+                    entity.setPrice(java.math.BigDecimal.ZERO);
+                }
                 entity.setCurrency(null);
                 entity.setOrderDate(java.time.LocalDateTime.now());
                 entity.setOrderType(OrderType.ORDER_TYPE_MARKET.name());
+                try {
+                    entity.setCommission(moneyToBigDecimal(response.getExecutedCommission()));
+                } catch (Exception ignore) {}
                 entity.setMessage(null);
-                entity.setCommission(null);
                 entity.setAccountId(accountId);
                 orderRepository.save(entity);
             } catch (Exception persistEx) {
@@ -145,9 +164,42 @@ public class OrderService {
             PostOrderResponse response = future.get();
             log.info("Лимитный ордер успешно размещен: orderId={}, status={}", 
                     response.getOrderId(), response.getExecutionReportStatus());
+            try {
+                Order entity = new Order();
+                entity.setOrderId(response.getOrderId());
+                entity.setFigi(figi);
+                entity.setOperation(direction.name());
+                entity.setStatus(response.getExecutionReportStatus().name());
+                entity.setRequestedLots(java.math.BigDecimal.valueOf(lots));
+                try {
+                    entity.setExecutedLots(java.math.BigDecimal.valueOf(response.getLotsExecuted()));
+                } catch (Exception ignore) {
+                    entity.setExecutedLots(java.math.BigDecimal.ZERO);
+                }
+                try {
+                    if (response.hasExecutedOrderPrice()) {
+                        entity.setPrice(moneyToBigDecimal(response.getExecutedOrderPrice()));
+                    } else if (response.hasInitialOrderPrice()) {
+                        entity.setPrice(moneyToBigDecimal(response.getInitialOrderPrice()));
+                    } else {
+                        entity.setPrice(quotationToBigDecimal(priceObj));
+                    }
+                } catch (Exception ex) {
+                    entity.setPrice(quotationToBigDecimal(priceObj));
+                }
+                entity.setCurrency(null);
+                entity.setOrderDate(java.time.LocalDateTime.now());
+                entity.setOrderType(OrderType.ORDER_TYPE_LIMIT.name());
+                try { entity.setCommission(moneyToBigDecimal(response.getExecutedCommission())); } catch (Exception ignore) {}
+                entity.setMessage(null);
+                entity.setAccountId(accountId);
+                orderRepository.save(entity);
+            } catch (Exception persistEx) {
+                log.warn("Не удалось сохранить лимитный ордер {} в БД: {}", response.getOrderId(), persistEx.getMessage());
+            }
             return response;
         } catch (InterruptedException | ExecutionException e) {
-            log.error("Ошибка при размещении лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ошибка: {}", 
+            log.error("Ошибка при размещении лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ошибка {}", 
                     lots, direction, accountId, price, e.getMessage(), e);
             throw new RuntimeException("Ошибка при размещении лимитного ордера: " + e.getMessage(), e);
         }
@@ -199,5 +251,28 @@ public class OrderService {
         result.put("failed", failed);
         result.put("errors", errors);
         return result;
+    }
+
+    private java.math.BigDecimal quotationToBigDecimal(ru.tinkoff.piapi.contract.v1.Quotation q) {
+        if (q == null) return java.math.BigDecimal.ZERO;
+        long units = 0L; int nano = 0;
+        try { units = q.getUnits(); } catch (Exception ignore) {}
+        try { nano = q.getNano(); } catch (Exception ignore) {}
+        String str = units + "." + String.format("%09d", nano);
+        try { return new java.math.BigDecimal(str); } catch (Exception e) { return java.math.BigDecimal.ZERO; }
+    }
+
+    private java.math.BigDecimal moneyToBigDecimal(Object money) {
+        try {
+            if (money == null) return null;
+            // money может быть MoneyValue, пытаемся получить units/nano
+            java.lang.reflect.Method getUnits = money.getClass().getMethod("getUnits");
+            java.lang.reflect.Method getNano = money.getClass().getMethod("getNano");
+            long units = (long) getUnits.invoke(money);
+            int nano = (int) getNano.invoke(money);
+            return new java.math.BigDecimal(units + "." + String.format("%09d", nano));
+        } catch (Exception e) {
+            return null;
+        }
     }
 } 
