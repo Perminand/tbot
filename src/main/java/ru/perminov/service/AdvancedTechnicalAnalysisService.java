@@ -9,7 +9,6 @@ import ru.tinkoff.piapi.contract.v1.CandleInterval;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
-import java.util.ArrayList;
 
 @Service
 @RequiredArgsConstructor
@@ -70,8 +69,14 @@ public class AdvancedTechnicalAnalysisService {
         BigDecimal lowestLow = getLowestLow(candles, period);
         BigDecimal currentClose = getCurrentPrice(candles);
         
+        BigDecimal range = highestHigh.subtract(lowestLow);
+        if (range.compareTo(BigDecimal.ZERO) == 0) {
+            // Плоский рынок без диапазона — возвращаем нейтральное значение
+            return new StochasticResult(BigDecimal.valueOf(50), BigDecimal.valueOf(50));
+        }
+        
         BigDecimal kPercent = currentClose.subtract(lowestLow)
-            .divide(highestHigh.subtract(lowestLow), 4, RoundingMode.HALF_UP)
+            .divide(range, 4, RoundingMode.HALF_UP)
             .multiply(BigDecimal.valueOf(100));
         
         BigDecimal dPercent = calculateDPercent(candles, period);
@@ -91,7 +96,9 @@ public class AdvancedTechnicalAnalysisService {
         
         BigDecimal avgVolume = calculateAverageVolume(candles, 10);
         BigDecimal currentVolume = BigDecimal.valueOf(candles.get(0).getVolume());
-        BigDecimal volumeRatio = currentVolume.divide(avgVolume, 4, RoundingMode.HALF_UP);
+        BigDecimal volumeRatio = avgVolume.compareTo(BigDecimal.ZERO) == 0
+            ? BigDecimal.ZERO
+            : currentVolume.divide(avgVolume, 4, RoundingMode.HALF_UP);
         
         String volumeSignal = "NORMAL";
         if (volumeRatio.compareTo(BigDecimal.valueOf(1.5)) > 0) {
