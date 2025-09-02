@@ -12,6 +12,8 @@ import ru.perminov.service.TradingModeProtectionService;
 import ru.perminov.service.AdvancedPortfolioManagementService;
 import ru.perminov.service.MarginService;
 import ru.perminov.service.TradingSettingsService;
+import ru.perminov.repository.OrderRepository;
+import ru.perminov.model.Order;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -35,6 +37,7 @@ public class DashboardController {
     private final MarginService marginService;
     private final TradingSettingsService tradingSettingsService;
     private final MarketAnalysisService marketAnalysisService;
+    private final OrderRepository orderRepository;
     
     /**
      * Получение статуса системы
@@ -361,6 +364,47 @@ public class DashboardController {
             log.error("Ошибка при получении полного статуса дашборда: {}", e.getMessage());
             return ResponseEntity.internalServerError()
                     .body("Ошибка при получении полного статуса дашборда: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Последние совершенные сделки (исполненные ордера)
+     */
+    @GetMapping("/recent-trades")
+    public ResponseEntity<?> getRecentTrades(@RequestParam(value = "accountId", required = false) String accountId,
+                                             @RequestParam(value = "limit", required = false, defaultValue = "10") int limit) {
+        try {
+            // Получаем последние записи из репозитория orders по дате
+            List<Order> all = accountId == null || accountId.isEmpty()
+                    ? orderRepository.findAll()
+                    : orderRepository.findByAccountId(accountId);
+            // Фильтруем только исполненные/частично исполненные
+            List<Order> executed = all.stream()
+                    .filter(o -> o.getStatus() != null && (o.getStatus().contains("EXECUTION_REPORT_STATUS_FILL")
+                            || o.getStatus().contains("EXECUTION_REPORT_STATUS_PARTIALLY_FILLED")))
+                    .sorted(java.util.Comparator.comparing(Order::getOrderDate).reversed())
+                    .limit(limit)
+                    .toList();
+
+            List<java.util.Map<String, Object>> trades = executed.stream().map(o -> {
+                java.util.Map<String, Object> t = new java.util.HashMap<>();
+                t.put("orderId", o.getOrderId());
+                t.put("figi", o.getFigi());
+                t.put("operation", o.getOperation());
+                t.put("status", o.getStatus());
+                t.put("lotsRequested", o.getRequestedLots());
+                t.put("lotsExecuted", o.getExecutedLots());
+                t.put("price", o.getPrice());
+                t.put("currency", o.getCurrency());
+                t.put("orderDate", o.getOrderDate());
+                t.put("orderType", o.getOrderType());
+                return t;
+            }).toList();
+
+            return ResponseEntity.ok(java.util.Map.of("trades", trades));
+        } catch (Exception e) {
+            log.error("Ошибка при получении последних сделок: {}", e.getMessage());
+            return ResponseEntity.internalServerError().body("Ошибка при получении последних сделок: " + e.getMessage());
         }
     }
     

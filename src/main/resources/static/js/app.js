@@ -738,31 +738,72 @@ function renderPortfolioDistribution(portfolio) {
 // Загрузка последних событий/операций
 async function loadRecentEvents() {
     try {
-        const resp = await fetch('/api/dashboard/recent-events');
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const list = (data && data.events) ? data.events : [];
-        const container = document.getElementById('recentOperations');
-        if (!container) return;
-        if (!list.length) {
-            container.innerHTML = '<p class="text-muted">Нет данных</p>';
-            return;
+        const account = typeof accountId !== 'undefined' ? accountId : '';
+        // Сначала пробуем получить последние сделки
+        let resp = await fetch(`/api/dashboard/recent-trades?accountId=${encodeURIComponent(account)}&limit=10`);
+        let useEventsFallback = false;
+        if (!resp.ok) {
+            useEventsFallback = true;
+        } else {
+            const data = await resp.json();
+            const trades = (data && data.trades) ? data.trades : [];
+            if (Array.isArray(trades) && trades.length) {
+                renderRecentTrades(trades);
+                return;
+            } else {
+                useEventsFallback = true;
+            }
         }
-        const html = list.map(e => {
-            const level = e.level || 'INFO';
-            const cat = e.category || '';
-            const details = e.details ? `<div class="small text-muted">${e.details}</div>` : '';
-            return `<div class="mb-2">
-                        <div><span class="badge bg-secondary me-1">${level}</span>
-                             <span class="badge bg-light text-dark me-1">${cat}</span>
-                             <span class="text-muted small">${e.timestamp || ''}</span>
-                        </div>
-                        <div>${e.message || ''}</div>
-                        ${details}
-                    </div>`;
-        }).join('');
-        container.innerHTML = html;
+        // Фоллбек: используем логи
+        if (useEventsFallback) {
+            resp = await fetch('/api/dashboard/recent-events');
+            if (!resp.ok) return;
+            const data = await resp.json();
+            const list = (data && data.events) ? data.events : [];
+            renderRecentEvents(list);
+        }
     } catch (e) { console.warn('loadRecentEvents error', e); }
+}
+
+function renderRecentTrades(trades) {
+    const container = document.getElementById('recentOperations');
+    if (!container) return;
+    if (!trades.length) { container.innerHTML = '<p class="text-muted">Нет данных</p>'; return; }
+    const html = trades.map(t => {
+        const op = t.operation || 'UNKNOWN';
+        const dirColor = op === 'ORDER_DIRECTION_BUY' ? 'success' : (op === 'ORDER_DIRECTION_SELL' ? 'danger' : 'secondary');
+        const lots = (t.lotsExecuted ?? t.lotsRequested) || 0;
+        const price = (typeof t.price === 'number') ? t.price : (t.price && t.price.value) ? t.price.value : t.price || 0;
+        const when = t.orderDate ? new Date(t.orderDate).toLocaleString() : '';
+        return `<div class="mb-2">
+            <div><span class="badge bg-${dirColor} me-1">${op.replace('ORDER_DIRECTION_', '')}</span>
+                 <span class="badge bg-light text-dark me-1">${t.figi || ''}</span>
+                 <span class="text-muted small">${when}</span>
+            </div>
+            <div>Исполнено: ${lots} лотов по цене ${price}</div>
+        </div>`;
+    }).join('');
+    container.innerHTML = html;
+}
+
+function renderRecentEvents(list) {
+    const container = document.getElementById('recentOperations');
+    if (!container) return;
+    if (!list.length) { container.innerHTML = '<p class="text-muted">Нет данных</p>'; return; }
+    const html = list.map(e => {
+        const level = e.level || 'INFO';
+        const cat = e.category || '';
+        const details = e.details ? `<div class="small text-muted">${e.details}</div>` : '';
+        return `<div class="mb-2">
+                    <div><span class="badge bg-secondary me-1">${level}</span>
+                         <span class="badge bg-light text-dark me-1">${cat}</span>
+                         <span class="text-muted small">${e.timestamp || ''}</span>
+                    </div>
+                    <div>${e.message || ''}</div>
+                    ${details}
+                </div>`;
+    }).join('');
+    container.innerHTML = html;
 }
 
 // Обновление статистики дашборда
