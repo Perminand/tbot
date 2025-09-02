@@ -333,18 +333,18 @@ public class PortfolioManagementService {
                 BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
                 log.info("Доступные средства для покупки: {}, покупательная способность: {}", availableCash, buyingPower);
 
-                // Проверка средств: блокируем покупки только если не разрешена маржинальная торговля
+                // Проверка средств: используем buyingPower вместо availableCash для маржинальных операций
                 boolean allowNegativeCash = tradingSettingsService.getBoolean("margin-trading.allow-negative-cash", false);
                 if (availableCash.compareTo(BigDecimal.ZERO) < 0 && !allowNegativeCash) {
-                                            log.warn("Реальные средства отрицательные ({}), блокируем покупки (маржинальная торговля отключена) [{} , accountId={}, price={}]", 
-                                availableCash, displayOf(figi), accountId, trend.getCurrentPrice());
+                    log.warn("Реальные средства отрицательные ({}), блокируем покупки (маржинальная торговля отключена) [{} , accountId={}, price={}]", 
+                        availableCash, displayOf(figi), accountId, trend.getCurrentPrice());
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                         "Блокировка покупок", String.format("%s, Account: %s, Price: %.4f, Отрицательные средства: %.2f (маржинальная торговля отключена)", 
                             displayOf(figi), accountId, trend.getCurrentPrice(), availableCash));
                     return;
                 } else if (availableCash.compareTo(BigDecimal.ZERO) < 0 && allowNegativeCash) {
-                                            log.info("Реальные средства отрицательные ({}), но маржинальная торговля разрешена. Используем плечо. [{} , accountId={}, price={}]", 
-                                availableCash, displayOf(figi), accountId, trend.getCurrentPrice());
+                    log.info("Реальные средства отрицательные ({}), но маржинальная торговля разрешена. Используем плечо. [{} , accountId={}, price={}]", 
+                        availableCash, displayOf(figi), accountId, trend.getCurrentPrice());
                     botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT, 
                         "Маржинальная покупка", String.format("%s, Account: %s, Price: %.4f, Отрицательные средства: %.2f — используем плечо", 
                             displayOf(figi), accountId, trend.getCurrentPrice(), availableCash));
@@ -371,7 +371,9 @@ public class PortfolioManagementService {
                     }
                 }
                 
+                // Проверяем покупательную способность (включая плечо)
                 if (buyingPower.compareTo(BigDecimal.ZERO) > 0) {
+                    log.info("✅ Покупательная способность доступна: {} (включая плечо)", buyingPower);
                     // Проверяем, есть ли уже позиция по этому инструменту
                     boolean hasPosition = portfolioAnalysis.getPositionValues().containsKey(figi) && 
                                         portfolioAnalysis.getPositionValues().get(figi).compareTo(BigDecimal.ZERO) > 0;
@@ -515,12 +517,19 @@ public class PortfolioManagementService {
                                 buyAmount, trend.getCurrentPrice(), lots));
                     }
                 } else {
-                    log.warn("Нет свободных средств для покупки");
+                    log.warn("❌ Нет свободных средств для покупки");
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                         "Нет свободных средств", "Доступно: " + buyingPower);
+                    
+                    // Дополнительная диагностика: почему buyingPower = 0?
+                    log.info("🔍 Диагностика buyingPower = 0:");
+                    log.info("  - availableCash: {}", availableCash);
+                    log.info("  - marginEnabled: {}", marginService.isMarginEnabled());
+                    log.info("  - marginOperational: {}", marginService.isMarginOperationalForAccount(accountId));
+                    log.info("  - allowNegativeCash: {}", tradingSettingsService.getBoolean("margin-trading.allow-negative-cash", false));
                 }
             } else if ("SELL".equals(action)) {
-                log.info("🎯 ВЫПОЛНЯЕМ SELL для {}: проверяем позицию", displayOf(figi));
+                log.info("🎯 ВЫПОЛНЯЕМ SELL для {}: проверяем позицию (НЕ зависит от buyingPower)", displayOf(figi));
                 // Проверяем, есть ли позиция по этому инструменту
                 BigDecimal positionValue = portfolioAnalysis.getPositionValues().get(figi);
                 log.debug("Значение позиции по {}: {}", displayOf(figi), positionValue);
@@ -1340,7 +1349,7 @@ public class PortfolioManagementService {
         this.autoMonitoringEnabled = true;
         this.monitoredAccountId = accountId;
         String mode = investApiManager != null ? investApiManager.getCurrentMode() : null;
-        log.info("Автоматический мониторинг включен для аккаунта: {} (mode={})", accountId, mode);
+        log.info("🚀 Автоматический мониторинг ВКЛЮЧЕН для аккаунта: {} (mode={})", accountId, mode);
         botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
             "Автоматический мониторинг включен", "Аккаунт: " + accountId + (mode != null ? ", Режим: " + mode : ""));
     }
@@ -1351,7 +1360,7 @@ public class PortfolioManagementService {
     public void stopAutoMonitoring() {
         this.autoMonitoringEnabled = false;
         this.monitoredAccountId = null;
-        log.info("Автоматический мониторинг выключен");
+        log.info("⏹️ Автоматический мониторинг ВЫКЛЮЧЕН");
         botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
             "Автоматический мониторинг выключен", "");
     }
@@ -1360,6 +1369,7 @@ public class PortfolioManagementService {
      * Получение статуса автоматического мониторинга
      */
     public boolean isAutoMonitoringEnabled() {
+        log.debug("🔍 isAutoMonitoringEnabled: {} (monitoredAccountId: {})", autoMonitoringEnabled, monitoredAccountId);
         return autoMonitoringEnabled;
     }
     

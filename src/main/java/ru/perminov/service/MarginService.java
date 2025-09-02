@@ -86,15 +86,20 @@ public class MarginService {
      */
     public BigDecimal getAvailableBuyingPower(String accountId, PortfolioManagementService.PortfolioAnalysis analysis) {
         BigDecimal cash = extractCashFromPortfolio(analysis);
-        // Если кэш отрицательный, возвращаем 0 - покупки невозможны
-        if (cash.compareTo(BigDecimal.ZERO) < 0) {
-            log.warn("Отрицательные средства: {}, покупательная способность = 0", cash);
+        log.info("🔍 getAvailableBuyingPower: cash={}, marginEnabled={}", cash, isMarginEnabled());
+        
+        // Если кэш отрицательный, но маржа включена - используем плечо
+        if (cash.compareTo(BigDecimal.ZERO) < 0 && isMarginEnabled()) {
+            log.info("💡 Отрицательные средства {}, но маржа включена - используем плечо", cash);
+        } else if (cash.compareTo(BigDecimal.ZERO) < 0) {
+            log.warn("❌ Отрицательные средства: {}, покупательная способность = 0 (маржа отключена)", cash);
             return BigDecimal.ZERO;
         }
         
         if (!isMarginEnabled()) return cash;
         // Если можем получить реальные маржинальные атрибуты – используем их
         if (isMarginOperationalForAccount(accountId)) {
+            log.info("🔍 Используем реальные маржинальные атрибуты для аккаунта {}", accountId);
             var attrs = getAccountMarginAttributes(accountId);
             if (attrs != null) {
                 BigDecimal liquid = toBigDecimal(attrs.getLiquidPortfolio());
@@ -106,16 +111,21 @@ public class MarginService {
                 BigDecimal freeMargin = liquid.subtract(minimal).subtract(missing.max(BigDecimal.ZERO));
                 if (freeMargin.signum() < 0) freeMargin = BigDecimal.ZERO;
                 BigDecimal bp = cash.add(freeMargin.multiply(safety)).setScale(2, RoundingMode.DOWN);
-                log.info("Покупательная способность (реальная маржа): liquid={}, starting={}, minimal={}, missing={}, safety={}, freeMargin={}, bp={}",
+                log.info("💡 Покупательная способность (реальная маржа): liquid={}, starting={}, minimal={}, missing={}, safety={}, freeMargin={}, bp={}",
                         liquid, starting, minimal, missing, safety, freeMargin, bp);
                 return bp.max(BigDecimal.ZERO);
+            } else {
+                log.warn("⚠️ Маржинальные атрибуты недоступны для аккаунта {}", accountId);
             }
+        } else {
+            log.info("🔍 Маржа недоступна для аккаунта {}, используем настройки", accountId);
         }
         // Фоллбек на конфиг
         BigDecimal portfolioValue = analysis.getTotalValue();
         BigDecimal additional = portfolioValue.multiply(getMaxUtilizationPct());
         BigDecimal buyingPower = cash.add(additional).setScale(2, RoundingMode.DOWN);
-        log.info("Покупательная способность (по настройке): cash={}, extra={}, total={}", cash, additional, buyingPower);
+        log.info("💡 Покупательная способность (по настройке): cash={}, portfolioValue={}, maxUtilizationPct={}, extra={}, total={}", 
+            cash, portfolioValue, getMaxUtilizationPct(), additional, buyingPower);
         return buyingPower.max(BigDecimal.ZERO);
     }
 
@@ -171,11 +181,14 @@ public class MarginService {
     }
 
     private BigDecimal extractCashFromPortfolio(PortfolioManagementService.PortfolioAnalysis analysis) {
-        return analysis.getPositions().stream()
+        BigDecimal cash = analysis.getPositions().stream()
                 .filter(p -> "currency".equals(p.getInstrumentType()))
                 .map(ru.tinkoff.piapi.core.models.Position::getQuantity)
                 .findFirst()
                 .orElse(BigDecimal.ZERO);
+        
+        log.debug("🔍 extractCashFromPortfolio: найдено {} позиций, cash={}", analysis.getPositions().size(), cash);
+        return cash;
     }
 
     private boolean getBooleanSetting(String key, boolean defaultValue) {

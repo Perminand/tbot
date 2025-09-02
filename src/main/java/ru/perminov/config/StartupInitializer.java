@@ -37,30 +37,35 @@ public class StartupInitializer {
             setDefaultIfMissing("auto_monitor.enable", "true", "Enable auto monitoring at startup");
             String enableStr = tradingSettingsService.getString("auto_monitor.enable", "false");
             boolean enable = Boolean.parseBoolean(enableStr);
+            log.info("🔍 Автоматический мониторинг: enable={}, значение из настроек: {}", enable, enableStr);
             if (enable) {
+                log.info("🚀 Включаем автоматический мониторинг...");
                 final String[] accHolder = { tradingSettingsService.getString("auto_monitor.account_id", "") };
                 try {
                     var accounts = accountService.getAccounts();
+                    log.info("🔍 Найдено аккаунтов: {}", accounts.size());
                     if (accounts.isEmpty()) {
-                        log.warn("Auto monitoring enabled but no accounts found. Skipping start.");
+                        log.warn("❌ Автоматический мониторинг включен, но аккаунты не найдены. Пропускаем запуск.");
                         return;
                     }
                     boolean accountMatches = accounts.stream().anyMatch(a -> a.getId().equals(accHolder[0]));
                     if (accHolder[0] == null || accHolder[0].isBlank() || !accountMatches) {
                         accHolder[0] = accounts.get(0).getId();
                         tradingSettingsService.upsert("auto_monitor.account_id", accHolder[0], "Selected first account automatically (validated by mode)");
-                        log.info("Auto monitoring account adjusted to first account of current mode: {}", accHolder[0]);
+                        log.info("✅ Аккаунт для автоматического мониторинга скорректирован на первый аккаунт текущего режима: {}", accHolder[0]);
                     }
                 } catch (Exception e) {
-                    log.warn("Failed to fetch accounts for auto monitoring: {}", e.getMessage());
+                    log.warn("❌ Не удалось получить аккаунты для автоматического мониторинга: {}", e.getMessage());
                     return;
                 }
                 try {
                     portfolioManagementService.startAutoMonitoring(accHolder[0]);
-                    log.info("Auto monitoring started for account {}", accHolder[0]);
+                    log.info("✅ Автоматический мониторинг запущен для аккаунта {}", accHolder[0]);
                 } catch (Exception e) {
-                    log.warn("Failed to start auto monitoring for {}: {}", accHolder[0], e.getMessage());
+                    log.warn("❌ Не удалось запустить автоматический мониторинг для {}: {}", accHolder[0], e.getMessage());
                 }
+            } else {
+                log.info("⏹️ Автоматический мониторинг отключен в настройках");
             }
         };
     }
