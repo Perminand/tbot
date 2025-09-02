@@ -19,7 +19,11 @@ public class BotControlService {
     private volatile int maxOrdersPerMinute = 30; // можно вынести в настройки
 
     public boolean isPanic() {
-        return panicStop.get();
+        boolean panic = panicStop.get();
+        if (panic) {
+            log.warn("PANIC-STOP активен: торговля заблокирована");
+        }
+        return panic;
     }
 
     public void activatePanic() {
@@ -46,6 +50,9 @@ public class BotControlService {
         boolean allowed = current <= maxOrdersPerMinute;
         if (!allowed) {
             ordersInWindow.decrementAndGet();
+            log.warn("Превышен лимит ордеров в минуту: {} > {}", current, maxOrdersPerMinute);
+        } else {
+            log.debug("Ордер разрешен: {} <= {}", current, maxOrdersPerMinute);
         }
         return allowed;
     }

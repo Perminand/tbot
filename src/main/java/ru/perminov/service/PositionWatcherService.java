@@ -119,7 +119,7 @@ public class PositionWatcherService {
                             boolean tpTriggered = false;
                             if (side == PositionRiskState.PositionSide.LONG) {
                                 tpTriggered = currentPrice.compareTo(riskState.getTakeProfitLevel()) >= 0;
-                            } else {
+                        } else {
                                 tpTriggered = currentPrice.compareTo(riskState.getTakeProfitLevel()) <= 0;
                             }
                             
@@ -135,7 +135,7 @@ public class PositionWatcherService {
                                         orderService.placeMarketOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
                                     } else {
                                         log.info("TP1 (шорт): покупаем {} из {} лотов для частичного закрытия", qty, lots);
-                                        orderService.placeMarketOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                                    orderService.placeMarketOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId);
                                     }
                                     tradingSettingsService.upsert(key, "1", "TP1 hit (" + side.toString().toLowerCase() + ")");
                                     continue;

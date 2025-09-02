@@ -42,11 +42,15 @@ public class OrderService {
     }
 
     public PostOrderResponse placeMarketOrder(String figi, int lots, OrderDirection direction, String accountId) {
+        log.info("=== ВХОД В placeMarketOrder ===");
+        log.info("Параметры: figi={}, lots={}, direction={}, accountId={}", figi, lots, direction, accountId);
         try {
             if (botControlService.isPanic()) {
+                log.warn("Panic-Stop активен: размещение ордеров заблокировано");
                 throw new IllegalStateException("Panic-Stop активен: размещение ордеров заблокировано");
             }
             if (!botControlService.tryReserveOrderSlot()) {
+                log.warn("Превышен лимит ордеров в минуту");
                 throw new IllegalStateException("Превышен лимит ордеров в минуту");
             }
             
@@ -78,8 +82,10 @@ public class OrderService {
             );
             
             PostOrderResponse response = future.get();
-            log.info("Рыночный ордер успешно размещен: orderId={}, status={}", 
-                    response.getOrderId(), response.getExecutionReportStatus());
+            log.info("Рыночный ордер успешно размещен: orderId={}, status={}, lotsExecuted={}, executedPrice={}", 
+                    response.getOrderId(), response.getExecutionReportStatus(), 
+                    response.getLotsExecuted(), 
+                    response.hasExecutedOrderPrice() ? response.getExecutedOrderPrice() : "N/A");
             try {
                 Order entity = new Order();
                 entity.setOrderId(response.getOrderId());
@@ -118,8 +124,10 @@ public class OrderService {
             } catch (Exception persistEx) {
                 log.warn("Не удалось сохранить ордер {} в БД: {}", response.getOrderId(), persistEx.getMessage());
             }
+            log.info("=== УСПЕШНОЕ ЗАВЕРШЕНИЕ placeMarketOrder ===");
             return response;
         } catch (InterruptedException | ExecutionException e) {
+            log.error("=== ОШИБКА В placeMarketOrder ===");
             String errorMsg = e.getMessage();
             log.error("Ошибка при размещении рыночного ордера: {} лотов, направление {}, аккаунт {}, ошибка: {}", 
                     lots, direction, accountId, errorMsg, e);
@@ -135,6 +143,7 @@ public class OrderService {
                 }
             }
             
+            log.error("=== ВЫБРАСЫВАЕМ ИСКЛЮЧЕНИЕ ИЗ placeMarketOrder ===");
             throw new RuntimeException("Ошибка при размещении рыночного ордера: " + errorMsg, e);
         }
     }

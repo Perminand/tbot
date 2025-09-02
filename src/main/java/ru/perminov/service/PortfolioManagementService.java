@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import ru.tinkoff.piapi.core.models.Portfolio;
 import ru.tinkoff.piapi.core.models.Position;
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
+import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
 // import ru.tinkoff.piapi.contract.v1.MoneyValue; // unused
 import ru.perminov.dto.ShareDto;
 
@@ -292,18 +293,23 @@ public class PortfolioManagementService {
                         if (lotsToClose > 0) {
                             String prettyName = instrumentNameService != null ? instrumentNameService.getInstrumentName(figi, "share") : figi;
                             String prettyTicker = instrumentNameService != null ? instrumentNameService.getTicker(figi, "share") : figi;
-                                                    log.info("Немедленное закрытие шорта [{}]: {} лотов по цене {} (без проверок BP)",
+                            log.info("Немедленное закрытие шорта [{}]: {} лотов по цене {} (без проверок BP)",
                                 displayOf(figi), lotsToClose, trend.getCurrentPrice());
                             botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                     "Закрытие шорта (приоритет)", String.format("%s, Лотов: %d, Цена: %.4f",
                                             displayOf(figi), lotsToClose, trend.getCurrentPrice()));
                             try {
-                                orderService.placeMarketOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                                log.info("Размещаем ордер на закрытие шорта: {} лотов BUY по цене {}", lotsToClose, trend.getCurrentPrice());
+                                PostOrderResponse response = orderService.placeMarketOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                                log.info("Ордер на закрытие шорта размещен успешно: orderId={}, status={}", 
+                                    response.getOrderId(), response.getExecutionReportStatus());
                                 botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
-                                        "Шорт закрыт", String.format("%s, Лотов: %d", displayOf(figi), lotsToClose));
+                                        "Шорт закрыт", String.format("%s, Лотов: %d, OrderId: %s", displayOf(figi), lotsToClose, response.getOrderId()));
                                 return;
                             } catch (Exception e) {
-                                log.error("Ошибка немедленного закрытия шорта [{}]: {}", displayOf(figi), e.getMessage());
+                                log.error("Ошибка немедленного закрытия шорта [{}]: {}", displayOf(figi), e.getMessage(), e);
+                                botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                        "Ошибка закрытия шорта", String.format("%s, Лотов: %d, Ошибка: %s", displayOf(figi), lotsToClose, e.getMessage()));
                                 // Если не получилось — продолжаем стандартные проверки
                             }
                         }

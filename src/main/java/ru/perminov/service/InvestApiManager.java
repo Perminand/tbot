@@ -140,8 +140,10 @@ public class InvestApiManager {
      */
     public synchronized InvestApi getCurrentInvestApi() {
         if (currentInvestApi == null) {
-            throw new IllegalStateException("InvestApi не инициализирован");
+            log.error("InvestApi не инициализирован. Проверьте логи инициализации.");
+            throw new IllegalStateException("InvestApi не инициализирован. Проверьте логи инициализации.");
         }
+        log.debug("Возвращаем текущий InvestApi для режима: {}", currentMode);
         return currentInvestApi;
     }
     
