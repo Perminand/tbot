@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление рисками - Торговый бот</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .risk-card {
+            transition: all 0.3s ease;
+        }
+        .risk-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        .status-active { background-color: #28a745; }
+        .status-warning { background-color: #ffc107; }
+        .status-danger { background-color: #dc3545; }
+        .status-info { background-color: #17a2b8; }
+        
+        .price-change-positive { color: #28a745; }
+        .price-change-negative { color: #dc3545; }
+        
+        .event-timeline {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .event-item {
+            border-left: 3px solid #dee2e6;
+            padding-left: 15px;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        .event-item::before {
+            content: '';
+            position: absolute;
+            left: -8px;
+            top: 0;
+            width: 13px;
+            height: 13px;
+            border-radius: 50%;
+            background: #007bff;
+        }
+        
+        .event-item.sl-updated::before { background: #dc3545; }
+        .event-item.tp-updated::before { background: #28a745; }
+        .event-item.trailing-updated::before { background: #ffc107; }
+        .event-item.watermark-updated::before { background: #17a2b8; }
+        .event-item.position-closed::before { background: #6c757d; }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Боковая панель -->
+            <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
+                <div class="position-sticky pt-3">
+                    <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 text-muted text-uppercase">
+                        <span>Управление рисками</span>
+                    </h6>
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link active" href="#" onclick="showSection('overview')">
+                                <i class="bi bi-speedometer2"></i> Обзор
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('positions')">
+                                <i class="bi bi-graph-up"></i> Позиции
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('events')">
+                                <i class="bi bi-clock-history"></i> События
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('settings')">
+                                <i class="bi bi-gear"></i> Настройки
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Основной контент -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Управление рисками</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <div class="btn-group me-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="refreshData()">
+                                <i class="bi bi-arrow-clockwise"></i> Обновить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Обзор -->
+                <div id="overview-section" class="section-content">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="card text-white bg-primary mb-3">
+                                <div class="card-body">
+                                    <h5 class="card-title">Активные SL</h5>
+                                    <p class="card-text display-6" id="active-sl-count">0</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-success mb-3">
+                                <div class="card-body">
+                                    <h5 class="card-title">Активные TP</h5>
+                                    <p class="card-text display-6" id="active-tp-count">0</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-warning mb-3">
+                                <div class="card-body">
+                                    <h5 class="card-title">Trailing</h5>
+                                    <p class="card-text display-6" id="trailing-count">0</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-info mb-3">
+                                <div class="card-body">
+                                    <h5 class="card-title">Позиции</h5>
+                                    <p class="card-text display-6" id="total-positions">0</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-12">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Последние события рисков</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="recent-events" class="event-timeline">
+                                        <!-- События будут загружены здесь -->
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Позиции -->
+                <div id="positions-section" class="section-content" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Состояние рисков по позициям</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <input type="text" class="form-control" id="search-figi" placeholder="Поиск по FIGI или названию">
+                                </div>
+                                <div class="col-md-3">
+                                    <select class="form-select" id="filter-side">
+                                        <option value="">Все стороны</option>
+                                        <option value="LONG">Лонг</option>
+                                        <option value="SHORT">Шорт</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <select class="form-select" id="filter-status">
+                                        <option value="">Все статусы</option>
+                                        <option value="active">Активные</option>
+                                        <option value="warning">Предупреждение</option>
+                                        <option value="danger">Критично</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div id="positions-list">
+                                <!-- Позиции будут загружены здесь -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- События -->
+                <div id="events-section" class="section-content" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>История событий рисков</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <input type="text" class="form-control" id="event-search" placeholder="Поиск по FIGI или названию">
+                                </div>
+                                <div class="col-md-3">
+                                    <select class="form-select" id="event-type-filter">
+                                        <option value="">Все типы</option>
+                                        <option value="SL_UPDATED">SL обновлен</option>
+                                        <option value="TP_UPDATED">TP обновлен</option>
+                                        <option value="TRAILING_UPDATED">Trailing обновлен</option>
+                                        <option value="WATERMARK_UPDATED">Watermark обновлен</option>
+                                        <option value="POSITION_CLOSED">Позиция закрыта</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-3">
+                                    <select class="form-select" id="event-limit">
+                                        <option value="50">50 событий</option>
+                                        <option value="100" selected>100 событий</option>
+                                        <option value="200">200 событий</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-2">
+                                    <button class="btn btn-primary w-100" onclick="loadRiskEvents()">
+                                        <i class="bi bi-search"></i> Найти
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="events-list">
+                                <!-- События будут загружены здесь -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Настройки -->
+                <div id="settings-section" class="section-content" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Настройки системы рисков</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6>Общие настройки</h6>
+                                    <div class="mb-3">
+                                        <label class="form-label">Минимальный шаг trailing (тики)</label>
+                                        <input type="number" class="form-control" id="min-step-ticks" value="0.01" step="0.01">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label">Тип trailing по умолчанию</label>
+                                        <select class="form-select" id="default-trailing-type">
+                                            <option value="PERCENT">Процентный</option>
+                                            <option value="ATR">ATR</option>
+                                            <option value="FIXED">Фиксированный</option>
+                                            <option value="CHANNEL">По каналу</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6>Уведомления</h6>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="notify-sl-trigger" checked>
+                                            <label class="form-check-label">Уведомления о срабатывании SL</label>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="notify-tp-trigger" checked>
+                                            <label class="form-check-label">Уведомления о срабатывании TP</label>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="notify-trailing-update" checked>
+                                            <label class="form-check-label">Уведомления об обновлении trailing</label>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-12">
+                                    <button class="btn btn-primary" onclick="saveSettings()">
+                                        <i class="bi bi-save"></i> Сохранить настройки
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        let currentAccountId = null;
+        let refreshInterval = null;
+
+        // Инициализация страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAccounts();
+            showSection('overview');
+        });
+
+        // Загрузка аккаунтов
+        async function loadAccounts() {
+            try {
+                const response = await fetch('/api/accounts');
+                const accounts = await response.json();
+                if (accounts.length > 0) {
+                    currentAccountId = accounts[0].id;
+                    loadOverviewData();
+                    startAutoRefresh();
+                }
+            } catch (error) {
+                console.error('Ошибка загрузки аккаунтов:', error);
+            }
+        }
+
+        // Показать секцию
+        function showSection(sectionName) {
+            // Скрыть все секции
+            document.querySelectorAll('.section-content').forEach(section => {
+                section.style.display = 'none';
+            });
+            
+            // Убрать активный класс со всех ссылок
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            
+            // Показать нужную секцию
+            document.getElementById(sectionName + '-section').style.display = 'block';
+            
+            // Добавить активный класс к ссылке
+            event.target.classList.add('active');
+            
+            // Загрузить данные для секции
+            switch(sectionName) {
+                case 'overview':
+                    loadOverviewData();
+                    break;
+                case 'positions':
+                    loadRiskStates();
+                    break;
+                case 'events':
+                    loadRiskEvents();
+                    break;
+            }
+        }
+
+        // Загрузка данных для обзора
+        async function loadOverviewData() {
+            if (!currentAccountId) return;
+            
+            try {
+                // Загружаем статистику
+                const [slResponse, tpResponse, positionsResponse, eventsResponse] = await Promise.all([
+                    fetch('/api/risk/active-stops'),
+                    fetch('/api/risk/active-takes'),
+                    fetch(`/api/risk/states/${currentAccountId}`),
+                    fetch(`/api/risk/events/${currentAccountId}?limit=10`)
+                ]);
+                
+                const activeSL = await slResponse.json();
+                const activeTP = await tpResponse.json();
+                const positions = await positionsResponse.json();
+                const events = await eventsResponse.json();
+                
+                // Обновляем счетчики
+                document.getElementById('active-sl-count').textContent = activeSL.length;
+                document.getElementById('active-tp-count').textContent = activeTP.length;
+                document.getElementById('total-positions').textContent = positions.length;
+                
+                // Считаем trailing позиции
+                const trailingCount = positions.filter(p => p.trailingPct && p.trailingPct > 0).length;
+                document.getElementById('trailing-count').textContent = trailingCount;
+                
+                // Отображаем последние события
+                renderRecentEvents(events);
+                
+            } catch (error) {
+                console.error('Ошибка загрузки данных обзора:', error);
+            }
+        }
+
+        // Загрузка состояний рисков
+        async function loadRiskStates() {
+            if (!currentAccountId) return;
+            
+            try {
+                const response = await fetch(`/api/risk/states/${currentAccountId}`);
+                const states = await response.json();
+                renderRiskStates(states);
+            } catch (error) {
+                console.error('Ошибка загрузки состояний рисков:', error);
+            }
+        }
+
+        // Загрузка событий рисков
+        async function loadRiskEvents() {
+            if (!currentAccountId) return;
+            
+            try {
+                const search = document.getElementById('event-search').value;
+                const eventType = document.getElementById('event-type-filter').value;
+                const limit = document.getElementById('event-limit').value;
+                
+                let url = `/api/risk/events/${currentAccountId}?limit=${limit}`;
+                if (eventType) url += `&eventType=${eventType}`;
+                
+                const response = await fetch(url);
+                const events = await response.json();
+                
+                // Фильтруем по поиску если нужно
+                let filteredEvents = events;
+                if (search) {
+                    filteredEvents = events.filter(e => 
+                        e.figi.toLowerCase().includes(search.toLowerCase()) ||
+                        (e.ticker && e.ticker.toLowerCase().includes(search.toLowerCase())) ||
+                        (e.name && e.name.toLowerCase().includes(search.toLowerCase()))
+                    );
+                }
+                
+                renderRiskEvents(filteredEvents);
+            } catch (error) {
+                console.error('Ошибка загрузки событий рисков:', error);
+            }
+        }
+
+        // Отображение последних событий
+        function renderRecentEvents(events) {
+            const container = document.getElementById('recent-events');
+            if (events.length === 0) {
+                container.innerHTML = '<p class="text-muted">Нет событий</p>';
+                return;
+            }
+            
+            container.innerHTML = events.map(event => `
+                <div class="event-item ${getEventClass(event.eventType)}">
+                    <div class="d-flex justify-content-between">
+                        <strong>${event.reason}</strong>
+                        <small class="text-muted">${formatDateTime(event.createdAt)}</small>
+                    </div>
+                    <div class="text-muted">
+                        ${event.ticker || event.figi} - ${event.name || 'Неизвестный инструмент'}
+                    </div>
+                    ${event.details ? `<div class="small">${event.details}</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        // Отображение состояний рисков
+        function renderRiskStates(states) {
+            const container = document.getElementById('positions-list');
+            if (states.length === 0) {
+                container.innerHTML = '<p class="text-muted">Нет активных позиций с рисками</p>';
+                return;
+            }
+            
+            container.innerHTML = states.map(state => `
+                <div class="card risk-card mb-3">
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <h6 class="card-title">
+                                    <span class="status-indicator ${getStatusClass(state)}"></span>
+                                    ${state.ticker || state.figi}
+                                </h6>
+                                <p class="card-text text-muted">${state.name || 'Неизвестный инструмент'}</p>
+                                <span class="badge bg-${state.side === 'LONG' ? 'success' : 'danger'}">${state.side}</span>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="row">
+                                    <div class="col-6">
+                                        <small class="text-muted">SL</small>
+                                        <div class="fw-bold">${formatPrice(state.stopLossLevel)}</div>
+                                        <small class="text-muted">${state.stopLossPct}%</small>
+                                    </div>
+                                    <div class="col-6">
+                                        <small class="text-muted">TP</small>
+                                        <div class="fw-bold">${formatPrice(state.takeProfitLevel)}</div>
+                                        <small class="text-muted">${state.takeProfitPct}%</small>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="row">
+                                    <div class="col-6">
+                                        <small class="text-muted">Средняя цена</small>
+                                        <div class="fw-bold">${formatPrice(state.averagePriceSnapshot)}</div>
+                                    </div>
+                                    <div class="col-6">
+                                        <small class="text-muted">Количество</small>
+                                        <div class="fw-bold">${state.quantitySnapshot}</div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="row">
+                                    <div class="col-6">
+                                        <small class="text-muted">Trailing</small>
+                                        <div class="fw-bold">${state.trailingPct ? state.trailingPct + '%' : 'Нет'}</div>
+                                    </div>
+                                    <div class="col-6">
+                                        <small class="text-muted">Обновлено</small>
+                                        <div class="fw-bold">${formatDateTime(state.updatedAt)}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Отображение событий рисков
+        function renderRiskEvents(events) {
+            const container = document.getElementById('events-list');
+            if (events.length === 0) {
+                container.innerHTML = '<p class="text-muted">Нет событий</p>';
+                return;
+            }
+            
+            container.innerHTML = events.map(event => `
+                <div class="card mb-2">
+                    <div class="card-body py-2">
+                        <div class="row align-items-center">
+                            <div class="col-md-2">
+                                <span class="badge bg-${getEventBadgeClass(event.eventType)}">${getEventTypeName(event.eventType)}</span>
+                            </div>
+                            <div class="col-md-3">
+                                <strong>${event.ticker || event.figi}</strong>
+                                <div class="small text-muted">${event.name || 'Неизвестный инструмент'}</div>
+                            </div>
+                            <div class="col-md-2">
+                                <div class="small text-muted">${event.reason}</div>
+                            </div>
+                            <div class="col-md-3">
+                                ${event.oldValue && event.newValue ? 
+                                    `<div class="small">${formatPrice(event.oldValue)} → ${formatPrice(event.newValue)}</div>` : 
+                                    event.details ? `<div class="small">${event.details}</div>` : ''
+                                }
+                            </div>
+                            <div class="col-md-2 text-end">
+                                <small class="text-muted">${formatDateTime(event.createdAt)}</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Вспомогательные функции
+        function getEventClass(eventType) {
+            const classes = {
+                'SL_UPDATED': 'sl-updated',
+                'TP_UPDATED': 'tp-updated',
+                'TRAILING_UPDATED': 'trailing-updated',
+                'WATERMARK_UPDATED': 'watermark-updated',
+                'POSITION_CLOSED': 'position-closed'
+            };
+            return classes[eventType] || '';
+        }
+
+        function getStatusClass(state) {
+            if (!state.stopLossLevel || !state.takeProfitLevel) return 'status-info';
+            
+            // Логика определения статуса на основе текущей цены
+            // Здесь можно добавить более сложную логику
+            return 'status-active';
+        }
+
+        function getEventBadgeClass(eventType) {
+            const classes = {
+                'SL_UPDATED': 'danger',
+                'TP_UPDATED': 'success',
+                'TRAILING_UPDATED': 'warning',
+                'WATERMARK_UPDATED': 'info',
+                'POSITION_CLOSED': 'secondary'
+            };
+            return classes[eventType] || 'primary';
+        }
+
+        function getEventTypeName(eventType) {
+            const names = {
+                'SL_UPDATED': 'SL обновлен',
+                'TP_UPDATED': 'TP обновлен',
+                'TRAILING_UPDATED': 'Trailing обновлен',
+                'WATERMARK_UPDATED': 'Watermark обновлен',
+                'POSITION_CLOSED': 'Позиция закрыта'
+            };
+            return names[eventType] || eventType;
+        }
+
+        function formatPrice(price) {
+            if (!price) return '—';
+            return new Intl.NumberFormat('ru-RU', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 4
+            }).format(price);
+        }
+
+        function formatDateTime(dateTime) {
+            if (!dateTime) return '—';
+            return new Date(dateTime).toLocaleString('ru-RU');
+        }
+
+        // Автообновление
+        function startAutoRefresh() {
+            if (refreshInterval) clearInterval(refreshInterval);
+            refreshInterval = setInterval(() => {
+                if (document.getElementById('overview-section').style.display !== 'none') {
+                    loadOverviewData();
+                }
+            }, 30000); // каждые 30 секунд
+        }
+
+        // Обновить данные
+        function refreshData() {
+            if (document.getElementById('overview-section').style.display !== 'none') {
+                loadOverviewData();
+            } else if (document.getElementById('positions-section').style.display !== 'none') {
+                loadRiskStates();
+            } else if (document.getElementById('events-section').style.display !== 'none') {
+                loadRiskEvents();
+            }
+        }
+
+        // Сохранение настроек
+        function saveSettings() {
+            // Здесь можно добавить логику сохранения настроек
+            alert('Настройки сохранены');
+        }
+    </script>
+</body>
+</html>
