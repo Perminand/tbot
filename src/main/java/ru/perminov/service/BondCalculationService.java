@@ -29,7 +29,7 @@ public class BondCalculationService {
             // Получаем информацию об облигации
             Bond bond = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondByFigiSync(figi);
             if (bond == null) {
-                log.warn("Не удалось получить информацию об облигации: {}", figi);
+                log.warn("Не удалось получить информацию об облигации");
                 return BigDecimal.ZERO;
             }
             
@@ -38,7 +38,7 @@ public class BondCalculationService {
             Instant to = Instant.now().plus(365, ChronoUnit.DAYS);
             List<Coupon> coupons = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondCouponsSync(figi, from, to);
             if (coupons.isEmpty()) {
-                log.warn("Не найдены купоны для облигации: {}", figi);
+                log.warn("Не найдены купоны для облигации");
                 return BigDecimal.ZERO;
             }
             
@@ -55,7 +55,7 @@ public class BondCalculationService {
             }
             
             if (nextCoupon == null) {
-                log.warn("Не найден следующий купон для облигации: {}", figi);
+                log.warn("Не найден следующий купон для облигации");
                 return BigDecimal.ZERO;
             }
             
@@ -69,7 +69,7 @@ public class BondCalculationService {
             }
             
             if (prevCoupon == null) {
-                log.warn("Не найден предыдущий купон для облигации: {}", figi);
+                log.warn("Не найден предыдущий купон для облигации");
                 return BigDecimal.ZERO;
             }
             
@@ -92,13 +92,13 @@ public class BondCalculationService {
                 .multiply(BigDecimal.valueOf(daysSincePrevCoupon))
                 .divide(BigDecimal.valueOf(daysBetweenCoupons), 4, RoundingMode.HALF_UP);
             
-            log.debug("НКД для {}: {} (купон: {}, дни: {}/{})", 
-                figi, nkd, couponValue, daysSincePrevCoupon, daysBetweenCoupons);
+            log.debug("НКД: {} (купон: {}, дни: {}/{})", 
+                nkd, couponValue, daysSincePrevCoupon, daysBetweenCoupons);
             
             return nkd;
             
         } catch (Exception e) {
-            log.error("Ошибка расчета НКД для {}: {}", figi, e.getMessage());
+            log.error("Ошибка расчета НКД: {}", e.getMessage());
             return BigDecimal.ZERO;
         }
     }
@@ -111,7 +111,7 @@ public class BondCalculationService {
             // Получаем информацию об облигации
             Bond bond = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondByFigiSync(figi);
             if (bond == null) {
-                log.warn("Не удалось получить информацию об облигации: {}", figi);
+                log.warn("Не удалось получить информацию об облигации");
                 return BigDecimal.ZERO;
             }
             
@@ -120,7 +120,7 @@ public class BondCalculationService {
             Instant to = Instant.now().plus(365, ChronoUnit.DAYS);
             List<Coupon> coupons = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondCouponsSync(figi, from, to);
             if (coupons.isEmpty()) {
-                log.warn("Не найдены купоны для облигации: {}", figi);
+                log.warn("Не найдены купоны для облигации");
                 return BigDecimal.ZERO;
             }
             
@@ -142,7 +142,7 @@ public class BondCalculationService {
             }
             
             if (couponCount == 0) {
-                log.warn("Не найдены купоны за последний год для облигации: {}", figi);
+                log.warn("Не найдены купоны за последний год для облигации");
                 return BigDecimal.ZERO;
             }
             
@@ -165,7 +165,7 @@ public class BondCalculationService {
             return BigDecimal.ZERO;
             
         } catch (Exception e) {
-            log.error("Ошибка расчета доходности для {}: {}", figi, e.getMessage());
+            log.error("Ошибка расчета доходности: {}", e.getMessage());
             return BigDecimal.ZERO;
         }
     }
@@ -178,14 +178,14 @@ public class BondCalculationService {
             // Получаем информацию об облигации
             Bond bond = investApiManager.getCurrentInvestApi().getInstrumentsService().getBondByFigiSync(figi);
             if (bond == null) {
-                log.warn("Не удалось получить информацию об облигации: {}", figi);
+                log.warn("Не удалось получить информацию об облигации");
                 return BigDecimal.ZERO;
             }
             
             // Получаем дату погашения
             String maturityDateStr = bond.getMaturityDate().toString();
             if (maturityDateStr == null || maturityDateStr.isEmpty()) {
-                log.warn("Не найдена дата погашения для облигации: {}", figi);
+                log.warn("Не найдена дата погашения для облигации");
                 return BigDecimal.ZERO;
             }
             
@@ -193,7 +193,7 @@ public class BondCalculationService {
             LocalDate today = LocalDate.now();
             
             if (maturityDate.isBefore(today)) {
-                log.warn("Облигация уже погашена: {}", figi);
+                log.warn("Облигация уже погашена");
                 return BigDecimal.ZERO;
             }
             
@@ -237,7 +237,7 @@ public class BondCalculationService {
             return BigDecimal.ZERO;
             
         } catch (Exception e) {
-            log.error("Ошибка расчета YTM для {}: {}", figi, e.getMessage());
+            log.error("Ошибка расчета YTM: {}", e.getMessage());
             return BigDecimal.ZERO;
         }
     }

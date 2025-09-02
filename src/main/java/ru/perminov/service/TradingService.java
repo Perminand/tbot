@@ -23,9 +23,9 @@ public class TradingService {
      */
     public Mono<String> placeMarketBuyOrder(String figi, int lots, String accountId) {
         return Mono.fromCallable(() -> {
-            log.info("Попытка размещения рыночного ордера на покупку: figi={}, lots={}, accountId={}", figi, lots, accountId);
+            log.info("Попытка размещения рыночного ордера на покупку: {} лотов, аккаунт {}", lots, accountId);
             PostOrderResponse response = orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
-            log.info("Размещен рыночный ордер на покупку через OrderService: {} лотов {}", lots, figi);
+            log.info("Размещен рыночный ордер на покупку через OrderService: {} лотов", lots);
             return response.toString();
         }).doOnError(error -> {
             log.error("Ошибка при размещении ордера на покупку: {}", error.getMessage());
@@ -39,7 +39,7 @@ public class TradingService {
     public Mono<String> placeMarketSellOrder(String figi, int lots, String accountId) {
         return Mono.fromCallable(() -> {
             PostOrderResponse response = orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
-            log.info("Размещен рыночный ордер на продажу через OrderService: {} лотов {}", lots, figi);
+            log.info("Размещен рыночный ордер на продажу через OrderService: {} лотов", lots);
             return response.toString();
         }).doOnError(error -> log.error("Ошибка при размещении ордера на продажу: {}", error.getMessage()));
     }
@@ -53,7 +53,7 @@ public class TradingService {
                     OrderDirection.ORDER_DIRECTION_BUY : OrderDirection.ORDER_DIRECTION_SELL;
             String priceStr = price.stripTrailingZeros().toPlainString();
             PostOrderResponse response = orderService.placeLimitOrder(figi, lots, orderDirection, accountId, priceStr);
-            log.info("Размещен лимитный ордер через OrderService: {} лотов {} по цене {}", lots, figi, price);
+            log.info("Размещен лимитный ордер через OrderService: {} лотов по цене {}", lots, price);
             return response.toString();
         }).doOnError(error -> log.error("Ошибка при размещении лимитного ордера: {}", error.getMessage()));
     }

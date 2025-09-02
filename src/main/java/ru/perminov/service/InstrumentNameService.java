@@ -34,8 +34,8 @@ public class InstrumentNameService {
             }
             
             // Отладочное логирование для VK
-            if (figi.contains("VK") || figi.contains("BBG000B9XRY")) {
-                log.info("DEBUG: Получение названия для VK-подобного FIGI: {} (тип: {})", figi, instrumentType);
+            if (figi.startsWith("TCS") && figi.length() > 20) {
+                log.info("DEBUG: Получение названия для VK-подобного инструмента (тип: {})", instrumentType);
             }
             
             String name = null;
@@ -61,14 +61,14 @@ public class InstrumentNameService {
             // Сохраняем в кэш
             if (name != null && !name.isEmpty()) {
                 instrumentNameCache.put(figi, name);
-                log.debug("Получено название для {}: {}", figi, name);
+                log.debug("Получено название: {}", name);
             }
             
             return name;
             
         } catch (Exception e) {
-            log.warn("Ошибка получения названия для {}: {}", figi, e.getMessage());
-            return getFallbackName(figi, instrumentType);
+            log.warn("Ошибка получения названия: {}", e.getMessage());
+            return null;
         }
     }
     
@@ -106,14 +106,14 @@ public class InstrumentNameService {
             // Сохраняем в кэш
             if (ticker != null && !ticker.isEmpty()) {
                 tickerCache.put(figi, ticker);
-                log.debug("Получен тикер для {}: {}", figi, ticker);
+                log.debug("Получен тикер: {}", ticker);
             }
             
             return ticker;
             
         } catch (Exception e) {
-            log.warn("Ошибка получения тикера для {}: {}", figi, e.getMessage());
-            return getFallbackTicker(figi);
+            log.warn("Ошибка получения тикера: {}", e.getMessage());
+            return null;
         }
     }
     
@@ -127,7 +127,8 @@ public class InstrumentNameService {
                 return share.getName();
             }
         } catch (Exception e) {
-            log.debug("Не удалось получить акцию {}: {}", figi, e.getMessage());
+            log.debug("Не удалось получить акцию: {}", e.getMessage());
+            return null;
         }
         return null;
     }
@@ -142,7 +143,8 @@ public class InstrumentNameService {
                 return bond.getName();
             }
         } catch (Exception e) {
-            log.debug("Не удалось получить облигацию {}: {}", figi, e.getMessage());
+            log.debug("Не удалось получить облигацию: {}", e.getMessage());
+            return null;
         }
         return null;
     }
@@ -157,7 +159,8 @@ public class InstrumentNameService {
                 return etf.getName();
             }
         } catch (Exception e) {
-            log.debug("Не удалось получить ETF {}: {}", figi, e.getMessage());
+            log.debug("Не удалось получить ETF: {}", e.getMessage());
+            return null;
         }
         return null;
     }
@@ -172,7 +175,8 @@ public class InstrumentNameService {
                 return currency.getName();
             }
         } catch (Exception e) {
-            log.debug("Не удалось получить валюту {}: {}", figi, e.getMessage());
+            log.debug("Не удалось получить валюту: {}", e.getMessage());
+            return null;
         }
         return null;
     }
@@ -187,7 +191,8 @@ public class InstrumentNameService {
                 return share.getTicker();
             }
         } catch (Exception e) {
-            log.debug("Не удалось получить тикер акции {}: {}", figi, e.getMessage());
+            log.debug("Не удалось получить тикер акции: {}", e.getMessage());
+            return null;
         }
         return null;
     }
@@ -202,7 +207,8 @@ public class InstrumentNameService {
                 return bond.getTicker();
             }
         } catch (Exception e) {
-            log.debug("Не удалось получить тикер облигации {}: {}", figi, e.getMessage());
+            log.debug("Не удалось получить тикер облигации: {}", e.getMessage());
+            return null;
         }
         return null;
     }
@@ -217,7 +223,8 @@ public class InstrumentNameService {
                 return etf.getTicker();
             }
         } catch (Exception e) {
-            log.debug("Не удалось получить тикер ETF {}: {}", figi, e.getMessage());
+            log.debug("Не удалось получить тикер ETF: {}", e.getMessage());
+            return null;
         }
         return null;
     }
@@ -232,14 +239,15 @@ public class InstrumentNameService {
                 return currency.getTicker();
             }
         } catch (Exception e) {
-            log.debug("Не удалось получить тикер валюты {}: {}", figi, e.getMessage());
+            log.debug("Не удалось получить тикер валюты: {}", e.getMessage());
+            return null;
         }
         return null;
     }
     
     private String getFallbackName(String figi, String instrumentType) {
         // Отладочное логирование
-        log.debug("DEBUG: getFallbackName для FIGI: {} (тип: {})", figi, instrumentType);
+        log.debug("DEBUG: getFallbackName для инструмента (тип: {})", instrumentType);
         
         // Резервные названия для известных инструментов
         switch (figi) {

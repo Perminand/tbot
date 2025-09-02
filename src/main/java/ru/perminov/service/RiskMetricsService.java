@@ -43,11 +43,11 @@ public class RiskMetricsService {
                             if (p.getCurrentPrice() instanceof ru.tinkoff.piapi.core.models.Money) {
                                 ru.tinkoff.piapi.core.models.Money money = (ru.tinkoff.piapi.core.models.Money) p.getCurrentPrice();
                                 currentPrice = money.getValue();
-                                log.debug("Цена для {} через getValue(): {}", p.getFigi(), currentPrice);
+                                log.debug("Цена через getValue(): {}", currentPrice);
                             } else {
                                 // Фоллбек на парсинг строки
                                 String priceStr = p.getCurrentPrice().toString();
-                                log.debug("Парсинг цены для {}: {}", p.getFigi(), priceStr);
+                                log.debug("Парсинг цены: {}", priceStr);
                                 
                                 if (priceStr.contains("value=")) {
                                     String valuePart = priceStr.substring(priceStr.indexOf("value=") + 6);
@@ -66,7 +66,7 @@ public class RiskMetricsService {
                                 }
                             }
                         } catch (Exception e) {
-                            log.warn("Не удалось получить цену для позиции {}: {}", p.getFigi(), e.getMessage());
+                            log.warn("Не удалось получить цену для позиции: {}", e.getMessage());
                             currentPrice = BigDecimal.ZERO;
                         }
                     }
@@ -79,8 +79,8 @@ public class RiskMetricsService {
                         positionValue = quantity.multiply(currentPrice);
                     }
                     
-                    log.debug("Позиция {}: количество={}, цена={}, стоимость={}", 
-                        p.getFigi(), quantity, currentPrice, positionValue);
+                    log.debug("Позиция: количество={}, цена={}, стоимость={}", 
+                        quantity, currentPrice, positionValue);
                     
                     return positionValue;
                 })
@@ -148,7 +148,7 @@ public class RiskMetricsService {
                                 }
                             }
                         } catch (Exception e) {
-                            log.warn("Не удалось получить цену для позиции {}: {}", p.getFigi(), e.getMessage());
+                            log.warn("Не удалось получить цену для позиции: {}", e.getMessage());
                         }
                     }
                     

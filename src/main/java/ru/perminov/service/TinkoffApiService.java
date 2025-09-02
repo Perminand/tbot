@@ -32,9 +32,9 @@ public class TinkoffApiService {
     public Mono<String> getInstrumentByFigi(String figi) {
         return Mono.fromCallable(() -> {
             // Пока возвращаем пустой ответ, так как метод не найден
-            log.info("Получена информация об инструменте: {}", figi);
+            log.info("Получена информация об инструменте");
             return "{\"figi\": \"" + figi + "\", \"status\": \"not_implemented\"}";
-        }).doOnError(error -> log.error("Ошибка при получении инструмента {}: {}", figi, error.getMessage()));
+        }).doOnError(error -> log.error("Ошибка при получении инструмента: {}", error.getMessage()));
     }
     
     /**
@@ -68,7 +68,7 @@ public class TinkoffApiService {
         return Mono.fromCallable(() -> {
             apiRateLimiter.acquire();
             var response = investApiManager.getCurrentInvestApi().getMarketDataService().getLastPricesSync(java.util.List.of(figi));
-            log.info("Получены рыночные данные для: {}", figi);
+            log.info("Получены рыночные данные");
             return response.toString();
         }).doOnError(error -> log.error("Ошибка при получении рыночных данных: {}", error.getMessage()));
     }

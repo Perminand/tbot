@@ -66,7 +66,7 @@ public class DynamicInstrumentService {
             return checkInstrumentAvailability(figi);
             
         } catch (Exception e) {
-            log.warn("Ошибка проверки доступности инструмента {}: {}", figi, e.getMessage());
+                                    log.warn("Ошибка проверки доступности инструмента: {}", e.getMessage());
             return false;
         }
     }
@@ -197,7 +197,7 @@ public class DynamicInstrumentService {
             return false;
             
         } catch (Exception e) {
-            log.warn("Ошибка проверки доступности {}: {}", figi, e.getMessage());
+                                    log.warn("Ошибка проверки доступности: {}", e.getMessage());
             return false;
         }
     }

@@ -57,8 +57,8 @@ public class OrderService {
             }
             
             String orderId = UUID.randomUUID().toString();
-            log.info("Размещение рыночного ордера: figi={}, lots={}, direction={}, accountId={}, orderId={}", 
-                    figi, lots, direction, accountId, orderId);
+            log.info("Размещение рыночного ордера: {} лотов, направление {}, аккаунт {}, ID {}", 
+                    lots, direction, accountId, orderId);
             
             // Создаем нулевую цену для рыночного ордера
             Quotation priceObj = Quotation.newBuilder()
@@ -102,8 +102,8 @@ public class OrderService {
             return response;
         } catch (InterruptedException | ExecutionException e) {
             String errorMsg = e.getMessage();
-            log.error("Ошибка при размещении рыночного ордера: figi={}, lots={}, direction={}, accountId={}, error={}", 
-                    figi, lots, direction, accountId, errorMsg, e);
+            log.error("Ошибка при размещении рыночного ордера: {} лотов, направление {}, аккаунт {}, ошибка: {}", 
+                    lots, direction, accountId, errorMsg, e);
             
             // Детальный анализ ошибки
             if (errorMsg != null) {
@@ -123,8 +123,8 @@ public class OrderService {
     public PostOrderResponse placeLimitOrder(String figi, int lots, OrderDirection direction, String accountId, String price) {
         try {
             String orderId = UUID.randomUUID().toString();
-            log.info("Размещение лимитного ордера: figi={}, lots={}, direction={}, accountId={}, price={}, orderId={}", 
-                    figi, lots, direction, accountId, price, orderId);
+            log.info("Размещение лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ID {}", 
+                    lots, direction, accountId, price, orderId);
             
             Quotation priceObj = Quotation.newBuilder()
                 .setUnits(Long.parseLong(price.split("\\.")[0]))
@@ -147,8 +147,8 @@ public class OrderService {
                     response.getOrderId(), response.getExecutionReportStatus());
             return response;
         } catch (InterruptedException | ExecutionException e) {
-            log.error("Ошибка при размещении лимитного ордера: figi={}, lots={}, direction={}, accountId={}, price={}, error={}", 
-                    figi, lots, direction, accountId, price, e.getMessage(), e);
+            log.error("Ошибка при размещении лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ошибка: {}", 
+                    lots, direction, accountId, price, e.getMessage(), e);
             throw new RuntimeException("Ошибка при размещении лимитного ордера: " + e.getMessage(), e);
         }
     }

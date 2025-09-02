@@ -84,11 +84,11 @@ public class PortfolioManagementService {
                     if (position.getCurrentPrice() instanceof ru.tinkoff.piapi.core.models.Money) {
                         ru.tinkoff.piapi.core.models.Money money = (ru.tinkoff.piapi.core.models.Money) position.getCurrentPrice();
                         currentPrice = money.getValue();
-                        log.debug("Цена для {} через getValue(): {}", position.getFigi(), currentPrice);
+                        log.debug("Цена через getValue(): {}", currentPrice);
                     } else {
                         // Фоллбек на парсинг строки
                         String priceStr = position.getCurrentPrice().toString();
-                        log.debug("Price string for {}: {}", position.getFigi(), priceStr);
+                        log.debug("Price string: {}", priceStr);
                         
                         if (priceStr.contains("value=")) {
                             String valuePart = priceStr.substring(priceStr.indexOf("value=") + 6);
@@ -105,7 +105,7 @@ public class PortfolioManagementService {
                         }
                     }
                 } catch (Exception e) {
-                    log.warn("Не удалось получить цену для позиции {}: {}", position.getFigi(), e.getMessage());
+                                            log.warn("Не удалось получить цену для позиции: {}", e.getMessage());
                     currentPrice = BigDecimal.ZERO;
                 }
             } else {
@@ -254,7 +254,7 @@ public class PortfolioManagementService {
                 double maxAtrPct = tradingSettingsService.getDouble("atr.max.pct", 0.08);
                 // Фильтр слишком низкой волатильности (шум) и экстремальной волатильности
                 if (atrPct.compareTo(java.math.BigDecimal.valueOf(minAtrPct)) < 0 || atrPct.compareTo(java.math.BigDecimal.valueOf(maxAtrPct)) > 0) {
-                    log.info("ATR-фильтр: пропускаем {} (ATR%={})", figi, atrPct);
+                    log.info("ATR-фильтр: пропускаем {} (ATR%={})", displayOf(figi), atrPct);
                     return;
                 }
             }
@@ -269,7 +269,7 @@ public class PortfolioManagementService {
             // Базовый оппортьюнити для логирования и метрик (сохранено)
             TradingOpportunity opportunity = analyzeTradingOpportunity(figi, accountId);
             if (opportunity == null) {
-                log.warn("Не удалось проанализировать торговую возможность для {}", figi);
+                log.warn("Не удалось проанализировать торговую возможность для {}", displayOf(figi));
                 return;
             }
             
@@ -292,8 +292,8 @@ public class PortfolioManagementService {
                         if (lotsToClose > 0) {
                             String prettyName = instrumentNameService != null ? instrumentNameService.getInstrumentName(figi, "share") : figi;
                             String prettyTicker = instrumentNameService != null ? instrumentNameService.getTicker(figi, "share") : figi;
-                            log.info("Немедленное закрытие шорта [{} {}]: {} лотов по цене {} (без проверок BP)",
-                                    prettyTicker, prettyName, lotsToClose, trend.getCurrentPrice());
+                                                    log.info("Немедленное закрытие шорта [{}]: {} лотов по цене {} (без проверок BP)",
+                                displayOf(figi), lotsToClose, trend.getCurrentPrice());
                             botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                     "Закрытие шорта (приоритет)", String.format("%s, Лотов: %d, Цена: %.4f",
                                             displayOf(figi), lotsToClose, trend.getCurrentPrice()));
@@ -303,7 +303,7 @@ public class PortfolioManagementService {
                                         "Шорт закрыт", String.format("%s, Лотов: %d", displayOf(figi), lotsToClose));
                                 return;
                             } catch (Exception e) {
-                                log.error("Ошибка немедленного закрытия шорта [{} {}]: {}", prettyTicker, prettyName, e.getMessage());
+                                log.error("Ошибка немедленного закрытия шорта [{}]: {}", displayOf(figi), e.getMessage());
                                 // Если не получилось — продолжаем стандартные проверки
                             }
                         }
@@ -318,15 +318,15 @@ public class PortfolioManagementService {
                 // Проверка средств: блокируем покупки только если не разрешена маржинальная торговля
                 boolean allowNegativeCash = tradingSettingsService.getBoolean("margin-trading.allow-negative-cash", false);
                 if (availableCash.compareTo(BigDecimal.ZERO) < 0 && !allowNegativeCash) {
-                    log.warn("Реальные средства отрицательные ({}), блокируем покупки (маржинальная торговля отключена) [figi={}, accountId={}, price={}]", 
-                            availableCash, figi, accountId, trend.getCurrentPrice());
+                                            log.warn("Реальные средства отрицательные ({}), блокируем покупки (маржинальная торговля отключена) [{} , accountId={}, price={}]", 
+                                availableCash, displayOf(figi), accountId, trend.getCurrentPrice());
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                         "Блокировка покупок", String.format("%s, Account: %s, Price: %.4f, Отрицательные средства: %.2f (маржинальная торговля отключена)", 
                             displayOf(figi), accountId, trend.getCurrentPrice(), availableCash));
                     return;
                 } else if (availableCash.compareTo(BigDecimal.ZERO) < 0 && allowNegativeCash) {
-                    log.info("Реальные средства отрицательные ({}), но маржинальная торговля разрешена. Используем плечо. [figi={}, accountId={}, price={}]", 
-                            availableCash, figi, accountId, trend.getCurrentPrice());
+                                            log.info("Реальные средства отрицательные ({}), но маржинальная торговля разрешена. Используем плечо. [{} , accountId={}, price={}]", 
+                                availableCash, displayOf(figi), accountId, trend.getCurrentPrice());
                     botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT, 
                         "Маржинальная покупка", String.format("%s, Account: %s, Price: %.4f, Отрицательные средства: %.2f — используем плечо", 
                             displayOf(figi), accountId, trend.getCurrentPrice(), availableCash));
@@ -343,8 +343,8 @@ public class PortfolioManagementService {
                     BigDecimal minRequiredBuyingPower = trend.getCurrentPrice().multiply(BigDecimal.valueOf(minBuyingPowerRatio));
                     
                     if (buyingPower.compareTo(minRequiredBuyingPower) < 0) {
-                        log.warn("Недостаточная покупательная способность для маржинальной операции [figi={}, accountId={}, price={}, ratio={}]. Требуется: {}, доступно: {}", 
-                                figi, accountId, trend.getCurrentPrice(), minBuyingPowerRatio, minRequiredBuyingPower, buyingPower);
+                        log.warn("Недостаточная покупательная способность для маржинальной операции [{} , accountId={}, price={}, ratio={}]. Требуется: {}, доступно: {}", 
+                                displayOf(figi), accountId, trend.getCurrentPrice(), minBuyingPowerRatio, minRequiredBuyingPower, buyingPower);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                             "Недостаточная покупательная способность", 
                             String.format("%s, Account: %s, Price: %.4f, Ratio: %.3f, Требуется: %.2f, Доступно: %.2f", 
@@ -417,7 +417,7 @@ public class PortfolioManagementService {
                             return;
                         }
                     } catch (Exception e) {
-                        log.warn("Ошибка проверки реальных средств для {}: {}", figi, e.getMessage());
+                        log.warn("Ошибка проверки реальных средств для {}: {}", displayOf(figi), e.getMessage());
                         // Продолжаем выполнение, но с осторожностью
                     }
                     
@@ -458,8 +458,8 @@ public class PortfolioManagementService {
                         String operationType = (allowNegativeCash && availableCash.compareTo(BigDecimal.ZERO) < 0) ? "маржинальная " : "";
                         String fullActionType = operationType + actionType;
                         
-                        log.info("Размещение ордера на {}: {} лотов по цене {} (общая стоимость: {}, доступные средства: {})", 
-                            fullActionType, lots, trend.getCurrentPrice(), totalCost, availableCash);
+                        log.info("Размещение ордера на {} по {}: {} лотов по цене {} (общая стоимость: {}, доступные средства: {})", 
+                            fullActionType, displayOf(figi), lots, trend.getCurrentPrice(), totalCost, availableCash);
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
                             "Размещение ордера на " + fullActionType, String.format("%s, Лотов: %d, Цена: %.2f, Стоимость: %.2f, Средства: %.2f", 
                                 displayOf(figi), lots, trend.getCurrentPrice(), totalCost, availableCash));
@@ -475,10 +475,10 @@ public class PortfolioManagementService {
                                     double sl = riskRuleService.getDefaultStopLossPct();
                                     double tp = riskRuleService.getDefaultTakeProfitPct();
                                     riskRuleService.upsert(figi, sl, tp, true);
-                                    log.info("Установлены уровни SL/TP для {}: SL={}%, TP={}%, активированы", figi, sl * 100, tp * 100);
+                                    log.info("Установлены уровни SL/TP для {}: SL={}%, TP={}%, активированы", displayOf(figi), sl * 100, tp * 100);
                                     botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
                                         "Установлены SL/TP",
-                                        String.format("FIGI: %s, SL: %.2f%%, TP: %.2f%%", figi, sl * 100, tp * 100));
+                                        String.format("%s, SL: %.2f%%, TP: %.2f%%", displayOf(figi), sl * 100, tp * 100));
                                 }
                             } catch (Exception e) {
                                 log.warn("Не удалось установить правила SL/TP для {}: {}", displayOf(figi), e.getMessage());
@@ -581,13 +581,13 @@ public class PortfolioManagementService {
                                     }
                                 }
                             } catch (Exception e) {
-                                log.warn("Ошибка проверки маржи для шорта {}: {}", figi, e.getMessage());
+                                log.warn("Ошибка проверки маржи для шорта {}: {}", displayOf(figi), e.getMessage());
                                 // Продолжаем выполнение, но с осторожностью
                             }
                             
-                            log.info("Открытие шорта по {}: {} лотов", figi, lots);
+                            log.info("Открытие шорта по {}: {} лотов", displayOf(figi), lots);
                             botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
-                                "Открытие шорта", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                                "Открытие шорта", String.format("%s, Лотов: %d", displayOf(figi), lots));
                             try {
                                 orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
                                 botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
@@ -598,13 +598,13 @@ public class PortfolioManagementService {
                                         double sl = riskRuleService.getDefaultStopLossPct();
                                         double tp = riskRuleService.getDefaultTakeProfitPct();
                                         riskRuleService.upsert(figi, sl, tp, true);
-                                        log.info("Установлены уровни SL/TP для {}: SL={}%, TP={}%, активированы (шорт)", figi, sl * 100, tp * 100);
+                                        log.info("Установлены уровни SL/TP для {}: SL={}%, TP={}%, активированы (шорт)", displayOf(figi), sl * 100, tp * 100);
                                         botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
-                                            "Установлены SL/TP (шорт)",
-                                            String.format("FIGI: %s, SL: %.2f%%, TP: %.2f%%", figi, sl * 100, tp * 100));
+                                                                            "Установлены SL/TP (шорт)",
+                                String.format("%s, SL: %.2f%%, TP: %.2f%%", displayOf(figi), sl * 100, tp * 100));
                                     }
                                 } catch (Exception e) {
-                                    log.warn("Не удалось установить правила SL/TP для {} (шорт): {}", figi, e.getMessage());
+                                    log.warn("Не удалось установить правила SL/TP для {} (шорт): {}", displayOf(figi), e.getMessage());
                                 }
                             } catch (Exception e) {
                                 log.error("Ошибка открытия шорта: {}", e.getMessage());
@@ -633,7 +633,7 @@ public class PortfolioManagementService {
                 // Проверяем, есть ли шорт-позиция для закрытия
                 BigDecimal positionValue = portfolioAnalysis.getPositionValues().get(figi);
                 if (positionValue != null && positionValue.compareTo(BigDecimal.ZERO) < 0) {
-                    log.info("Обнаружена шорт-позиция для закрытия: {} (значение: {})", figi, positionValue);
+                                            log.info("Обнаружена шорт-позиция для закрытия: {} (значение: {})", displayOf(figi), positionValue);
                     // Находим шорт-позицию для получения количества лотов
                     Position position = portfolioAnalysis.getPositions().stream()
                         .filter(p -> p.getFigi().equals(figi))
@@ -662,13 +662,13 @@ public class PortfolioManagementService {
                             // НЕ останавливаем выполнение, продолжаем с другими инструментами
                         }
                     } else {
-                        log.warn("Нет шорт-позиции для закрытия по инструменту {}", figi);
+                        log.warn("Нет шорт-позиции для закрытия по инструменту {}", displayOf(figi));
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                            "Нет шорт-позиции для закрытия", "FIGI: " + figi);
+                                                          "Нет шорт-позиции для закрытия", displayOf(figi));
                     }
                 } else {
                     // Нет шорт-позиции, но есть сигнал на покупку - это обычная покупка
-                    log.info("Обычная покупка (не закрытие шорта): {} (позиция: {})", figi, positionValue);
+                                            log.info("Обычная покупка (не закрытие шорта): {} (позиция: {})", displayOf(figi), positionValue);
                     // Проверяем, есть ли свободные средства
                     BigDecimal availableCash = getAvailableCash(portfolioAnalysis);
                     BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
@@ -684,13 +684,13 @@ public class PortfolioManagementService {
                     if (buyingPower.compareTo(BigDecimal.ZERO) > 0) {
                         // Логика покупки (аналогично BUY выше)
                         // ... (можно вынести в отдельный метод)
-                        log.info("Покупка нового инструмента: {} (покупательная способность: {})", figi, buyingPower);
+                        log.info("Покупка нового инструмента: {} (покупательная способность: {})", displayOf(figi), buyingPower);
                         botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                            "Покупка нового инструмента", String.format("FIGI: %s, Покупательная способность: %.2f", figi, buyingPower));
+                                                          "Покупка нового инструмента", String.format("%s, Покупательная способность: %.2f", displayOf(figi), buyingPower));
                     } else {
-                        log.warn("Нет свободных средств для покупки нового инструмента {}", figi);
+                        log.warn("Нет свободных средств для покупки нового инструмента {}", displayOf(figi));
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                            "Нет средств для покупки", "FIGI: " + figi);
+                            "Нет средств для покупки", displayOf(figi));
                     }
                 }
             } else {
@@ -700,9 +700,9 @@ public class PortfolioManagementService {
             }
             
         } catch (Exception e) {
-            log.error("Ошибка при выполнении торговой стратегии для {}: {}", figi, e.getMessage());
+                                    log.error("Ошибка при выполнении торговой стратегии для {}: {}", displayOf(figi), e.getMessage());
             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                "Ошибка выполнения торговой стратегии", "FIGI: " + figi + " - " + e.getMessage());
+                                  "Ошибка выполнения торговой стратегии", displayOf(figi) + " - " + e.getMessage());
             // НЕ останавливаем выполнение, продолжаем с другими инструментами
         }
     }
@@ -712,7 +712,7 @@ public class PortfolioManagementService {
         // Ищем позицию с валютой (обычно RUB)
         for (Position position : analysis.getPositions()) {
             if ("currency".equals(position.getInstrumentType())) {
-                log.info("Найдена валюта в портфеле: {} - {}", position.getFigi(), position.getQuantity());
+                                        log.info("Найдена валюта в портфеле: {} - {}", displayOf(position.getFigi()), position.getQuantity());
                 return position.getQuantity();
             }
         }
@@ -798,7 +798,7 @@ public class PortfolioManagementService {
             for (ShareDto share : availableShares) {
                 // Дополнительная проверка статуса торговли
                 if (!"SECURITY_TRADING_STATUS_NORMAL_TRADING".equals(share.getTradingStatus())) {
-                    log.debug("Пропускаем инструмент {} - статус торговли: {}", share.getFigi(), share.getTradingStatus());
+                                            log.debug("Пропускаем инструмент {} - статус торговли: {}", displayOf(share.getFigi()), share.getTradingStatus());
                     continue;
                 }
                 
@@ -815,9 +815,9 @@ public class PortfolioManagementService {
                     Thread.sleep(100); // 100ms задержка
                     
                 } catch (Exception e) {
-                    log.warn("Ошибка анализа инструмента {}: {}", share.getFigi(), e.getMessage());
+                                            log.warn("Ошибка анализа инструмента {}: {}", displayOf(share.getFigi()), e.getMessage());
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.TECHNICAL_INDICATORS, 
-                        "Ошибка анализа инструмента", "FIGI: " + share.getFigi() + ", Ошибка: " + e.getMessage());
+                                                  "Ошибка анализа инструмента", displayOf(share.getFigi()) + ", Ошибка: " + e.getMessage());
                     // Продолжаем с следующим инструментом, не останавливаем выполнение
                 }
             }
@@ -905,7 +905,7 @@ public class PortfolioManagementService {
                         Thread.sleep(200); // 200ms задержка для анализа позиций
                         
                     } catch (Exception e) {
-                        log.warn("Ошибка анализа позиции {}: {}", position.getFigi(), e.getMessage());
+                        log.warn("Ошибка анализа позиции {}: {}", displayOf(position.getFigi()), e.getMessage());
                     }
                 }
             }
@@ -963,7 +963,7 @@ public class PortfolioManagementService {
             );
             
         } catch (Exception e) {
-            log.warn("Ошибка анализа торговой возможности для {}: {}", figi, e.getMessage());
+                                    log.warn("Ошибка анализа торговой возможности для {}: {}", displayOf(figi), e.getMessage());
             return null;
         }
     }
@@ -1207,9 +1207,9 @@ public class PortfolioManagementService {
                 try {
                     executeTradingStrategy(accountId, bestOpportunity.getFigi());
                 } catch (Exception e) {
-                    log.error("Ошибка выполнения торговой стратегии для {}: {}", bestOpportunity.getFigi(), e.getMessage());
+                                            log.error("Ошибка выполнения торговой стратегии для {}: {}", displayOf(bestOpportunity.getFigi()), e.getMessage());
                     botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                        "Ошибка выполнения торговой стратегии", "FIGI: " + bestOpportunity.getFigi() + " - " + e.getMessage());
+                                                  "Ошибка выполнения торговой стратегии", displayOf(bestOpportunity.getFigi()) + " - " + e.getMessage());
                     // Продолжаем выполнение, не останавливаем бота
                 }
             } else {

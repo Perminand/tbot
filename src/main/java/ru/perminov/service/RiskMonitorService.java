@@ -91,16 +91,16 @@ public class RiskMonitorService {
             if (lots <= 0) return;
 
             if (current.compareTo(slLevel) <= 0) {
-                log.warn("SL сработал: {} текущая={} ≤ SL={} (acc={}) — отправляем MARKET SELL {} лотов", figi, current, slLevel, accountId, lots);
+                                        log.warn("SL сработал: текущая={} ≤ SL={} (acc={}) — отправляем MARKET SELL {} лотов", current, slLevel, accountId, lots);
                 orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
                 return;
             }
             if (current.compareTo(tpLevel) >= 0) {
-                log.info("TP сработал: {} текущая={} ≥ TP={} (acc={}) — отправляем MARKET SELL {} лотов", figi, current, tpLevel, accountId, lots);
+                                        log.info("TP сработал: текущая={} ≥ TP={} (acc={}) — отправляем MARKET SELL {} лотов", current, tpLevel, accountId, lots);
                 orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
             }
         } catch (Exception e) {
-            log.error("Ошибка исполнения SL/TP по {}: {}", figi, e.getMessage());
+                                    log.error("Ошибка исполнения SL/TP: {}", e.getMessage());
         }
     }
 

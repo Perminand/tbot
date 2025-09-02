@@ -326,7 +326,7 @@ public class AdvancedPortfolioManagementService {
                 try {
                     currentPrice = new BigDecimal(position.getCurrentPrice().toString());
                 } catch (Exception e) {
-                    log.warn("Не удалось получить цену для позиции {}", position.getFigi());
+                                            log.warn("Не удалось получить цену для позиции");
                 }
             }
             

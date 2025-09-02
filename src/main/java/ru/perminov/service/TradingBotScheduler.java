@@ -77,7 +77,7 @@ public class TradingBotScheduler {
                         Thread.sleep(100); // 100ms задержка
                         
                     } catch (Exception e) {
-                        log.error("Ошибка быстрого анализа инструмента {}: {}", instrument.getFigi(), e.getMessage());
+                        log.error("Ошибка быстрого анализа инструмента: {}", e.getMessage());
                         // Продолжаем с следующим инструментом, не останавливаем выполнение
                     }
                 }
@@ -138,7 +138,7 @@ public class TradingBotScheduler {
                         Thread.sleep(200); // 200ms задержка
                         
                     } catch (Exception e) {
-                        log.error("Ошибка полного анализа инструмента {}: {}", instrument.getFigi(), e.getMessage());
+                        log.error("Ошибка полного анализа инструмента: {}", e.getMessage());
                         // Продолжаем с следующим инструментом, не останавливаем выполнение
                     }
                 }
@@ -246,9 +246,9 @@ public class TradingBotScheduler {
         try {
             // Логика обновления приоритета на основе тренда
             // Можно добавить в SmartAnalysisService
-            log.debug("Обновление приоритета для {}: тренд = {}", figi, trend.getTrend());
+                                    log.debug("Обновление приоритета: тренд = {}", trend.getTrend());
         } catch (Exception e) {
-            log.warn("Ошибка обновления приоритета для {}: {}", figi, e.getMessage());
+                                    log.warn("Ошибка обновления приоритета: {}", e.getMessage());
         }
     }
     
@@ -256,7 +256,7 @@ public class TradingBotScheduler {
      * Ручной запуск торговой стратегии для конкретного инструмента
      */
     public void manualTradingStrategy(String accountId, String figi) {
-        log.info("Ручной запуск торговой стратегии для {} в аккаунте {}", figi, accountId);
+                                log.info("Ручной запуск торговой стратегии в аккаунте {}", accountId);
         
         // Проверяем защиту режима торговли
         if (!protectionService.validateTradingMode()) {

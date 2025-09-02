@@ -64,7 +64,7 @@ public class AdvancedTradingStrategyService {
             return signal;
             
         } catch (Exception e) {
-            log.error("Ошибка при анализе торгового сигнала для {}: {}", figi, e.getMessage());
+            log.error("Ошибка при анализе торгового сигнала: {}", e.getMessage());
             return new TradingSignal("HOLD", "ERROR", BigDecimal.ZERO, "Ошибка анализа");
         }
     }

@@ -130,18 +130,18 @@ public class MarginService {
         try {
             Share share = instrumentService.getShareByFigi(figi);
             if (share == null) {
-                log.warn("Не удалось получить Share по FIGI {} для проверки шорта", figi);
+                log.warn("Не удалось получить Share для проверки шорта");
                 return false;
             }
             // If API exposes short flag, check it; otherwise, assume false
             boolean shortEnabled = share.getShortEnabledFlag();
             if (!shortEnabled) {
-                log.warn("Шорт недоступен для FIGI {} по флагу инструмента", figi);
+                log.warn("Шорт недоступен по флагу инструмента");
             }
-            log.info("canOpenShort[{}]: shortEnabledFlag={}", figi, shortEnabled);
+                            log.info("canOpenShort: shortEnabledFlag={}", shortEnabled);
             return shortEnabled;
         } catch (Exception e) {
-            log.error("Ошибка при проверке доступности шорта для {}: {}", figi, e.getMessage());
+                            log.error("Ошибка при проверке доступности шорта: {}", e.getMessage());
             return false;
         }
     }

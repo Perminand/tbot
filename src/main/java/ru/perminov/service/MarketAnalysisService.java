@@ -44,7 +44,7 @@ public class MarketAnalysisService {
                 return investApiManager.getCurrentInvestApi().getMarketDataService()
                     .getCandlesSync(figi, from, to, interval);
             } catch (Exception e) {
-                log.error("Ошибка при получении свечей для {}: {}", figi, e.getMessage());
+                log.error("Ошибка при получении свечей: {}", e.getMessage());
                 return List.of();
             }
         });
