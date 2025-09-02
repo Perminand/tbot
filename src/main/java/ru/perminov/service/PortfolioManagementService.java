@@ -269,6 +269,35 @@ public class PortfolioManagementService {
             log.info("Выполняем торговую операцию для {}: {}", figi, action);
             
             if ("BUY".equals(action)) {
+                // Приоритет: если есть открытая шорт‑позиция по этому FIGI — закрываем её немедленно, без проверок BP
+                try {
+                    Position shortPosition = portfolioAnalysis.getPositions().stream()
+                        .filter(p -> figi.equals(p.getFigi()))
+                        .findFirst()
+                        .orElse(null);
+                    if (shortPosition != null && shortPosition.getQuantity() != null && shortPosition.getQuantity().compareTo(BigDecimal.ZERO) < 0) {
+                        int lotsToClose = Math.abs(shortPosition.getQuantity().intValue());
+                        if (lotsToClose > 0) {
+                            String prettyName = instrumentNameService != null ? instrumentNameService.getInstrumentName(figi, "share") : figi;
+                            String prettyTicker = instrumentNameService != null ? instrumentNameService.getTicker(figi, "share") : figi;
+                            log.info("Немедленное закрытие шорта [{} {}]: {} лотов по цене {} (без проверок BP)",
+                                    prettyTicker, prettyName, lotsToClose, trend.getCurrentPrice());
+                            botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                    "Закрытие шорта (приоритет)", String.format("%s (%s), Лотов: %d, Цена: %.4f",
+                                            prettyName, prettyTicker, lotsToClose, trend.getCurrentPrice()));
+                            try {
+                                orderService.placeMarketOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                                botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                        "Шорт закрыт", String.format("%s (%s), Лотов: %d", prettyName, prettyTicker, lotsToClose));
+                                return;
+                            } catch (Exception e) {
+                                log.error("Ошибка немедленного закрытия шорта [{} {}]: {}", prettyTicker, prettyName, e.getMessage());
+                                // Если не получилось — продолжаем стандартные проверки
+                            }
+                        }
+                    }
+                } catch (Exception ignore) { }
+
                 // Проверяем, есть ли свободные средства
                 BigDecimal availableCash = getAvailableCash(portfolioAnalysis);
                 BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
