@@ -124,6 +124,38 @@
             <button onclick="disconnectSSE()" class="danger">Отключиться</button>
             <button onclick="testLogs()">Тест логов</button>
             <button onclick="clearLogs()" class="danger">Очистить</button>
+            <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <label>Уровень:
+                    <select id="filterLevel" onchange="applyFilters()">
+                        <option value="">Все</option>
+                        <option value="INFO">INFO</option>
+                        <option value="WARNING">WARNING</option>
+                        <option value="ERROR">ERROR</option>
+                        <option value="SUCCESS">SUCCESS</option>
+                        <option value="TRADE">TRADE</option>
+                    </select>
+                </label>
+                <label>Категория:
+                    <select id="filterCategory" onchange="applyFilters()">
+                        <option value="">Все</option>
+                        <option value="MARKET_ANALYSIS">MARKET_ANALYSIS</option>
+                        <option value="PORTFOLIO_MANAGEMENT">PORTFOLIO_MANAGEMENT</option>
+                        <option value="TRADING_STRATEGY">TRADING_STRATEGY</option>
+                        <option value="REBALANCING">REBALANCING</option>
+                        <option value="TECHNICAL_INDICATORS">TECHNICAL_INDICATORS</option>
+                        <option value="AUTOMATIC_TRADING">AUTOMATIC_TRADING</option>
+                        <option value="RISK_MANAGEMENT">RISK_MANAGEMENT</option>
+                        <option value="SYSTEM_STATUS">SYSTEM_STATUS</option>
+                    </select>
+                </label>
+                <label>Текст:
+                    <input id="filterText" type="text" placeholder="Поиск в сообщении/деталях" oninput="applyFilters()"/>
+                </label>
+                <label>Лимит:
+                    <input id="filterLimit" type="number" min="10" max="500" value="50" style="width:80px" onchange="applyFilters()"/>
+                </label>
+                <button onclick="resetFilters()">Сбросить фильтры</button>
+            </div>
         </div>
         
         <div>
@@ -135,6 +167,7 @@
     <script>
         let eventSource = null;
         let logCount = 0;
+        const allLogs = [];
 
         function connectSSE() {
             if (eventSource) {
@@ -160,13 +193,15 @@
             eventSource.addEventListener('initial-logs', function(event) {
                 const logs = JSON.parse(event.data);
                 console.log('Получены начальные логи:', logs);
-                logs.forEach(log => addLogEntry(log));
+                logs.forEach(log => allLogs.unshift(log));
+                renderLogs();
             });
 
             eventSource.addEventListener('new-log', function(event) {
                 const logEntry = JSON.parse(event.data);
                 console.log('Новый лог:', logEntry);
-                addLogEntry(logEntry);
+                allLogs.unshift(logEntry);
+                renderLogs(true);
             });
 
             eventSource.addEventListener('statistics-update', function(event) {
@@ -189,32 +224,48 @@
             statusElement.textContent = `Статус: ${message}`;
         }
 
-        function addLogEntry(logEntry) {
+        function renderLogs(appendNewest=false) {
             const logsContainer = document.getElementById('logs');
-            const logElement = document.createElement('div');
-            logElement.className = `log-entry ${logEntry.level.toLowerCase()}`;
-            
-            const categoryClass = logEntry.category.replace(/_/g, ' ');
-            
-            logElement.innerHTML = `
-                <div>
-                    <span class="category ${logEntry.category}">${categoryClass}</span>
-                    <span class="timestamp">${logEntry.formattedTimestamp}</span>
-                </div>
-                <div class="message">${logEntry.message}</div>
-                ${logEntry.details ? `<div class="details">${logEntry.details}</div>` : ''}
-            `;
-            
-            logsContainer.insertBefore(logElement, logsContainer.firstChild);
-            logCount++;
-            
-            // Ограничиваем количество отображаемых логов
-            if (logCount > 50) {
-                const lastLog = logsContainer.lastChild;
-                if (lastLog) {
-                    logsContainer.removeChild(lastLog);
+            const level = document.getElementById('filterLevel').value;
+            const category = document.getElementById('filterCategory').value;
+            const text = (document.getElementById('filterText').value || '').toLowerCase();
+            const limit = parseInt(document.getElementById('filterLimit').value || '50', 10);
+
+            const filtered = allLogs.filter(l => {
+                if (level && l.level !== level) return false;
+                if (category && l.category !== category) return false;
+                if (text) {
+                    const hay = `${l.message||''} ${l.details||''}`.toLowerCase();
+                    if (!hay.includes(text)) return false;
                 }
-            }
+                return true;
+            }).slice(0, Math.max(10, Math.min(500, limit)));
+
+            logsContainer.innerHTML = '';
+            filtered.forEach(logEntry => {
+                const logElement = document.createElement('div');
+                logElement.className = `log-entry ${logEntry.level.toLowerCase()}`;
+                const categoryClass = logEntry.category.replace(/_/g, ' ');
+                logElement.innerHTML = `
+                    <div>
+                        <span class="category ${logEntry.category}">${categoryClass}</span>
+                        <span class="timestamp">${logEntry.formattedTimestamp}</span>
+                    </div>
+                    <div class="message">${logEntry.message}</div>
+                    ${logEntry.details ? `<div class="details">${logEntry.details}</div>` : ''}
+                `;
+                logsContainer.appendChild(logElement);
+            });
+            logCount = filtered.length;
+        }
+
+        function applyFilters() { renderLogs(); }
+        function resetFilters() {
+            document.getElementById('filterLevel').value = '';
+            document.getElementById('filterCategory').value = '';
+            document.getElementById('filterText').value = '';
+            document.getElementById('filterLimit').value = 50;
+            renderLogs();
         }
 
         async function testLogs() {
