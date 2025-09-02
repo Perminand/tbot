@@ -769,18 +769,26 @@ function renderRecentTrades(trades) {
     const container = document.getElementById('recentOperations');
     if (!container) return;
     if (!trades.length) { container.innerHTML = '<p class="text-muted">Нет данных</p>'; return; }
+
+    const fmtMoney = (v) => `₽${Number(v || 0).toLocaleString(undefined,{maximumFractionDigits:2})}`;
+
     const html = trades.map(t => {
         const op = t.operation || 'UNKNOWN';
         const dirColor = op === 'ORDER_DIRECTION_BUY' ? 'success' : (op === 'ORDER_DIRECTION_SELL' ? 'danger' : 'secondary');
-        const lots = (t.lotsExecuted ?? t.lotsRequested) || 0;
-        const price = (typeof t.price === 'number') ? t.price : (t.price && t.price.value) ? t.price.value : t.price || 0;
+        const lotsReq = Number(t.lotsRequested || 0);
+        const lotsExec = Number(t.lotsExecuted || 0);
+        const lots = lotsExec || lotsReq;
+        const priceRaw = (typeof t.price === 'number') ? t.price : (t.price && t.price.value) ? t.price.value : t.price || 0;
+        const price = Number(priceRaw);
+        const total = price * lots;
         const when = t.orderDate ? new Date(t.orderDate).toLocaleString() : '';
-        return `<div class="mb-2">
+        const pretty = (t.ticker && t.name) ? `${t.ticker} — ${t.name}` : (t.ticker || t.name || t.figi || '');
+        return `<div class="mb-3">
             <div><span class="badge bg-${dirColor} me-1">${op.replace('ORDER_DIRECTION_', '')}</span>
-                 <span class="badge bg-light text-dark me-1">${t.figi || ''}</span>
+                 <span class="badge bg-light text-dark me-1">${pretty}</span>
                  <span class="text-muted small">${when}</span>
             </div>
-            <div>Исполнено: ${lots} лотов по цене ${price}</div>
+            <div>Исполнено: <b>${lots}</b> лотов × <b>${fmtMoney(price)}</b> = <b>${fmtMoney(total)}</b></div>
         </div>`;
     }).join('');
     container.innerHTML = html;

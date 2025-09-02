@@ -38,6 +38,7 @@ public class DashboardController {
     private final TradingSettingsService tradingSettingsService;
     private final MarketAnalysisService marketAnalysisService;
     private final OrderRepository orderRepository;
+    private final InstrumentNameService instrumentNameService;
     
     /**
      * Получение статуса системы
@@ -390,6 +391,15 @@ public class DashboardController {
                 java.util.Map<String, Object> t = new java.util.HashMap<>();
                 t.put("orderId", o.getOrderId());
                 t.put("figi", o.getFigi());
+                // Попробуем определить тип инструмента по FIGI (грубая эвристика) и получить имя/тикер
+                String instrumentType = "share"; // дефолт
+                if (o.getFigi() != null) {
+                    if (o.getFigi().startsWith("BBG00") || o.getFigi().startsWith("BBG")) instrumentType = "share"; // чаще акции/ETF/облигации
+                }
+                String name = instrumentNameService.getInstrumentName(o.getFigi(), instrumentType);
+                String ticker = instrumentNameService.getTicker(o.getFigi(), instrumentType);
+                t.put("name", name);
+                t.put("ticker", ticker);
                 t.put("operation", o.getOperation());
                 t.put("status", o.getStatus());
                 t.put("lotsRequested", o.getRequestedLots());
