@@ -49,6 +49,18 @@ public class PortfolioManagementService {
         targetAllocations.put("bonds", new BigDecimal("0.30"));  // 30% облигации
         targetAllocations.put("etf", new BigDecimal("0.10"));    // 10% ETF
     }
+
+    private String displayOf(String figi) {
+        try {
+            if (instrumentNameService == null) return figi;
+            String name = instrumentNameService.getInstrumentName(figi, "share");
+            String ticker = instrumentNameService.getTicker(figi, "share");
+            if (name != null && ticker != null) return name + " (" + ticker + ")";
+            if (name != null) return name;
+            if (ticker != null) return ticker;
+        } catch (Exception ignore) {}
+        return figi;
+    }
     
     /**
      * Анализ текущего портфеля
@@ -225,9 +237,9 @@ public class PortfolioManagementService {
         try {
             // Проверяем доступность инструмента для торговли
             if (!dynamicInstrumentService.isInstrumentAvailable(figi)) {
-                log.warn("Инструмент {} недоступен для торговли, пропускаем", figi);
+                log.warn("Инструмент {} недоступен для торговли, пропускаем", displayOf(figi));
                 botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                    "Инструмент недоступен", "FIGI: " + figi + " - недоступен для торговли");
+                    "Инструмент недоступен", displayOf(figi) + " — недоступен для торговли");
                 return;
             }
             
@@ -266,7 +278,7 @@ public class PortfolioManagementService {
             String action = actionByAdvanced != null && !"HOLD".equals(actionByAdvanced) &&
                 (advSignal.getStrength() != null && advSignal.getStrength().compareTo(java.math.BigDecimal.valueOf(minStrength)) > 0)
                 ? actionByAdvanced : opportunity.getRecommendedAction();
-            log.info("Выполняем торговую операцию для {}: {}", figi, action);
+            log.info("Выполняем торговую операцию для {}: {}", displayOf(figi), action);
             
             if ("BUY".equals(action)) {
                 // Приоритет: если есть открытая шорт‑позиция по этому FIGI — закрываем её немедленно, без проверок BP
@@ -283,12 +295,12 @@ public class PortfolioManagementService {
                             log.info("Немедленное закрытие шорта [{} {}]: {} лотов по цене {} (без проверок BP)",
                                     prettyTicker, prettyName, lotsToClose, trend.getCurrentPrice());
                             botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
-                                    "Закрытие шорта (приоритет)", String.format("%s (%s), Лотов: %d, Цена: %.4f",
-                                            prettyName, prettyTicker, lotsToClose, trend.getCurrentPrice()));
+                                    "Закрытие шорта (приоритет)", String.format("%s, Лотов: %d, Цена: %.4f",
+                                            displayOf(figi), lotsToClose, trend.getCurrentPrice()));
                             try {
                                 orderService.placeMarketOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId);
                                 botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
-                                        "Шорт закрыт", String.format("%s (%s), Лотов: %d", prettyName, prettyTicker, lotsToClose));
+                                        "Шорт закрыт", String.format("%s, Лотов: %d", displayOf(figi), lotsToClose));
                                 return;
                             } catch (Exception e) {
                                 log.error("Ошибка немедленного закрытия шорта [{} {}]: {}", prettyTicker, prettyName, e.getMessage());
@@ -309,15 +321,15 @@ public class PortfolioManagementService {
                     log.warn("Реальные средства отрицательные ({}), блокируем покупки (маржинальная торговля отключена) [figi={}, accountId={}, price={}]", 
                             availableCash, figi, accountId, trend.getCurrentPrice());
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                        "Блокировка покупок", String.format("FIGI: %s, Account: %s, Price: %.4f, Отрицательные средства: %.2f (маржинальная торговля отключена)", 
-                            figi, accountId, trend.getCurrentPrice(), availableCash));
+                        "Блокировка покупок", String.format("%s, Account: %s, Price: %.4f, Отрицательные средства: %.2f (маржинальная торговля отключена)", 
+                            displayOf(figi), accountId, trend.getCurrentPrice(), availableCash));
                     return;
                 } else if (availableCash.compareTo(BigDecimal.ZERO) < 0 && allowNegativeCash) {
                     log.info("Реальные средства отрицательные ({}), но маржинальная торговля разрешена. Используем плечо. [figi={}, accountId={}, price={}]", 
                             availableCash, figi, accountId, trend.getCurrentPrice());
                     botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                        "Маржинальная покупка", String.format("FIGI: %s, Account: %s, Price: %.4f, Отрицательные средства: %.2f — используем плечо", 
-                            figi, accountId, trend.getCurrentPrice(), availableCash));
+                        "Маржинальная покупка", String.format("%s, Account: %s, Price: %.4f, Отрицательные средства: %.2f — используем плечо", 
+                            displayOf(figi), accountId, trend.getCurrentPrice(), availableCash));
                 }
 
                 // Если маржа включена, но недоступна для аккаунта — продолжаем с фоллбек-логикой внутри MarginService
@@ -335,8 +347,8 @@ public class PortfolioManagementService {
                                 figi, accountId, trend.getCurrentPrice(), minBuyingPowerRatio, minRequiredBuyingPower, buyingPower);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                             "Недостаточная покупательная способность", 
-                            String.format("FIGI: %s, Account: %s, Price: %.4f, Ratio: %.3f, Требуется: %.2f, Доступно: %.2f", 
-                                figi, accountId, trend.getCurrentPrice(), minBuyingPowerRatio, minRequiredBuyingPower, buyingPower));
+                            String.format("%s, Account: %s, Price: %.4f, Ratio: %.3f, Требуется: %.2f, Доступно: %.2f", 
+                                displayOf(figi), accountId, trend.getCurrentPrice(), minBuyingPowerRatio, minRequiredBuyingPower, buyingPower));
                         return;
                     }
                 }
@@ -351,12 +363,12 @@ public class PortfolioManagementService {
                     if (hasPosition) {
                         // Докупаем - используем меньшую сумму (1% от доступных средств)
                         buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.01));
-                        log.info("Докупаем позицию [figi={}, accountId={}, price={}] -> {} лотов", figi, accountId, trend.getCurrentPrice(), 
+                        log.info("Докупаем позицию [{} , accountId={}, price={}] -> {} лотов", displayOf(figi), accountId, trend.getCurrentPrice(), 
                                 buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     } else {
                         // Первая покупка - используем меньшую сумму (2% от доступных средств)
                         buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.02));
-                        log.info("Первая покупка [figi={}, accountId={}, price={}] -> {} лотов", figi, accountId, trend.getCurrentPrice(), 
+                        log.info("Первая покупка [{} , accountId={}, price={}] -> {} лотов", displayOf(figi), accountId, trend.getCurrentPrice(), 
                                 buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     }
                     
@@ -384,11 +396,11 @@ public class PortfolioManagementService {
                     
                     // Дополнительная проверка: достаточно ли средств для покупки хотя бы 1 лота
                     if (buyingPower.compareTo(trend.getCurrentPrice()) < 0) {
-                        log.warn("Недостаточно средств для покупки даже 1 лота [figi={}, accountId={}]. Нужно: {}, Доступно: {}", 
-                                figi, accountId, trend.getCurrentPrice(), buyingPower);
+                        log.warn("Недостаточно средств для покупки даже 1 лота [{} , accountId={}]. Нужно: {}, Доступно: {}", 
+                                displayOf(figi), accountId, trend.getCurrentPrice(), buyingPower);
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                            "Недостаточно средств для покупки 1 лота", String.format("FIGI: %s, Account: %s, Price: %.4f, Нужно: %.2f, Доступно: %.2f", 
-                                figi, accountId, trend.getCurrentPrice(), trend.getCurrentPrice(), buyingPower));
+                            "Недостаточно средств для покупки 1 лота", String.format("%s, Account: %s, Price: %.4f, Нужно: %.2f, Доступно: %.2f", 
+                                displayOf(figi), accountId, trend.getCurrentPrice(), trend.getCurrentPrice(), buyingPower));
                         return;
                     }
                     
@@ -397,11 +409,11 @@ public class PortfolioManagementService {
                         BigDecimal realAvailableCash = getAvailableCash(portfolioAnalysis);
                         BigDecimal requiredAmount = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
                         if (realAvailableCash.compareTo(requiredAmount) < 0) {
-                            log.warn("Реальная проверка: недостаточно средств [figi={}, accountId={}] для покупки {} лотов. Нужно: {}, Доступно: {}", 
-                                figi, accountId, lots, requiredAmount, realAvailableCash);
+                            log.warn("Реальная проверка: недостаточно средств [{} , accountId={}] для покупки {} лотов. Нужно: {}, Доступно: {}", 
+                                displayOf(figi), accountId, lots, requiredAmount, realAvailableCash);
                             botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                                "Недостаточно реальных средств", String.format("FIGI: %s, Account: %s, Price: %.4f, Лотов: %d, Нужно: %.2f, Доступно: %.2f", 
-                                    figi, accountId, trend.getCurrentPrice(), lots, requiredAmount, realAvailableCash));
+                                "Недостаточно реальных средств", String.format("%s, Account: %s, Price: %.4f, Лотов: %d, Нужно: %.2f, Доступно: %.2f", 
+                                    displayOf(figi), accountId, trend.getCurrentPrice(), lots, requiredAmount, realAvailableCash));
                             return;
                         }
                     } catch (Exception e) {
@@ -449,14 +461,14 @@ public class PortfolioManagementService {
                         log.info("Размещение ордера на {}: {} лотов по цене {} (общая стоимость: {}, доступные средства: {})", 
                             fullActionType, lots, trend.getCurrentPrice(), totalCost, availableCash);
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                            "Размещение ордера на " + fullActionType, String.format("FIGI: %s, Лотов: %d, Цена: %.2f, Стоимость: %.2f, Средства: %.2f", 
-                                figi, lots, trend.getCurrentPrice(), totalCost, availableCash));
+                            "Размещение ордера на " + fullActionType, String.format("%s, Лотов: %d, Цена: %.2f, Стоимость: %.2f, Средства: %.2f", 
+                                displayOf(figi), lots, trend.getCurrentPrice(), totalCost, availableCash));
                         
                         // Размещаем реальный ордер
                         try {
                             orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                                "Ордер на " + fullActionType + " размещен", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                                "Ордер на " + fullActionType + " размещен", String.format("%s, Лотов: %d", displayOf(figi), lots));
                             // Авто-установка SL/TP по дефолтным настройкам, если для FIGI ещё нет правил
                             try {
                                 if (riskRuleService.findByFigi(figi).isEmpty()) {
@@ -469,7 +481,7 @@ public class PortfolioManagementService {
                                         String.format("FIGI: %s, SL: %.2f%%, TP: %.2f%%", figi, sl * 100, tp * 100));
                                 }
                             } catch (Exception e) {
-                                log.warn("Не удалось установить правила SL/TP для {}: {}", figi, e.getMessage());
+                                log.warn("Не удалось установить правила SL/TP для {}: {}", displayOf(figi), e.getMessage());
                             }
                         } catch (Exception e) {
                             log.error("Ошибка размещения ордера на {}: {}", actionType, e.getMessage());
@@ -504,17 +516,17 @@ public class PortfolioManagementService {
                         boolean isShortPosition = position.getQuantity().compareTo(BigDecimal.ZERO) < 0;
                         
                         String actionDescription = isShortPosition ? "закрытие шорта" : "продажа";
-                        log.info("Размещение ордера на {}: {} лотов по цене {}", actionDescription, lots, trend.getCurrentPrice());
+                        log.info("Размещение ордера на {} по {}: {} лотов по цене {}", actionDescription, displayOf(figi), lots, trend.getCurrentPrice());
                         
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                            "Размещение ордера на " + actionDescription, String.format("FIGI: %s, Лотов: %d, Цена: %.2f", 
-                                figi, lots, trend.getCurrentPrice()));
+                            "Размещение ордера на " + actionDescription, String.format("%s, Лотов: %d, Цена: %.2f", 
+                                displayOf(figi), lots, trend.getCurrentPrice()));
                         
                         // Размещаем реальный ордер
                         try {
                             orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                                "Ордер на " + actionDescription + " размещен", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                                "Ордер на " + actionDescription + " размещен", String.format("%s, Лотов: %d", displayOf(figi), lots));
                         } catch (Exception e) {
                             log.error("Ошибка размещения ордера на {}: {}", actionDescription, e.getMessage());
                             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
@@ -522,9 +534,9 @@ public class PortfolioManagementService {
                             // НЕ останавливаем выполнение, продолжаем с другими инструментами
                         }
                     } else {
-                        log.warn("Нет позиции для продажи по инструменту {}", figi);
+                        log.warn("Нет позиции для продажи по инструменту {}", displayOf(figi));
                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                            "Нет позиции для продажи", "FIGI: " + figi);
+                            "Нет позиции для продажи", displayOf(figi));
                     }
                 } else {
                     // Позиции нет. Рассматриваем открытие шорта, если это разрешено и доступно
