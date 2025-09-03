@@ -118,7 +118,11 @@ public class MarginService {
                 // Свободная маржа = max(liquid - minimal, 0). Если есть недостающие средства, вычтем их
                 BigDecimal freeMargin = liquid.subtract(minimal).subtract(missing.max(BigDecimal.ZERO));
                 if (freeMargin.signum() < 0) freeMargin = BigDecimal.ZERO;
-                BigDecimal bp = cash.add(freeMargin.multiply(safety)).setScale(2, RoundingMode.DOWN);
+                
+                // Покупательная способность = свободная маржа * safety (НЕ добавляем отрицательный cash!)
+                BigDecimal bp = freeMargin.multiply(safety).setScale(2, RoundingMode.DOWN);
+                
+                System.out.println("💡 Покупательная способность (реальная маржа): liquid=" + liquid + ", starting=" + starting + ", minimal=" + minimal + ", missing=" + missing + ", safety=" + safety + ", freeMargin=" + freeMargin + ", bp=" + bp);
                 log.info("💡 Покупательная способность (реальная маржа): liquid={}, starting={}, minimal={}, missing={}, safety={}, freeMargin={}, bp={}",
                         liquid, starting, minimal, missing, safety, freeMargin, bp);
                 return bp.max(BigDecimal.ZERO);
@@ -131,9 +135,18 @@ public class MarginService {
         // Фоллбек на конфиг
         BigDecimal portfolioValue = analysis.getTotalValue();
         BigDecimal additional = portfolioValue.multiply(getMaxUtilizationPct());
-        BigDecimal buyingPower = cash.add(additional).setScale(2, RoundingMode.DOWN);
-        System.out.println("💡 Покупательная способность (по настройке): cash=" + cash + ", portfolioValue=" + portfolioValue + ", maxUtilizationPct=" + getMaxUtilizationPct() + ", extra=" + additional + ", total=" + buyingPower);
-        log.info("💡 Покупательная способность (по настройке): cash={}, portfolioValue={}, maxUtilizationPct={}, extra={}, total={}", 
+        
+        // Если cash отрицательный, используем только additional (плечо)
+        BigDecimal buyingPower;
+        if (cash.compareTo(BigDecimal.ZERO) < 0) {
+            buyingPower = additional.setScale(2, RoundingMode.DOWN);
+            System.out.println("💡 Покупательная способность (по настройке, плечо): cash=" + cash + " (отрицательный), portfolioValue=" + portfolioValue + ", maxUtilizationPct=" + getMaxUtilizationPct() + ", плечо=" + additional + ", total=" + buyingPower);
+        } else {
+            buyingPower = cash.add(additional).setScale(2, RoundingMode.DOWN);
+            System.out.println("💡 Покупательная способность (по настройке): cash=" + cash + ", portfolioValue=" + portfolioValue + ", maxUtilizationPct=" + getMaxUtilizationPct() + ", extra=" + additional + ", total=" + buyingPower);
+        }
+        
+        log.info("💡 Покупательная способность (по настройке): cash={}, portfolioValue={}, maxUtilizationPct={}, additional={}, total={}", 
             cash, portfolioValue, getMaxUtilizationPct(), additional, buyingPower);
         return buyingPower.max(BigDecimal.ZERO);
     }
