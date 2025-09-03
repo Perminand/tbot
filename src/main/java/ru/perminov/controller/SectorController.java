@@ -29,12 +29,24 @@ public class SectorController {
     @GetMapping("/diversification/{accountId}")
     public ResponseEntity<?> getSectorDiversification(@PathVariable String accountId) {
         try {
+            log.info("🔍 Получение анализа диверсификации для аккаунта: {}", accountId);
+            
             var portfolio = portfolioService.getPortfolio(accountId);
+            log.info("🔍 Портфель получен: positions={}, totalValue={}", 
+                portfolio.getPositions().size(), portfolio.getTotalAmountShares().getValue());
+            
             var positions = portfolio.getPositions();
             var totalValue = portfolio.getTotalAmountShares().getValue();
             
+            if (totalValue == null || totalValue.compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("⚠️ Нулевая или отрицательная стоимость портфеля: {}", totalValue);
+                return ResponseEntity.badRequest()
+                    .body("Нулевая стоимость портфеля: " + totalValue);
+            }
+            
             // Анализируем текущее распределение по секторам
             var sectorAnalysis = sectorManagementService.analyzeCurrentSectors(positions, totalValue);
+            log.info("🔍 Анализ секторов выполнен: {}", sectorAnalysis.size());
             
             // Получаем рекомендации
             var recommendations = sectorManagementService.getDiversificationRecommendations(sectorAnalysis);
@@ -162,11 +174,23 @@ public class SectorController {
     @GetMapping("/stats/{accountId}")
     public ResponseEntity<?> getSectorStats(@PathVariable String accountId) {
         try {
+            log.info("📊 Получение статистики секторов для аккаунта: {}", accountId);
+            
             var portfolio = portfolioService.getPortfolio(accountId);
+            log.info("📊 Портфель получен: positions={}, totalValue={}", 
+                portfolio.getPositions().size(), portfolio.getTotalAmountShares().getValue());
+            
             var positions = portfolio.getPositions();
             var totalValue = portfolio.getTotalAmountShares().getValue();
             
+            if (totalValue == null || totalValue.compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("⚠️ Нулевая или отрицательная стоимость портфеля: {}", totalValue);
+                return ResponseEntity.badRequest()
+                    .body("Нулевая стоимость портфеля: " + totalValue);
+            }
+            
             var sectorAnalysis = sectorManagementService.analyzeCurrentSectors(positions, totalValue);
+            log.info("📊 Анализ секторов выполнен: {}", sectorAnalysis.size());
             
             // Подсчитываем статистику
             int totalSectors = sectorAnalysis.size();

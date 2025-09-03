@@ -154,6 +154,29 @@ public class SectorManagementService {
         result.setValid(true);
         
         try {
+            // Проверяем входные параметры
+            if (figi == null || figi.isEmpty()) {
+                result.setValid(false);
+                result.addViolation("FIGI инструмента не указан");
+                return result;
+            }
+            
+            if (positionValue == null || positionValue.compareTo(BigDecimal.ZERO) <= 0) {
+                result.setValid(false);
+                result.addViolation("Некорректная стоимость позиции: " + positionValue);
+                return result;
+            }
+            
+            if (portfolioValue == null || portfolioValue.compareTo(BigDecimal.ZERO) <= 0) {
+                result.setValid(false);
+                result.addViolation("Некорректная стоимость портфеля: " + portfolioValue);
+                return result;
+            }
+            
+            if (currentPositions == null) {
+                currentPositions = new ArrayList<>();
+            }
+            
             // Определяем сектор для инструмента
             String sector = getSectorForInstrument(figi);
             result.setSector(sector);
@@ -255,21 +278,61 @@ public class SectorManagementService {
      * Анализ текущего распределения по секторам
      */
     public Map<String, SectorAnalysis> analyzeCurrentSectors(List<Position> positions, BigDecimal portfolioValue) {
+        log.info("🔍 Анализ секторов: positions={}, portfolioValue={}", positions.size(), portfolioValue);
+        
         Map<String, SectorAnalysis> sectorAnalysis = new HashMap<>();
         
+        if (positions == null || positions.isEmpty()) {
+            log.warn("⚠️ Пустой список позиций");
+            return sectorAnalysis;
+        }
+        
         for (Position position : positions) {
-            String sector = getSectorForInstrument(position.getFigi());
-            BigDecimal positionValue = position.getCurrentPrice().getValue().multiply(position.getQuantity());
-            
-            sectorAnalysis.computeIfAbsent(sector, k -> new SectorAnalysis())
-                .addPosition(positionValue);
+            try {
+                if (position == null) {
+                    log.warn("⚠️ Позиция null, пропускаем");
+                    continue;
+                }
+                
+                String figi = position.getFigi();
+                if (figi == null || figi.isEmpty()) {
+                    log.warn("⚠️ FIGI позиции пустой, пропускаем");
+                    continue;
+                }
+                
+                if (position.getCurrentPrice() == null || position.getQuantity() == null) {
+                    log.warn("⚠️ Позиция {} не имеет цены или количества", figi);
+                    continue;
+                }
+                
+                String sector = getSectorForInstrument(figi);
+                BigDecimal positionValue = position.getCurrentPrice().getValue().multiply(position.getQuantity());
+                
+                log.debug("🔍 Позиция: figi={}, sector={}, value={}", figi, sector, positionValue);
+                
+                sectorAnalysis.computeIfAbsent(sector, k -> new SectorAnalysis())
+                    .addPosition(positionValue);
+                    
+            } catch (Exception e) {
+                log.error("❌ Ошибка обработки позиции: {}", e.getMessage(), e);
+            }
         }
         
         // Рассчитываем проценты
         for (SectorAnalysis analysis : sectorAnalysis.values()) {
-            BigDecimal percentage = analysis.getTotalValue().divide(portfolioValue, 4, RoundingMode.HALF_UP)
-                .multiply(BigDecimal.valueOf(100));
-            analysis.setPercentage(percentage);
+            try {
+                if (analysis.getTotalValue() == null || analysis.getTotalValue().compareTo(BigDecimal.ZERO) <= 0) {
+                    log.warn("⚠️ Нулевая стоимость сектора, пропускаем расчет процента");
+                    continue;
+                }
+                
+                BigDecimal percentage = analysis.getTotalValue().divide(portfolioValue, 4, RoundingMode.HALF_UP)
+                    .multiply(BigDecimal.valueOf(100));
+                analysis.setPercentage(percentage);
+                log.debug("🔍 Процент сектора рассчитан: {}%", percentage);
+            } catch (Exception e) {
+                log.error("❌ Ошибка расчета процента сектора: {}", e.getMessage(), e);
+            }
         }
         
         return sectorAnalysis;
@@ -279,22 +342,35 @@ public class SectorManagementService {
      * Расчет экспозиции высокорисковых секторов
      */
     private BigDecimal calculateHighRiskExposure(Map<String, SectorAnalysis> sectorAnalysis) {
-        return sectorAnalysis.entrySet().stream()
-            .filter(entry -> "HIGH".equals(SECTOR_CATEGORIES.get(entry.getKey())))
-            .map(entry -> entry.getValue().getTotalValue())
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        try {
+            return sectorAnalysis.entrySet().stream()
+                .filter(entry -> "HIGH".equals(SECTOR_CATEGORIES.get(entry.getKey())))
+                .map(entry -> entry.getValue().getTotalValue())
+                .filter(value -> value != null && value.compareTo(BigDecimal.ZERO) > 0)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        } catch (Exception e) {
+            log.error("❌ Ошибка расчета высокорисковой экспозиции: {}", e.getMessage(), e);
+            return BigDecimal.ZERO;
+        }
     }
     
     /**
      * Получение сектора для инструмента
      */
     public String getSectorForInstrument(String figi) {
+        if (figi == null || figi.isEmpty()) {
+            log.warn("⚠️ FIGI пустой, возвращаем OTHER");
+            return "OTHER";
+        }
+        
         // Сначала проверяем маппинг FIGI
         String sector = FIGI_TO_SECTOR.get(figi);
         if (sector != null) {
+            log.debug("🔍 FIGI {} найден в маппинге: {}", figi, sector);
             return sector;
         }
         
+        log.debug("🔍 FIGI {} не найден в маппинге, возвращаем OTHER", figi);
         // Если FIGI не найден, определяем по названию
         // Это можно расширить в будущем
         return "OTHER";
@@ -320,24 +396,42 @@ public class SectorManagementService {
     public List<String> getDiversificationRecommendations(Map<String, SectorAnalysis> sectorAnalysis) {
         List<String> recommendations = new ArrayList<>();
         
-        // Проверяем количество секторов
-        if (sectorAnalysis.size() < 5) {
-            recommendations.add("Добавить позиции в новые сектора для лучшей диверсификации");
-        }
-        
-        // Проверяем концентрацию в высокорисковых секторах
-        BigDecimal highRiskExposure = calculateHighRiskExposure(sectorAnalysis);
-        if (highRiskExposure.compareTo(BigDecimal.valueOf(0.4)) > 0) {
-            recommendations.add("Снизить долю высокорисковых секторов (сейчас > 40%)");
-        }
-        
-        // Проверяем перевес в одном секторе
-        for (Map.Entry<String, SectorAnalysis> entry : sectorAnalysis.entrySet()) {
-            if (entry.getValue().getPercentage().compareTo(BigDecimal.valueOf(25)) > 0) {
-                recommendations.add(String.format("Снизить концентрацию в секторе %s (сейчас %.1f%%)",
-                    RUSSIAN_SECTORS.get(entry.getKey()),
-                    entry.getValue().getPercentage()));
+        try {
+            if (sectorAnalysis == null || sectorAnalysis.isEmpty()) {
+                recommendations.add("Нет данных для анализа диверсификации");
+                return recommendations;
             }
+            
+            // Проверяем количество секторов
+            if (sectorAnalysis.size() < 5) {
+                recommendations.add("Добавить позиции в новые сектора для лучшей диверсификации");
+            }
+            
+            // Проверяем концентрацию в высокорисковых секторах
+            BigDecimal highRiskExposure = calculateHighRiskExposure(sectorAnalysis);
+            if (highRiskExposure.compareTo(BigDecimal.valueOf(0.4)) > 0) {
+                recommendations.add("Снизить долю высокорисковых секторов (сейчас > 40%)");
+            }
+            
+            // Проверяем перевес в одном секторе
+            for (Map.Entry<String, SectorAnalysis> entry : sectorAnalysis.entrySet()) {
+                try {
+                    SectorAnalysis analysis = entry.getValue();
+                    if (analysis != null && analysis.getPercentage() != null) {
+                        if (analysis.getPercentage().compareTo(BigDecimal.valueOf(25)) > 0) {
+                            recommendations.add(String.format("Снизить концентрацию в секторе %s (сейчас %.1f%%)",
+                                RUSSIAN_SECTORS.get(entry.getKey()),
+                                analysis.getPercentage()));
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("⚠️ Ошибка анализа сектора {}: {}", entry.getKey(), e.getMessage());
+                }
+            }
+            
+        } catch (Exception e) {
+            log.error("❌ Ошибка получения рекомендаций: {}", e.getMessage(), e);
+            recommendations.add("Ошибка анализа диверсификации: " + e.getMessage());
         }
         
         return recommendations;
@@ -351,19 +445,53 @@ public class SectorManagementService {
         private List<String> instruments = new ArrayList<>();
         
         public void addPosition(BigDecimal value) {
+            if (value == null) {
+                log.warn("⚠️ Попытка добавить null значение позиции");
+                return;
+            }
             this.totalValue = this.totalValue.add(value);
             this.positionsCount++;
+            log.debug("🔍 Позиция добавлена: value={}, total={}, count={}", value, this.totalValue, this.positionsCount);
         }
         
         // Геттеры и сеттеры
         public BigDecimal getTotalValue() { return totalValue; }
-        public void setTotalValue(BigDecimal totalValue) { this.totalValue = totalValue; }
+        public void setTotalValue(BigDecimal totalValue) { 
+            if (totalValue != null && totalValue.compareTo(BigDecimal.ZERO) >= 0) {
+                this.totalValue = totalValue;
+            } else {
+                log.warn("⚠️ Попытка установить некорректную стоимость: {}", totalValue);
+                this.totalValue = BigDecimal.ZERO;
+            }
+        }
         public int getPositionsCount() { return positionsCount; }
-        public void setPositionsCount(int positionsCount) { this.positionsCount = positionsCount; }
+        public void setPositionsCount(int positionsCount) { 
+            if (positionsCount >= 0) {
+                this.positionsCount = positionsCount;
+            } else {
+                log.warn("⚠️ Попытка установить некорректное количество позиций: {}", positionsCount);
+                this.positionsCount = 0;
+            }
+        }
         public BigDecimal getPercentage() { return percentage; }
-        public void setPercentage(BigDecimal percentage) { this.percentage = percentage; }
+        public void setPercentage(BigDecimal percentage) { 
+            if (percentage != null && percentage.compareTo(BigDecimal.ZERO) >= 0) {
+                this.percentage = percentage;
+            } else {
+                log.warn("⚠️ Попытка установить некорректный процент: {}", percentage);
+                this.percentage = BigDecimal.ZERO;
+            }
+        }
         public List<String> getInstruments() { return instruments; }
-        public void setInstruments(List<String> instruments) { this.instruments = instruments; }
+        public void setInstruments(List<String> instruments) { 
+            if (instruments != null) {
+                this.instruments = instruments;
+                log.debug("🔍 Инструменты сектора установлены: {}", instruments.size());
+            } else {
+                log.warn("⚠️ Попытка установить null список инструментов");
+                this.instruments = new ArrayList<>();
+            }
+        }
     }
     
     public static class SectorValidationResult {
@@ -380,30 +508,86 @@ public class SectorManagementService {
         
         // Геттеры и сеттеры
         public boolean isValid() { return valid; }
-        public void setValid(boolean valid) { this.valid = valid; }
+        public void setValid(boolean valid) { 
+            this.valid = valid;
+            log.debug("🔍 Валидность установлена: {}", valid);
+        }
         public String getSector() { return sector; }
-        public void setSector(String sector) { this.sector = sector; }
+        public void setSector(String sector) { 
+            if (sector != null && !sector.isEmpty()) {
+                this.sector = sector;
+                log.debug("🔍 Сектор установлен: {}", sector);
+            } else {
+                log.warn("⚠️ Попытка установить пустой сектор");
+            }
+        }
         public String getSectorName() { return sectorName; }
-        public void setSectorName(String sectorName) { this.sectorName = sectorName; }
+        public void setSectorName(String sectorName) { 
+            if (sectorName != null && !sectorName.isEmpty()) {
+                this.sectorName = sectorName;
+                log.debug("🔍 Название сектора установлено: {}", sectorName);
+            } else {
+                log.warn("⚠️ Попытка установить пустое название сектора");
+            }
+        }
         public BigDecimal getNewSectorPercentage() { return newSectorPercentage; }
-        public void setNewSectorPercentage(BigDecimal newSectorPercentage) { this.newSectorPercentage = newSectorPercentage; }
+        public void setNewSectorPercentage(BigDecimal newSectorPercentage) { 
+            if (newSectorPercentage != null && newSectorPercentage.compareTo(BigDecimal.ZERO) >= 0) {
+                this.newSectorPercentage = newSectorPercentage;
+                log.debug("🔍 Новый процент сектора установлен: {}%", newSectorPercentage.multiply(BigDecimal.valueOf(100)));
+            } else {
+                log.warn("⚠️ Попытка установить некорректный процент сектора: {}", newSectorPercentage);
+            }
+        }
         public int getTotalPositions() { return totalPositions; }
-        public void setTotalPositions(int totalPositions) { this.totalPositions = totalPositions; }
+        public void setTotalPositions(int totalPositions) { 
+            if (totalPositions >= 0) {
+                this.totalPositions = totalPositions;
+                log.debug("🔍 Общее количество позиций установлено: {}", totalPositions);
+            } else {
+                log.warn("⚠️ Попытка установить некорректное общее количество позиций: {}", totalPositions);
+            }
+        }
         public int getPositionsInSector() { return positionsInSector; }
-        public void setPositionsInSector(int positionsInSector) { this.positionsInSector = positionsInSector; }
+        public void setPositionsInSector(int positionsInSector) { 
+            if (positionsInSector >= 0) {
+                this.positionsInSector = positionsInSector;
+                log.debug("🔍 Количество позиций в секторе установлено: {}", positionsInSector);
+            } else {
+                log.warn("⚠️ Попытка установить некорректное количество позиций в секторе: {}", positionsInSector);
+            }
+        }
         public SectorAnalysis getCurrentSectorAnalysis() { return currentSectorAnalysis; }
-        public void setCurrentSectorAnalysis(SectorAnalysis currentSectorAnalysis) { this.currentSectorAnalysis = currentSectorAnalysis; }
+        public void setCurrentSectorAnalysis(SectorAnalysis currentSectorAnalysis) { 
+            this.currentSectorAnalysis = currentSectorAnalysis;
+            log.debug("🔍 Текущий анализ сектора установлен: {}", 
+                currentSectorAnalysis != null ? "данные" : "null");
+        }
         public Map<String, SectorAnalysis> getSectorAnalysis() { return sectorAnalysis; }
-        public void setSectorAnalysis(Map<String, SectorAnalysis> sectorAnalysis) { this.sectorAnalysis = sectorAnalysis; }
+        public void setSectorAnalysis(Map<String, SectorAnalysis> sectorAnalysis) { 
+            this.sectorAnalysis = sectorAnalysis;
+            log.debug("🔍 Анализ секторов установлен: {}", 
+                sectorAnalysis != null ? sectorAnalysis.size() + " секторов" : "null");
+        }
         public List<String> getViolations() { return violations; }
         public List<String> getWarnings() { return warnings; }
         
         public void addViolation(String violation) {
-            this.violations.add(violation);
+            if (violation != null && !violation.isEmpty()) {
+                this.violations.add(violation);
+                log.debug("🔍 Нарушение добавлено: {}", violation);
+            } else {
+                log.warn("⚠️ Попытка добавить пустое нарушение");
+            }
         }
         
         public void addWarning(String warning) {
-            this.warnings.add(warning);
+            if (warning != null && !warning.isEmpty()) {
+                this.warnings.add(warning);
+                log.debug("🔍 Предупреждение добавлено: {}", warning);
+            } else {
+                log.warn("⚠️ Попытка добавить пустое предупреждение");
+            }
         }
     }
 }

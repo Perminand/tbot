@@ -272,13 +272,32 @@
         async function loadSectorStats(accountId) {
             try {
                 const response = await fetch(`/api/sectors/stats/${accountId}`);
+                
+                if (!response.ok) {
+                    console.error('Ошибка API секторов:', response.status, response.statusText);
+                    const errorData = await response.text();
+                    console.error('Детали ошибки:', errorData);
+                    document.getElementById('sectorStats').innerHTML = 
+                        `<div class="alert alert-danger">Ошибка API: ${response.status} - ${response.statusText}</div>`;
+                    return;
+                }
+                
                 const data = await response.json();
+                console.log('Данные статистики секторов:', data);
+                
+                if (!data.sectorDistribution) {
+                    console.error('Неверная структура данных:', data);
+                    document.getElementById('sectorStats').innerHTML = 
+                        '<div class="alert alert-warning">Неверная структура данных API</div>';
+                    return;
+                }
                 
                 displaySectorStats(data);
                 updateRiskChart(data);
             } catch (error) {
                 console.error('Ошибка загрузки статистики секторов:', error);
-                document.getElementById('sectorStats').innerHTML = '<div class="alert alert-danger">Ошибка загрузки данных</div>';
+                document.getElementById('sectorStats').innerHTML = 
+                    '<div class="alert alert-danger">Ошибка загрузки данных: ' + error.message + '</div>';
             }
         }
 
@@ -360,12 +379,32 @@
         async function loadDiversificationAnalysis(accountId) {
             try {
                 const response = await fetch(`/api/sectors/diversification/${accountId}`);
+                
+                if (!response.ok) {
+                    console.error('Ошибка API диверсификации:', response.status, response.statusText);
+                    const errorData = await response.text();
+                    console.error('Детали ошибки:', errorData);
+                    document.getElementById('diversificationAnalysis').innerHTML = 
+                        `<div class="alert alert-danger">Ошибка API: ${response.status} - ${response.statusText}</div>`;
+                    return;
+                }
+                
                 const data = await response.json();
+                console.log('Данные анализа диверсификации:', data);
+                
+                if (!data.sectorAnalysis) {
+                    console.error('Неверная структура данных диверсификации:', data);
+                    document.getElementById('diversificationAnalysis').innerHTML = 
+                        '<div class="alert alert-warning">Неверная структура данных API</div>';
+                    return;
+                }
                 
                 displaySectorAnalysis(data);
                 displayRecommendations(data.recommendations);
             } catch (error) {
                 console.error('Ошибка загрузки анализа диверсификации:', error);
+                document.getElementById('diversificationAnalysis').innerHTML = 
+                    '<div class="alert alert-danger">Ошибка загрузки данных: ' + error.message + '</div>';
             }
         }
 
