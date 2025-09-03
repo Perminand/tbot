@@ -329,9 +329,11 @@ public class PortfolioManagementService {
                 } catch (Exception ignore) { }
 
                 // Проверяем, есть ли свободные средства
+                System.out.println("🚨🚨🚨 ПРОВЕРЯЕМ СРЕДСТВА для " + displayOf(figi));
                 log.info("🚨🚨🚨 ПРОВЕРЯЕМ СРЕДСТВА для {}", displayOf(figi));
                 BigDecimal availableCash = getAvailableCash(portfolioAnalysis);
                 BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
+                System.out.println("🚨🚨🚨 РЕЗУЛЬТАТ: availableCash=" + availableCash + ", buyingPower=" + buyingPower);
                 log.info("🚨🚨🚨 РЕЗУЛЬТАТ: availableCash={}, buyingPower={}", availableCash, buyingPower);
 
                 // Проверка средств: используем buyingPower вместо availableCash для маржинальных операций
@@ -742,21 +744,26 @@ public class PortfolioManagementService {
     }
     
     private BigDecimal getAvailableCash(PortfolioAnalysis analysis) {
+        System.out.println("🚨🚨🚨 ВХОД В getAvailableCash");
         log.info("🚨🚨🚨 ВХОД В getAvailableCash");
+        System.out.println("🚨🚨🚨 Всего позиций: " + analysis.getPositions().size());
         log.info("🚨🚨🚨 Всего позиций: {}", analysis.getPositions().size());
         
         // Получаем реальные доступные средства из портфеля
         // Ищем позицию с валютой (обычно RUB)
         for (Position position : analysis.getPositions()) {
+            System.out.println("🚨🚨🚨 Проверяем позицию: figi=" + position.getFigi() + ", type=" + position.getInstrumentType() + ", quantity=" + position.getQuantity());
             log.info("🚨🚨🚨 Проверяем позицию: figi={}, type={}, quantity={}", 
                 position.getFigi(), position.getInstrumentType(), position.getQuantity());
             if ("currency".equals(position.getInstrumentType())) {
+                System.out.println("🚨🚨🚨 НАЙДЕНА ВАЛЮТА: " + displayOf(position.getFigi()) + " - " + position.getQuantity());
                 log.info("🚨🚨🚨 НАЙДЕНА ВАЛЮТА: {} - {}", displayOf(position.getFigi()), position.getQuantity());
                 return position.getQuantity();
             }
         }
         
         // Если не найдена валюта, возвращаем 0
+        System.out.println("🚨🚨🚨 НЕ НАЙДЕНЫ ДОСТУПНЫЕ СРЕДСТВА В ПОРТФЕЛЕ");
         log.warn("🚨🚨🚨 НЕ НАЙДЕНЫ ДОСТУПНЫЕ СРЕДСТВА В ПОРТФЕЛЕ");
         return BigDecimal.ZERO;
     }

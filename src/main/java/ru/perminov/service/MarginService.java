@@ -85,8 +85,10 @@ public class MarginService {
      * Calculates available buying power for long positions: cash + allowed margin portion of portfolio.
      */
     public BigDecimal getAvailableBuyingPower(String accountId, PortfolioManagementService.PortfolioAnalysis analysis) {
-        log.info("🚨🚨🚨 ВХОД В getAvailableBuyingPower для аккаунта: {}", accountId);
+        System.out.println("🚨🚨🚨 ВХОД В getAvailableBuyingPower для аккаунта: " + accountId);
+            log.info("🚨🚨🚨 ВХОД В getAvailableBuyingPower для аккаунта: {}", accountId);
         BigDecimal cash = extractCashFromPortfolio(analysis);
+        System.out.println("🔍 getAvailableBuyingPower: cash=" + cash + ", marginEnabled=" + isMarginEnabled());
         log.info("🔍 getAvailableBuyingPower: cash={}, marginEnabled={}", cash, isMarginEnabled());
         
         // Если кэш отрицательный, но маржа включена - используем плечо
@@ -182,11 +184,14 @@ public class MarginService {
     }
 
     private BigDecimal extractCashFromPortfolio(PortfolioManagementService.PortfolioAnalysis analysis) {
+        System.out.println("🚨🚨🚨 ВХОД В extractCashFromPortfolio");
         log.info("🚨🚨🚨 ВХОД В extractCashFromPortfolio");
+        System.out.println("🚨🚨🚨 Всего позиций: " + analysis.getPositions().size());
         log.info("🚨🚨🚨 Всего позиций: {}", analysis.getPositions().size());
         
         for (int i = 0; i < analysis.getPositions().size(); i++) {
             var pos = analysis.getPositions().get(i);
+            System.out.println("🚨🚨🚨 Позиция " + i + ": figi=" + pos.getFigi() + ", type=" + pos.getInstrumentType() + ", quantity=" + pos.getQuantity());
             log.info("🚨🚨🚨 Позиция {}: figi={}, type={}, quantity={}", 
                 i, pos.getFigi(), pos.getInstrumentType(), pos.getQuantity());
         }
@@ -197,6 +202,7 @@ public class MarginService {
                 .findFirst()
                 .orElse(BigDecimal.ZERO);
         
+        System.out.println("🚨🚨🚨 РЕЗУЛЬТАТ extractCashFromPortfolio: cash=" + cash);
         log.info("🚨🚨🚨 РЕЗУЛЬТАТ extractCashFromPortfolio: cash={}", cash);
         return cash;
     }
