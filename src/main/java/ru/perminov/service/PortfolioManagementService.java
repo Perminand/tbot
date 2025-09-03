@@ -37,6 +37,7 @@ public class PortfolioManagementService {
     private final TradingSettingsService tradingSettingsService;
     private final InstrumentNameService instrumentNameService;
     private final SectorManagementService sectorManagementService;
+    private final CapitalManagementService capitalManagementService;
     
     // Целевые доли активов в портфеле
     private final Map<String, BigDecimal> targetAllocations = new HashMap<>();
@@ -388,38 +389,28 @@ public class PortfolioManagementService {
                     boolean hasPosition = portfolioAnalysis.getPositionValues().containsKey(figi) && 
                                         portfolioAnalysis.getPositionValues().get(figi).compareTo(BigDecimal.ZERO) > 0;
                     
-                    // Определяем размер покупки в зависимости от наличия позиции
-                    BigDecimal buyAmount;
-                    if (hasPosition) {
-                        // Докупаем - используем меньшую сумму (0.3% от доступных средств)
-                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.003));
-                        log.info("Докупаем позицию [{} , accountId={}, price={}] -> {} лотов", displayOf(figi), accountId, trend.getCurrentPrice(), 
-                                buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
-                    } else {
-                        // Первая покупка - используем меньшую сумму (0.5% от доступных средств)
-                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.005));
-                        log.info("Первая покупка [{} , accountId={}, price={}] -> {} лотов", displayOf(figi), accountId, trend.getCurrentPrice(), 
-                                buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
+                    // Используем CapitalManagementService для расчета размера позиции
+                    CapitalManagementService.SizingResult sizing = capitalManagementService.computeSizing(
+                            accountId,
+                            figi,
+                            displayOf(figi),
+                            hasPosition,
+                            trend.getCurrentPrice(),
+                            buyingPower,
+                            portfolioAnalysis,
+                            atr
+                    );
+                    if (sizing.isBlocked()) {
+                        log.warn("Покупка заблокирована CapitalManagementService: {} [{} , accountId={}]", sizing.getBlockReason(), displayOf(figi), accountId);
+                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                "Блокировка размера позиции",
+                                String.format("%s, Account: %s, Причина: %s", displayOf(figi), accountId, sizing.getBlockReason()));
+                        return;
                     }
-                    
-                    // Проверяем минимальную сумму для покупки
-                    BigDecimal minBuyAmount = trend.getCurrentPrice();
-                    BigDecimal minPositionValue = new BigDecimal("1000"); // Минимум 1000 руб на позицию
-                    
-                    if (buyAmount.compareTo(minBuyAmount) < 0) {
-                        log.info("Сумма покупки {} меньше минимальной {}. Увеличиваем до минимальной.", buyAmount, minBuyAmount);
-                        buyAmount = minBuyAmount;
-                    }
-                    
-                    // Проверяем минимальную стоимость позиции
-                    if (buyAmount.compareTo(minPositionValue) < 0) {
-                        log.info("Сумма покупки {} меньше минимальной стоимости позиции {}. Увеличиваем до минимальной.", buyAmount, minPositionValue);
-                        buyAmount = minPositionValue;
-                    }
-                    
-                    int lots = buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
-                                            log.info("🎯 Рассчитано лотов для покупки: {} (сумма: {}, цена: {}, стоимость позиции: {})", 
-                            lots, buyAmount, trend.getCurrentPrice(), buyAmount.multiply(BigDecimal.valueOf(lots)));
+                    int lots = sizing.getLots();
+                    BigDecimal buyAmount = sizing.getBuyAmount();
+                    log.info("🎯 Рассчитано CapitalManagement: lots={}, amount={}, price={}, value={}",
+                            lots, buyAmount, trend.getCurrentPrice(), trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots)));
 
                     // ATR-кап размера позиции: ограничиваем стоимость позиции  по отношению к ATR
                     if (atr.compareTo(java.math.BigDecimal.ZERO) > 0) {
