@@ -254,6 +254,41 @@ public class SectorController {
     }
     
     /**
+     * Простой тестовый endpoint для проверки работы сервиса
+     */
+    @GetMapping("/test")
+    public ResponseEntity<?> testService() {
+        try {
+            log.info("🧪 Тестирование SectorManagementService...");
+            
+            // Проверяем, что сервис не null
+            if (sectorManagementService == null) {
+                log.error("❌ SectorManagementService is null!");
+                return ResponseEntity.internalServerError()
+                    .body("SectorManagementService не инициализирован");
+            }
+            
+            // Проверяем базовые методы
+            String testSector = sectorManagementService.getSectorName("BANKS");
+            String testRisk = sectorManagementService.getSectorRiskCategory("BANKS");
+            
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", "SectorManagementService работает!");
+            response.put("testSector", testSector);
+            response.put("testRisk", testRisk);
+            response.put("timestamp", System.currentTimeMillis());
+            
+            log.info("✅ SectorManagementService тест пройден успешно");
+            return ResponseEntity.ok(response);
+            
+        } catch (Exception e) {
+            log.error("❌ Ошибка тестирования SectorManagementService: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError()
+                .body("Ошибка тестирования: " + e.getMessage());
+        }
+    }
+    
+    /**
      * Получение списка всех секторов
      */
     @GetMapping("/list")

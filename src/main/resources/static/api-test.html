@@ -44,10 +44,13 @@
                         <h5>Тест API секторов</h5>
                     </div>
                     <div class="card-body">
-                        <button class="btn btn-success" onclick="testSectorsAPI()">
-                            Тест /api/sectors/list
-                        </button>
-                        <div id="sectorsResult" class="api-result mt-3"></div>
+                                            <button class="btn btn-success" onclick="testSectorsAPI()">
+                        Тест /api/sectors/list
+                    </button>
+                    <button class="btn btn-info mt-2" onclick="testSectorTestAPI()">
+                        Тест /api/sectors/test
+                    </button>
+                    <div id="sectorsResult" class="api-result mt-3"></div>
                     </div>
                 </div>
             </div>
@@ -120,6 +123,21 @@
                 showResult('sectorsResult', { error: error.message }, false);
             }
         }
+        
+        async function testSectorTestAPI() {
+            try {
+                const response = await fetch('/api/sectors/test');
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult('sectorsResult', data, true);
+                } else {
+                    showResult('sectorsResult', { error: data, status: response.status }, false);
+                }
+            } catch (error) {
+                showResult('sectorsResult', { error: error.message }, false);
+            }
+        }
 
         async function testBotStatusAPI() {
             try {
@@ -155,6 +173,15 @@
                 results.sectors = { success: response.ok, data, status: response.status };
             } catch (error) {
                 results.sectors = { success: false, error: error.message };
+            }
+            
+            // Тест API секторов (тестовый endpoint)
+            try {
+                const response = await fetch('/api/sectors/test');
+                const data = await response.json();
+                results.sectorsTest = { success: response.ok, data, status: response.status };
+            } catch (error) {
+                results.sectorsTest = { success: false, error: error.message };
             }
             
             // Тест API статуса бота

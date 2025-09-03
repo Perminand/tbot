@@ -22,123 +22,155 @@ public class SectorManagementService {
     private final BotLogService botLogService;
     
     // Российские ограничения для неквалифицированных инвесторов
-    @Value("${position-management.max-sector-exposure-pct:0.15}")
-    private BigDecimal maxSectorExposurePct;
+    private BigDecimal maxSectorExposurePct = new BigDecimal("0.15");
     
     // Конструктор с логированием
     public SectorManagementService(BotLogService botLogService) {
-        this.botLogService = botLogService;
-        log.info("🚀 SectorManagementService инициализируется...");
+        try {
+            System.out.println("🚀 SectorManagementService конструктор начал выполнение...");
+            
+            if (botLogService == null) {
+                System.err.println("❌ BotLogService is null в конструкторе!");
+                throw new IllegalArgumentException("BotLogService не может быть null");
+            }
+            
+            this.botLogService = botLogService;
+            System.out.println("✅ BotLogService успешно установлен");
+            
+            // Проверяем статические карты
+            System.out.println("📊 RUSSIAN_SECTORS размер: " + RUSSIAN_SECTORS.size());
+            System.out.println("📊 SECTOR_CATEGORIES размер: " + SECTOR_CATEGORIES.size());
+            System.out.println("📊 FIGI_TO_SECTOR размер: " + FIGI_TO_SECTOR.size());
+            
+            log.info("🚀 SectorManagementService инициализируется...");
+            System.out.println("✅ SectorManagementService успешно инициализирован!");
+            
+        } catch (Exception e) {
+            System.err.println("❌ Ошибка в конструкторе SectorManagementService: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
     }
     
 
     
-    @Value("${position-management.max-positions-per-sector:3}")
-    private int maxPositionsPerSector;
-    
-    @Value("${position-management.max-total-positions:15}")
-    private int maxTotalPositions;
+    private int maxPositionsPerSector = 3;
+    private int maxTotalPositions = 15;
     
     // Российские секторы экономики
     private static final Map<String, String> RUSSIAN_SECTORS = new HashMap<>();
     private static final Map<String, String> SECTOR_CATEGORIES = new HashMap<>();
     
     static {
-        // Основные секторы российской экономики
-        RUSSIAN_SECTORS.put("BANKS", "Банки и финансы");
-        RUSSIAN_SECTORS.put("OIL_GAS", "Нефть и газ");
-        RUSSIAN_SECTORS.put("METALS", "Металлургия");
-        RUSSIAN_SECTORS.put("TELECOM", "Телекоммуникации");
-        RUSSIAN_SECTORS.put("RETAIL", "Розничная торговля");
-        RUSSIAN_SECTORS.put("TRANSPORT", "Транспорт");
-        RUSSIAN_SECTORS.put("CHEMICALS", "Химическая промышленность");
-        RUSSIAN_SECTORS.put("CONSTRUCTION", "Строительство");
-        RUSSIAN_SECTORS.put("AGRICULTURE", "Сельское хозяйство");
-        RUSSIAN_SECTORS.put("TECH", "Технологии");
-        RUSSIAN_SECTORS.put("UTILITIES", "Коммунальные услуги");
-        RUSSIAN_SECTORS.put("REAL_ESTATE", "Недвижимость");
-        RUSSIAN_SECTORS.put("HEALTHCARE", "Здравоохранение");
-        RUSSIAN_SECTORS.put("CONSUMER_GOODS", "Товары народного потребления");
-        RUSSIAN_SECTORS.put("OTHER", "Прочие");
-        
-        // Категории риска для российских секторов
-        SECTOR_CATEGORIES.put("BANKS", "HIGH");           // Высокий риск
-        SECTOR_CATEGORIES.put("OIL_GAS", "MEDIUM");       // Средний риск
-        SECTOR_CATEGORIES.put("METALS", "HIGH");          // Высокий риск
-        SECTOR_CATEGORIES.put("TELECOM", "LOW");          // Низкий риск
-        SECTOR_CATEGORIES.put("RETAIL", "MEDIUM");        // Средний риск
-        SECTOR_CATEGORIES.put("TRANSPORT", "MEDIUM");     // Средний риск
-        SECTOR_CATEGORIES.put("CHEMICALS", "HIGH");       // Высокий риск
-        SECTOR_CATEGORIES.put("CONSTRUCTION", "HIGH");    // Высокий риск
-        SECTOR_CATEGORIES.put("AGRICULTURE", "MEDIUM");   // Средний риск
-        SECTOR_CATEGORIES.put("TECH", "HIGH");            // Высокий риск
-        SECTOR_CATEGORIES.put("UTILITIES", "LOW");        // Низкий риск
-        SECTOR_CATEGORIES.put("REAL_ESTATE", "MEDIUM");   // Средний риск
-        SECTOR_CATEGORIES.put("HEALTHCARE", "LOW");       // Низкий риск
-        SECTOR_CATEGORIES.put("CONSUMER_GOODS", "LOW");  // Низкий риск
-        SECTOR_CATEGORIES.put("OTHER", "MEDIUM");         // Средний риск
+        try {
+            // Основные секторы российской экономики
+            RUSSIAN_SECTORS.put("BANKS", "Банки и финансы");
+            RUSSIAN_SECTORS.put("OIL_GAS", "Нефть и газ");
+            RUSSIAN_SECTORS.put("METALS", "Металлургия");
+            RUSSIAN_SECTORS.put("TELECOM", "Телекоммуникации");
+            RUSSIAN_SECTORS.put("RETAIL", "Розничная торговля");
+            RUSSIAN_SECTORS.put("TRANSPORT", "Транспорт");
+            RUSSIAN_SECTORS.put("CHEMICALS", "Химическая промышленность");
+            RUSSIAN_SECTORS.put("CONSTRUCTION", "Строительство");
+            RUSSIAN_SECTORS.put("AGRICULTURE", "Сельское хозяйство");
+            RUSSIAN_SECTORS.put("TECH", "Технологии");
+            RUSSIAN_SECTORS.put("UTILITIES", "Коммунальные услуги");
+            RUSSIAN_SECTORS.put("REAL_ESTATE", "Недвижимость");
+            RUSSIAN_SECTORS.put("HEALTHCARE", "Здравоохранение");
+            RUSSIAN_SECTORS.put("CONSUMER_GOODS", "Товары народного потребления");
+            RUSSIAN_SECTORS.put("OTHER", "Прочие");
+            
+            // Категории риска для российских секторов
+            SECTOR_CATEGORIES.put("BANKS", "HIGH");           // Высокий риск
+            SECTOR_CATEGORIES.put("OIL_GAS", "MEDIUM");       // Средний риск
+            SECTOR_CATEGORIES.put("METALS", "HIGH");          // Высокий риск
+            SECTOR_CATEGORIES.put("TELECOM", "LOW");          // Низкий риск
+            SECTOR_CATEGORIES.put("RETAIL", "MEDIUM");        // Средний риск
+            SECTOR_CATEGORIES.put("TRANSPORT", "MEDIUM");     // Средний риск
+            SECTOR_CATEGORIES.put("CHEMICALS", "HIGH");       // Высокий риск
+            SECTOR_CATEGORIES.put("CONSTRUCTION", "HIGH");    // Высокий риск
+            SECTOR_CATEGORIES.put("AGRICULTURE", "MEDIUM");   // Средний риск
+            SECTOR_CATEGORIES.put("TECH", "HIGH");            // Высокий риск
+            SECTOR_CATEGORIES.put("UTILITIES", "LOW");        // Низкий риск
+            SECTOR_CATEGORIES.put("REAL_ESTATE", "MEDIUM");   // Средний риск
+            SECTOR_CATEGORIES.put("HEALTHCARE", "LOW");       // Низкий риск
+            SECTOR_CATEGORIES.put("CONSUMER_GOODS", "LOW");  // Низкий риск
+            SECTOR_CATEGORIES.put("OTHER", "MEDIUM");         // Средний риск
+            
+            System.out.println("✅ Статические карты секторов инициализированы успешно");
+        } catch (Exception e) {
+            System.err.println("❌ Ошибка инициализации статических карт секторов: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
     
     // Маппинг FIGI на секторы (основные российские акции)
     private static final Map<String, String> FIGI_TO_SECTOR = new HashMap<>();
     
     static {
-        // Банки
-        FIGI_TO_SECTOR.put("BBG004730NQ9", "BANKS");      // Сбербанк
-        FIGI_TO_SECTOR.put("BBG004730ZJ9", "BANKS");      // ВТБ
-        FIGI_TO_SECTOR.put("BBG004S681M1", "BANKS");      // Тинькофф
-        FIGI_TO_SECTOR.put("BBG004S681B4", "BANKS");      // Альфа-Банк
-        
-        // Нефть и газ
-        FIGI_TO_SECTOR.put("BBG0047315Y7", "OIL_GAS");   // Газпром
-        FIGI_TO_SECTOR.put("BBG004731354", "OIL_GAS");   // Лукойл
-        FIGI_TO_SECTOR.put("BBG004S681W1", "OIL_GAS");   // Роснефть
-        FIGI_TO_SECTOR.put("BBG004S681B4", "OIL_GAS");   // Новатэк
-        
-        // Металлургия
-        FIGI_TO_SECTOR.put("BBG004S681M1", "METALS");    // НЛМК
-        FIGI_TO_SECTOR.put("BBG004S681B4", "METALS");    // Северсталь
-        FIGI_TO_SECTOR.put("BBG004S681W1", "METALS");    // ММК
-        
-        // Телеком
-        FIGI_TO_SECTOR.put("BBG004S681M1", "TELECOM");   // МТС
-        FIGI_TO_SECTOR.put("BBG004S681B4", "TELECOM");   // МегаФон
-        FIGI_TO_SECTOR.put("BBG004S681W1", "TELECOM");   // Ростелеком
-        
-        // Розничная торговля
-        FIGI_TO_SECTOR.put("BBG004S681M1", "RETAIL");    // Магнит
-        FIGI_TO_SECTOR.put("BBG004S681B4", "RETAIL");    // X5 Group
-        FIGI_TO_SECTOR.put("BBG004S681W1", "RETAIL");    // Лента
-        
-        // Транспорт
-        FIGI_TO_SECTOR.put("BBG004S681M1", "TRANSPORT"); // Аэрофлот
-        FIGI_TO_SECTOR.put("BBG004S681B4", "TRANSPORT"); // РЖД
-        
-        // Химия
-        FIGI_TO_SECTOR.put("BBG004S681M1", "CHEMICALS"); // ФосАгро
-        FIGI_TO_SECTOR.put("BBG004S681B4", "CHEMICALS"); // Акрон
-        
-        // Строительство
-        FIGI_TO_SECTOR.put("BBG004S681M1", "CONSTRUCTION"); // ПИК
-        
-        // Сельское хозяйство
-        FIGI_TO_SECTOR.put("BBG004S681M1", "AGRICULTURE"); // Русагро
-        
-        // Технологии
-        FIGI_TO_SECTOR.put("BBG004S681M1", "TECH");      // Яндекс
-        FIGI_TO_SECTOR.put("BBG004S681B4", "TECH");      // VK
-        
-        // Коммунальные услуги
-        FIGI_TO_SECTOR.put("BBG004S681M1", "UTILITIES"); // Интер РАО
-        
-        // Недвижимость
-        FIGI_TO_SECTOR.put("BBG004S681M1", "REAL_ESTATE"); // AFK Система
-        
-        // Здравоохранение
-        FIGI_TO_SECTOR.put("BBG004S681M1", "HEALTHCARE"); // Фармстандарт
-        
-        // Товары народного потребления
-        FIGI_TO_SECTOR.put("BBG004S681M1", "CONSUMER_GOODS"); // Черкизово
+        try {
+            // Банки
+            FIGI_TO_SECTOR.put("BBG004730NQ9", "BANKS");      // Сбербанк
+            FIGI_TO_SECTOR.put("BBG004730ZJ9", "BANKS");      // ВТБ
+            FIGI_TO_SECTOR.put("BBG004S681M1", "BANKS");      // Тинькофф
+            FIGI_TO_SECTOR.put("BBG004S681B4", "BANKS");      // Альфа-Банк
+            
+            // Нефть и газ
+            FIGI_TO_SECTOR.put("BBG0047315Y7", "OIL_GAS");   // Газпром
+            FIGI_TO_SECTOR.put("BBG004731354", "OIL_GAS");   // Лукойл
+            FIGI_TO_SECTOR.put("BBG004S681W1", "OIL_GAS");   // Роснефть
+            FIGI_TO_SECTOR.put("BBG004S681B4", "OIL_GAS");   // Новатэк
+            
+            // Металлургия
+            FIGI_TO_SECTOR.put("BBG004S681M1", "METALS");    // НЛМК
+            FIGI_TO_SECTOR.put("BBG004S681B4", "METALS");    // Северсталь
+            FIGI_TO_SECTOR.put("BBG004S681W1", "METALS");    // ММК
+            
+            // Телеком
+            FIGI_TO_SECTOR.put("BBG004S681M1", "TELECOM");   // МТС
+            FIGI_TO_SECTOR.put("BBG004S681B4", "TELECOM");   // МегаФон
+            FIGI_TO_SECTOR.put("BBG004S681W1", "TELECOM");   // Ростелеком
+            
+            // Розничная торговля
+            FIGI_TO_SECTOR.put("BBG004S681M1", "RETAIL");    // Магнит
+            FIGI_TO_SECTOR.put("BBG004S681B4", "RETAIL");    // X5 Group
+            FIGI_TO_SECTOR.put("BBG004S681W1", "RETAIL");    // Лента
+            
+            // Транспорт
+            FIGI_TO_SECTOR.put("BBG004S681M1", "TRANSPORT"); // Аэрофлот
+            FIGI_TO_SECTOR.put("BBG004S681B4", "TRANSPORT"); // РЖД
+            
+            // Химия
+            FIGI_TO_SECTOR.put("BBG004S681M1", "CHEMICALS"); // ФосАгро
+            FIGI_TO_SECTOR.put("BBG004S681B4", "CHEMICALS"); // Акрон
+            
+            // Строительство
+            FIGI_TO_SECTOR.put("BBG004S681M1", "CONSTRUCTION"); // ПИК
+            
+            // Сельское хозяйство
+            FIGI_TO_SECTOR.put("BBG004S681M1", "AGRICULTURE"); // Русагро
+            
+            // Технологии
+            FIGI_TO_SECTOR.put("BBG004S681M1", "TECH");      // Яндекс
+            FIGI_TO_SECTOR.put("BBG004S681B4", "TECH");      // VK
+            
+            // Коммунальные услуги
+            FIGI_TO_SECTOR.put("BBG004S681M1", "UTILITIES"); // Интер РАО
+            
+            // Недвижимость
+            FIGI_TO_SECTOR.put("BBG004S681M1", "REAL_ESTATE"); // AFK Система
+            
+            // Здравоохранение
+            FIGI_TO_SECTOR.put("BBG004S681M1", "HEALTHCARE"); // Фармстандарт
+            
+            // Товары народного потребления
+            FIGI_TO_SECTOR.put("BBG004S681M1", "CONSUMER_GOODS"); // Черкизово
+            
+            System.out.println("✅ Статический маппинг FIGI инициализирован успешно");
+        } catch (Exception e) {
+            System.err.println("❌ Ошибка инициализации маппинга FIGI: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
     
     /**
