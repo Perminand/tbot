@@ -44,6 +44,17 @@ margin-trading:
   allow-negative-cash: true    # Разрешить покупки при отрицательных средствах (используя плечо)
   min-buying-power-ratio: 0.1  # Минимальное отношение покупательной способности к стоимости покупки
 
+# Position Management & Diversification
+position-management:
+  max-position-size-pct: 0.05      # Максимальный размер позиции: 5% от портфеля (было 20%)
+  max-sector-exposure-pct: 0.15    # Максимальная доля одной отрасли: 15%
+  max-positions-per-sector: 3      # Максимум позиций в одной отрасли
+  max-total-positions: 15          # Максимум открытых позиций
+  position-sizing:
+    first-buy-pct: 0.005           # Первая покупка: 0.5% от buyingPower (было 2%)
+    add-buy-pct: 0.003             # Докупка: 0.3% от buyingPower (было 1%)
+    min-position-value: 1000       # Минимальная стоимость позиции в рублях
+
 # Smart Analysis Configuration
 smart-analysis:
   quick-monitoring:

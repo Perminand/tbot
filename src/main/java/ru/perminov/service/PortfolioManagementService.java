@@ -390,26 +390,35 @@ public class PortfolioManagementService {
                     // Определяем размер покупки в зависимости от наличия позиции
                     BigDecimal buyAmount;
                     if (hasPosition) {
-                        // Докупаем - используем меньшую сумму (1% от доступных средств)
-                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.01));
+                        // Докупаем - используем меньшую сумму (0.3% от доступных средств)
+                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.003));
                         log.info("Докупаем позицию [{} , accountId={}, price={}] -> {} лотов", displayOf(figi), accountId, trend.getCurrentPrice(), 
                                 buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     } else {
-                        // Первая покупка - используем меньшую сумму (2% от доступных средств)
-                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.02));
+                        // Первая покупка - используем меньшую сумму (0.5% от доступных средств)
+                        buyAmount = buyingPower.multiply(BigDecimal.valueOf(0.005));
                         log.info("Первая покупка [{} , accountId={}, price={}] -> {} лотов", displayOf(figi), accountId, trend.getCurrentPrice(), 
                                 buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN));
                     }
                     
-                    // Проверяем минимальную сумму для покупки (1 лот)
+                    // Проверяем минимальную сумму для покупки
                     BigDecimal minBuyAmount = trend.getCurrentPrice();
+                    BigDecimal minPositionValue = new BigDecimal("1000"); // Минимум 1000 руб на позицию
+                    
                     if (buyAmount.compareTo(minBuyAmount) < 0) {
                         log.info("Сумма покупки {} меньше минимальной {}. Увеличиваем до минимальной.", buyAmount, minBuyAmount);
                         buyAmount = minBuyAmount;
                     }
                     
+                    // Проверяем минимальную стоимость позиции
+                    if (buyAmount.compareTo(minPositionValue) < 0) {
+                        log.info("Сумма покупки {} меньше минимальной стоимости позиции {}. Увеличиваем до минимальной.", buyAmount, minPositionValue);
+                        buyAmount = minPositionValue;
+                    }
+                    
                     int lots = buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
-                    log.info("🎯 Рассчитано лотов для покупки: {} (сумма: {}, цена: {})", lots, buyAmount, trend.getCurrentPrice());
+                                            log.info("🎯 Рассчитано лотов для покупки: {} (сумма: {}, цена: {}, стоимость позиции: {})", 
+                            lots, buyAmount, trend.getCurrentPrice(), buyAmount.multiply(BigDecimal.valueOf(lots)));
 
                     // ATR-кап размера позиции: ограничиваем стоимость позиции  по отношению к ATR
                     if (atr.compareTo(java.math.BigDecimal.ZERO) > 0) {
@@ -493,7 +502,7 @@ public class PortfolioManagementService {
                                     // Проверка концентрации риска: не превышаем ли максимальную долю на один инструмент
                                     BigDecimal currentPositionValue = portfolioAnalysis.getPositionValues().getOrDefault(figi, BigDecimal.ZERO);
                                     BigDecimal newPositionValue = currentPositionValue.add(requiredAmount);
-                                    BigDecimal maxPositionValue = portfolioAnalysis.getTotalValue().multiply(new BigDecimal("0.20")); // Максимум 20% на один инструмент
+                                    BigDecimal maxPositionValue = portfolioAnalysis.getTotalValue().multiply(new BigDecimal("0.05")); // Максимум 5% на один инструмент
                                     
                                     if (newPositionValue.compareTo(maxPositionValue) > 0) {
                                         log.warn("🚨 КОНЦЕНТРАЦИЯ РИСКА: превышение максимальной доли на инструмент [{} , accountId={}]. Текущая позиция: {}, новая: {}, максимум: {}", 
@@ -506,6 +515,19 @@ public class PortfolioManagementService {
                                     
                                     log.info("✅ Маржинальные лимиты соблюдены: liquid={}, minimal={}, missing={}, maxUtilization={}, концентрация риска в норме", 
                                         currentLiquid, currentMinimal, currentMissing, maxUtilization);
+                                    
+                                    // Проверка диверсификации: не превышаем ли лимит на количество позиций
+                                    long totalPositions = portfolioAnalysis.getPositions().size();
+                                    if (totalPositions >= 15) { // Максимум 15 позиций
+                                        log.warn("🚨 ДИВЕРСИФИКАЦИЯ: превышение лимита на количество позиций [{} , accountId={}]. Текущих позиций: {}, максимум: 15", 
+                                            displayOf(figi), accountId, totalPositions);
+                                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                                            "Превышение лимита на количество позиций", String.format("%s, Account: %s, Текущих: %d, Максимум: 15", 
+                                                displayOf(figi), accountId, totalPositions));
+                                        return;
+                                    }
+                                    
+                                    log.info("✅ Диверсификация в норме: текущих позиций {}, максимум 15", totalPositions);
                                 }
                             } catch (Exception e) {
                                 log.warn("Ошибка проверки маржинальных лимитов для {}: {}", displayOf(figi), e.getMessage());
