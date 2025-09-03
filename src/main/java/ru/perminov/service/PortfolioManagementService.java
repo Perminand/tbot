@@ -409,6 +409,7 @@ public class PortfolioManagementService {
                     }
                     
                     int lots = buyAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
+                    log.info("🎯 Рассчитано лотов для покупки: {} (сумма: {}, цена: {})", lots, buyAmount, trend.getCurrentPrice());
 
                     // ATR-кап размера позиции: ограничиваем стоимость позиции  по отношению к ATR
                     if (atr.compareTo(java.math.BigDecimal.ZERO) > 0) {
@@ -422,6 +423,8 @@ public class PortfolioManagementService {
                             lots = capLots;
                         }
                     }
+                    
+                    log.info("🎯 Финальное количество лотов после ATR-капа: {}", lots);
                     
                     // Дополнительная проверка: достаточно ли средств для покупки хотя бы 1 лота
                     if (buyingPower.compareTo(trend.getCurrentPrice()) < 0) {
@@ -437,14 +440,22 @@ public class PortfolioManagementService {
                     try {
                         BigDecimal realAvailableCash = getAvailableCash(portfolioAnalysis);
                         BigDecimal requiredAmount = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
-                        if (realAvailableCash.compareTo(requiredAmount) < 0) {
-                            log.warn("Реальная проверка: недостаточно средств [{} , accountId={}] для покупки {} лотов. Нужно: {}, Доступно: {}", 
-                                displayOf(figi), accountId, lots, requiredAmount, realAvailableCash);
+                        
+                        // Для маржинальной торговли используем buyingPower вместо realAvailableCash
+                        BigDecimal availableForTrade = (allowNegativeCash && realAvailableCash.compareTo(BigDecimal.ZERO) < 0) 
+                            ? buyingPower : realAvailableCash;
+                        
+                        if (availableForTrade.compareTo(requiredAmount) < 0) {
+                            log.warn("Реальная проверка: недостаточно средств [{} , accountId={}] для покупки {} лотов. Нужно: {}, Доступно: {} (buyingPower: {})", 
+                                displayOf(figi), accountId, lots, requiredAmount, availableForTrade, buyingPower);
                             botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                                "Недостаточно реальных средств", String.format("%s, Account: %s, Price: %.4f, Лотов: %d, Нужно: %.2f, Доступно: %.2f", 
-                                    displayOf(figi), accountId, trend.getCurrentPrice(), lots, requiredAmount, realAvailableCash));
+                                "Недостаточно реальных средств", String.format("%s, Account: %s, Price: %.4f, Лотов: %d, Нужно: %.2f, Доступно: %.2f, Плечо: %.2f", 
+                                    displayOf(figi), accountId, trend.getCurrentPrice(), lots, requiredAmount, availableForTrade, buyingPower));
                             return;
                         }
+                        
+                        log.info("✅ Проверка средств пройдена: требуется {}, доступно {} (включая плечо: {})", 
+                            requiredAmount, availableForTrade, buyingPower);
                     } catch (Exception e) {
                         log.warn("Ошибка проверки реальных средств для {}: {}", displayOf(figi), e.getMessage());
                         // Продолжаем выполнение, но с осторожностью
