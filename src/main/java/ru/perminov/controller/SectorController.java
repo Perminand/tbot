@@ -31,7 +31,39 @@ public class SectorController {
         try {
             log.info("🔍 Получение анализа диверсификации для аккаунта: {}", accountId);
             
+            // Проверяем, что сервисы не null
+            if (portfolioService == null) {
+                log.error("❌ PortfolioService is null!");
+                return ResponseEntity.internalServerError()
+                    .body("PortfolioService не инициализирован");
+            }
+            
+            if (sectorManagementService == null) {
+                log.error("❌ SectorManagementService is null!");
+                return ResponseEntity.internalServerError()
+                    .body("SectorManagementService не инициализирован");
+            }
+            
             var portfolio = portfolioService.getPortfolio(accountId);
+            if (portfolio == null) {
+                log.error("❌ Портфель не найден для аккаунта: {}", accountId);
+                return ResponseEntity.status(404)
+                    .body("Портфель не найден для аккаунта: " + accountId);
+            }
+            
+            // Проверяем структуру портфеля
+            if (portfolio.getPositions() == null) {
+                log.error("❌ Позиции портфеля null для аккаунта: {}", accountId);
+                return ResponseEntity.internalServerError()
+                    .body("Позиции портфеля не инициализированы");
+            }
+            
+            if (portfolio.getTotalAmountShares() == null) {
+                log.error("❌ TotalAmountShares null для аккаунта: {}", accountId);
+                return ResponseEntity.internalServerError()
+                    .body("Общая стоимость портфеля не инициализирована");
+            }
+            
             log.info("🔍 Портфель получен: positions={}, totalValue={}", 
                 portfolio.getPositions().size(), portfolio.getTotalAmountShares().getValue());
             
@@ -48,14 +80,35 @@ public class SectorController {
             var sectorAnalysis = sectorManagementService.analyzeCurrentSectors(positions, totalValue);
             log.info("🔍 Анализ секторов выполнен: {}", sectorAnalysis.size());
             
+            // Проверяем результат анализа
+            if (sectorAnalysis == null) {
+                log.error("❌ Анализ секторов вернул null");
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка анализа секторов");
+            }
+            
             // Получаем рекомендации
             var recommendations = sectorManagementService.getDiversificationRecommendations(sectorAnalysis);
+            
+            // Проверяем результат рекомендаций
+            if (recommendations == null) {
+                log.error("❌ Рекомендации вернули null");
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка получения рекомендаций");
+            }
             
             Map<String, Object> response = new HashMap<>();
             response.put("accountId", accountId);
             response.put("totalValue", totalValue);
             response.put("sectorAnalysis", sectorAnalysis);
             response.put("recommendations", recommendations);
+            
+            // Проверяем результат
+            if (response.isEmpty()) {
+                log.error("❌ Ответ пуст");
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка формирования ответа");
+            }
             
             return ResponseEntity.ok(response);
             
@@ -76,12 +129,51 @@ public class SectorController {
             @RequestParam BigDecimal positionValue) {
         
         try {
+            // Проверяем, что сервисы не null
+            if (portfolioService == null) {
+                log.error("❌ PortfolioService is null!");
+                return ResponseEntity.internalServerError()
+                    .body("PortfolioService не инициализирован");
+            }
+            
+            if (sectorManagementService == null) {
+                log.error("❌ SectorManagementService is null!");
+                return ResponseEntity.internalServerError()
+                    .body("SectorManagementService не инициализирован");
+            }
+            
             var portfolio = portfolioService.getPortfolio(accountId);
+            if (portfolio == null) {
+                log.error("❌ Портфель не найден для аккаунта: {}", accountId);
+                return ResponseEntity.status(404)
+                    .body("Портфель не найден для аккаунта: " + accountId);
+            }
+            
+            // Проверяем структуру портфеля
+            if (portfolio.getPositions() == null) {
+                log.error("❌ Позиции портфеля null для аккаунта: {}", accountId);
+                return ResponseEntity.internalServerError()
+                    .body("Позиции портфеля не инициализированы");
+            }
+            
+            if (portfolio.getTotalAmountShares() == null) {
+                log.error("❌ TotalAmountShares null для аккаунта: {}", accountId);
+                return ResponseEntity.internalServerError()
+                    .body("Общая стоимость портфеля не инициализирована");
+            }
+            
             var positions = portfolio.getPositions();
             var totalValue = portfolio.getTotalAmountShares().getValue();
             
             var validation = sectorManagementService.validateSectorDiversification(
                 figi, positionValue, totalValue, positions);
+            
+            // Проверяем результат валидации
+            if (validation == null) {
+                log.error("❌ Валидация секторов вернула null");
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка валидации секторов");
+            }
             
             Map<String, Object> response = new HashMap<>();
             response.put("valid", validation.isValid());
@@ -99,6 +191,13 @@ public class SectorController {
                 response.put("message", "Покупка заблокирована: " + String.join("; ", validation.getViolations()));
             }
             
+            // Проверяем результат
+            if (response.isEmpty()) {
+                log.error("❌ Ответ валидации пуст");
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка формирования ответа валидации");
+            }
+            
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
@@ -114,8 +213,22 @@ public class SectorController {
     @GetMapping("/info/{sector}")
     public ResponseEntity<?> getSectorInfo(@PathVariable String sector) {
         try {
+            // Проверяем, что сервис не null
+            if (sectorManagementService == null) {
+                log.error("❌ SectorManagementService is null!");
+                return ResponseEntity.internalServerError()
+                    .body("SectorManagementService не инициализирован");
+            }
+            
             String sectorName = sectorManagementService.getSectorName(sector);
             String riskCategory = sectorManagementService.getSectorRiskCategory(sector);
+            
+            // Проверяем результат
+            if (sectorName == null || riskCategory == null) {
+                log.error("❌ Информация о секторе вернула null: sectorName={}, riskCategory={}", sectorName, riskCategory);
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка получения информации о секторе");
+            }
             
             Map<String, Object> response = new HashMap<>();
             response.put("sector", sector);
@@ -123,6 +236,13 @@ public class SectorController {
             response.put("riskCategory", riskCategory);
             response.put("maxExposurePct", "15%");
             response.put("maxPositions", 3);
+            
+            // Проверяем результат
+            if (response.isEmpty()) {
+                log.error("❌ Ответ информации о секторе пуст");
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка формирования ответа информации о секторе");
+            }
             
             return ResponseEntity.ok(response);
             
@@ -139,6 +259,13 @@ public class SectorController {
     @GetMapping("/list")
     public ResponseEntity<?> getAllSectors() {
         try {
+            // Проверяем, что сервис не null
+            if (sectorManagementService == null) {
+                log.error("❌ SectorManagementService is null!");
+                return ResponseEntity.internalServerError()
+                    .body("SectorManagementService не инициализирован");
+            }
+            
             Map<String, Object> response = new HashMap<>();
             response.put("message", "Список российских секторов экономики");
             Map<String, String> sectors = new HashMap<>();
@@ -157,7 +284,22 @@ public class SectorController {
             sectors.put("HEALTHCARE", "Здравоохранение (LOW риск)");
             sectors.put("CONSUMER_GOODS", "Товары народного потребления (LOW риск)");
             sectors.put("OTHER", "Прочие (MEDIUM риск)");
+            
+            // Проверяем результат
+            if (sectors.isEmpty()) {
+                log.error("❌ Список секторов пуст");
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка получения списка секторов");
+            }
+            
             response.put("sectors", sectors);
+            
+            // Проверяем результат
+            if (response.isEmpty()) {
+                log.error("❌ Ответ списка секторов пуст");
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка формирования ответа списка секторов");
+            }
             
             return ResponseEntity.ok(response);
             
@@ -176,7 +318,39 @@ public class SectorController {
         try {
             log.info("📊 Получение статистики секторов для аккаунта: {}", accountId);
             
+            // Проверяем, что сервисы не null
+            if (portfolioService == null) {
+                log.error("❌ PortfolioService is null!");
+                return ResponseEntity.internalServerError()
+                    .body("PortfolioService не инициализирован");
+            }
+            
+            if (sectorManagementService == null) {
+                log.error("❌ SectorManagementService is null!");
+                return ResponseEntity.internalServerError()
+                    .body("SectorManagementService не инициализирован");
+            }
+            
             var portfolio = portfolioService.getPortfolio(accountId);
+            if (portfolio == null) {
+                log.error("❌ Портфель не найден для аккаунта: {}", accountId);
+                return ResponseEntity.status(404)
+                    .body("Портфель не найден для аккаунта: " + accountId);
+            }
+            
+            // Проверяем структуру портфеля
+            if (portfolio.getPositions() == null) {
+                log.error("❌ Позиции портфеля null для аккаунта: {}", accountId);
+                return ResponseEntity.internalServerError()
+                    .body("Позиции портфеля не инициализированы");
+            }
+            
+            if (portfolio.getTotalAmountShares() == null) {
+                log.error("❌ TotalAmountShares null для аккаунта: {}", accountId);
+                return ResponseEntity.internalServerError()
+                    .body("Общая стоимость портфеля не инициализирована");
+            }
+            
             log.info("📊 Портфель получен: positions={}, totalValue={}", 
                 portfolio.getPositions().size(), portfolio.getTotalAmountShares().getValue());
             
@@ -191,6 +365,13 @@ public class SectorController {
             
             var sectorAnalysis = sectorManagementService.analyzeCurrentSectors(positions, totalValue);
             log.info("📊 Анализ секторов выполнен: {}", sectorAnalysis.size());
+            
+            // Проверяем результат анализа
+            if (sectorAnalysis == null) {
+                log.error("❌ Анализ секторов вернул null");
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка анализа секторов");
+            }
             
             // Подсчитываем статистику
             int totalSectors = sectorAnalysis.size();
@@ -247,6 +428,13 @@ public class SectorController {
             sectorDistribution.put("highRisk", highRisk);
             sectorDistribution.put("mediumRisk", mediumRisk);
             sectorDistribution.put("lowRisk", lowRisk);
+            
+            // Проверяем результат
+            if (sectorDistribution.isEmpty()) {
+                log.error("❌ Распределение секторов пусто");
+                return ResponseEntity.internalServerError()
+                    .body("Ошибка расчета распределения секторов");
+            }
             
             response.put("sectorDistribution", sectorDistribution);
             response.put("sectorAnalysis", sectorAnalysis);

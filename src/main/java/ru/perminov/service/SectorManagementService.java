@@ -14,19 +14,22 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class SectorManagementService {
     
-    static {
-        log.info("🚀 SectorManagementService инициализируется...");
-    }
+    // Убираем статический блок с log, так как log еще не инициализирован
     
     private final BotLogService botLogService;
     
     // Российские ограничения для неквалифицированных инвесторов
     @Value("${position-management.max-sector-exposure-pct:0.15}")
     private BigDecimal maxSectorExposurePct;
+    
+    // Конструктор с логированием
+    public SectorManagementService(BotLogService botLogService) {
+        this.botLogService = botLogService;
+        log.info("🚀 SectorManagementService инициализируется...");
+    }
     
 
     
