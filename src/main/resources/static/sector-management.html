@@ -225,19 +225,30 @@
         async function loadAccounts() {
             try {
                 const response = await fetch('/api/trading-bot/accounts');
-                const accounts = await response.json();
+                const data = await response.json();
+                
+                console.log('Ответ API аккаунтов:', data); // Отладочная информация
                 
                 const select = document.getElementById('accountSelect');
                 select.innerHTML = '<option value="">Выберите аккаунт</option>';
                 
-                accounts.forEach(account => {
-                    const option = document.createElement('option');
-                    option.value = account.id;
-                    option.textContent = `${account.name} (${account.id})`;
-                    select.appendChild(option);
-                });
+                // Проверяем структуру ответа
+                if (data.accounts && Array.isArray(data.accounts)) {
+                    console.log('Найдено аккаунтов:', data.accounts.length);
+                    data.accounts.forEach(account => {
+                        const option = document.createElement('option');
+                        option.value = account.id;
+                        option.textContent = `${account.name} (${account.id})`;
+                        select.appendChild(option);
+                    });
+                } else {
+                    console.error('Неверная структура ответа API:', data);
+                    select.innerHTML = '<option value="">Ошибка загрузки аккаунтов</option>';
+                }
             } catch (error) {
                 console.error('Ошибка загрузки аккаунтов:', error);
+                const select = document.getElementById('accountSelect');
+                select.innerHTML = '<option value="">Ошибка загрузки аккаунтов</option>';
             }
         }
 
@@ -247,8 +258,14 @@
             if (!accountId) return;
             
             currentAccountId = accountId;
-            await loadSectorStats(accountId);
-            await loadDiversificationAnalysis(accountId);
+            console.log('Загружаем данные для аккаунта:', accountId);
+            
+            try {
+                await loadSectorStats(accountId);
+                await loadDiversificationAnalysis(accountId);
+            } catch (error) {
+                console.error('Ошибка загрузки данных аккаунта:', error);
+            }
         }
 
         // Загрузка статистики секторов
