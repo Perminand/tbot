@@ -85,6 +85,7 @@ public class MarginService {
      * Calculates available buying power for long positions: cash + allowed margin portion of portfolio.
      */
     public BigDecimal getAvailableBuyingPower(String accountId, PortfolioManagementService.PortfolioAnalysis analysis) {
+        log.info("🚨🚨🚨 ВХОД В getAvailableBuyingPower для аккаунта: {}", accountId);
         BigDecimal cash = extractCashFromPortfolio(analysis);
         log.info("🔍 getAvailableBuyingPower: cash={}, marginEnabled={}", cash, isMarginEnabled());
         
@@ -181,13 +182,22 @@ public class MarginService {
     }
 
     private BigDecimal extractCashFromPortfolio(PortfolioManagementService.PortfolioAnalysis analysis) {
+        log.info("🚨🚨🚨 ВХОД В extractCashFromPortfolio");
+        log.info("🚨🚨🚨 Всего позиций: {}", analysis.getPositions().size());
+        
+        for (int i = 0; i < analysis.getPositions().size(); i++) {
+            var pos = analysis.getPositions().get(i);
+            log.info("🚨🚨🚨 Позиция {}: figi={}, type={}, quantity={}", 
+                i, pos.getFigi(), pos.getInstrumentType(), pos.getQuantity());
+        }
+        
         BigDecimal cash = analysis.getPositions().stream()
                 .filter(p -> "currency".equals(p.getInstrumentType()))
                 .map(ru.tinkoff.piapi.core.models.Position::getQuantity)
                 .findFirst()
                 .orElse(BigDecimal.ZERO);
         
-        log.debug("🔍 extractCashFromPortfolio: найдено {} позиций, cash={}", analysis.getPositions().size(), cash);
+        log.info("🚨🚨🚨 РЕЗУЛЬТАТ extractCashFromPortfolio: cash={}", cash);
         return cash;
     }
 

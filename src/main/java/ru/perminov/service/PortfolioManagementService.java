@@ -329,9 +329,10 @@ public class PortfolioManagementService {
                 } catch (Exception ignore) { }
 
                 // Проверяем, есть ли свободные средства
+                log.info("🚨🚨🚨 ПРОВЕРЯЕМ СРЕДСТВА для {}", displayOf(figi));
                 BigDecimal availableCash = getAvailableCash(portfolioAnalysis);
                 BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
-                log.info("Доступные средства для покупки: {}, покупательная способность: {}", availableCash, buyingPower);
+                log.info("🚨🚨🚨 РЕЗУЛЬТАТ: availableCash={}, buyingPower={}", availableCash, buyingPower);
 
                 // Проверка средств: используем buyingPower вместо availableCash для маржинальных операций
                 boolean allowNegativeCash = tradingSettingsService.getBoolean("margin-trading.allow-negative-cash", false);
@@ -741,17 +742,22 @@ public class PortfolioManagementService {
     }
     
     private BigDecimal getAvailableCash(PortfolioAnalysis analysis) {
+        log.info("🚨🚨🚨 ВХОД В getAvailableCash");
+        log.info("🚨🚨🚨 Всего позиций: {}", analysis.getPositions().size());
+        
         // Получаем реальные доступные средства из портфеля
         // Ищем позицию с валютой (обычно RUB)
         for (Position position : analysis.getPositions()) {
+            log.info("🚨🚨🚨 Проверяем позицию: figi={}, type={}, quantity={}", 
+                position.getFigi(), position.getInstrumentType(), position.getQuantity());
             if ("currency".equals(position.getInstrumentType())) {
-                                        log.info("Найдена валюта в портфеле: {} - {}", displayOf(position.getFigi()), position.getQuantity());
+                log.info("🚨🚨🚨 НАЙДЕНА ВАЛЮТА: {} - {}", displayOf(position.getFigi()), position.getQuantity());
                 return position.getQuantity();
             }
         }
         
         // Если не найдена валюта, возвращаем 0
-        log.warn("Не найдены доступные средства в портфеле");
+        log.warn("🚨🚨🚨 НЕ НАЙДЕНЫ ДОСТУПНЫЕ СРЕДСТВА В ПОРТФЕЛЕ");
         return BigDecimal.ZERO;
     }
     
