@@ -54,6 +54,12 @@ public class PortfolioManagementService {
     private String displayOf(String figi) {
         try {
             if (instrumentNameService == null) return figi;
+            
+            // Специальная обработка для валют
+            if ("RUB000UTSTOM".equals(figi)) {
+                return "Рубли РФ (RUB)";
+            }
+            
             String name = instrumentNameService.getInstrumentName(figi, "share");
             String ticker = instrumentNameService.getTicker(figi, "share");
             if (name != null && ticker != null) return name + " (" + ticker + ")";
@@ -755,7 +761,9 @@ public class PortfolioManagementService {
             System.out.println("🚨🚨🚨 Проверяем позицию: figi=" + position.getFigi() + ", type=" + position.getInstrumentType() + ", quantity=" + position.getQuantity());
             log.info("🚨🚨🚨 Проверяем позицию: figi={}, type={}, quantity={}", 
                 position.getFigi(), position.getInstrumentType(), position.getQuantity());
-            if ("currency".equals(position.getInstrumentType())) {
+            
+            // Проверяем тип инструмента ИЛИ специальный FIGI для рубля
+            if ("currency".equals(position.getInstrumentType()) || "RUB000UTSTOM".equals(position.getFigi())) {
                 System.out.println("🚨🚨🚨 НАЙДЕНА ВАЛЮТА: " + displayOf(position.getFigi()) + " - " + position.getQuantity());
                 log.info("🚨🚨🚨 НАЙДЕНА ВАЛЮТА: {} - {}", displayOf(position.getFigi()), position.getQuantity());
                 return position.getQuantity();

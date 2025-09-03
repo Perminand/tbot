@@ -93,13 +93,18 @@ public class MarginService {
         
         // Если кэш отрицательный, но маржа включена - используем плечо
         if (cash.compareTo(BigDecimal.ZERO) < 0 && isMarginEnabled()) {
+            System.out.println("💡 Отрицательные средства " + cash + ", но маржа включена - используем плечо");
             log.info("💡 Отрицательные средства {}, но маржа включена - используем плечо", cash);
         } else if (cash.compareTo(BigDecimal.ZERO) < 0) {
+            System.out.println("❌ Отрицательные средства: " + cash + ", покупательная способность = 0 (маржа отключена)");
             log.warn("❌ Отрицательные средства: {}, покупательная способность = 0 (маржа отключена)", cash);
             return BigDecimal.ZERO;
         }
         
-        if (!isMarginEnabled()) return cash;
+        if (!isMarginEnabled()) {
+            System.out.println("💡 Маржа отключена, возвращаем cash: " + cash);
+            return cash;
+        }
         // Если можем получить реальные маржинальные атрибуты – используем их
         if (isMarginOperationalForAccount(accountId)) {
             log.info("🔍 Используем реальные маржинальные атрибуты для аккаунта {}", accountId);
@@ -127,6 +132,7 @@ public class MarginService {
         BigDecimal portfolioValue = analysis.getTotalValue();
         BigDecimal additional = portfolioValue.multiply(getMaxUtilizationPct());
         BigDecimal buyingPower = cash.add(additional).setScale(2, RoundingMode.DOWN);
+        System.out.println("💡 Покупательная способность (по настройке): cash=" + cash + ", portfolioValue=" + portfolioValue + ", maxUtilizationPct=" + getMaxUtilizationPct() + ", extra=" + additional + ", total=" + buyingPower);
         log.info("💡 Покупательная способность (по настройке): cash={}, portfolioValue={}, maxUtilizationPct={}, extra={}, total={}", 
             cash, portfolioValue, getMaxUtilizationPct(), additional, buyingPower);
         return buyingPower.max(BigDecimal.ZERO);
@@ -197,7 +203,7 @@ public class MarginService {
         }
         
         BigDecimal cash = analysis.getPositions().stream()
-                .filter(p -> "currency".equals(p.getInstrumentType()))
+                .filter(p -> "currency".equals(p.getInstrumentType()) || "RUB000UTSTOM".equals(p.getFigi()))
                 .map(ru.tinkoff.piapi.core.models.Position::getQuantity)
                 .findFirst()
                 .orElse(BigDecimal.ZERO);
