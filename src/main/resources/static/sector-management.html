@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Управление секторами - Торговый бот</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .sector-card {
+            transition: transform 0.2s;
+        }
+        .sector-card:hover {
+            transform: translateY(-2px);
+        }
+        .risk-high { border-left: 4px solid #dc3545; }
+        .risk-medium { border-left: 4px solid #ffc107; }
+        .risk-low { border-left: 4px solid #28a745; }
+        .sector-stats {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 15px;
+            padding: 20px;
+        }
+        .diversification-chart {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Боковая панель -->
+            <nav class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
+                <div class="position-sticky pt-3">
+                    <ul class="nav flex-column">
+                        <li class="nav-item">
+                            <a class="nav-link active" href="#" onclick="showSection('overview')">
+                                <i class="bi bi-graph-up"></i> Обзор секторов
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('diversification')">
+                                <i class="bi bi-pie-chart"></i> Диверсификация
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('validation')">
+                                <i class="bi bi-check-circle"></i> Валидация покупок
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" onclick="showSection('settings')">
+                                <i class="bi bi-gear"></i> Настройки
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </nav>
+
+            <!-- Основной контент -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Управление секторами</h1>
+                    <div class="btn-toolbar mb-2 mb-md-0">
+                        <div class="btn-group me-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="refreshData()">
+                                <i class="bi bi-arrow-clockwise"></i> Обновить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Выбор аккаунта -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="accountSelect" class="form-label">Выберите аккаунт:</label>
+                        <select class="form-select" id="accountSelect" onchange="loadAccountData()">
+                            <option value="">Загрузка аккаунтов...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Обзор секторов -->
+                <div id="overview-section">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="sector-stats">
+                                <h4><i class="bi bi-graph-up"></i> Статистика секторов</h4>
+                                <div id="sectorStats">Загрузка...</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="diversification-chart">
+                                <h5>Распределение по рискам</h5>
+                                <canvas id="riskChart" width="400" height="200"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row mt-4">
+                        <div class="col-12">
+                            <h4>Детальный анализ секторов</h4>
+                            <div id="sectorAnalysis">Загрузка...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Диверсификация -->
+                <div id="diversification-section" style="display: none;">
+                    <div class="row">
+                        <div class="col-md-8">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="bi bi-pie-chart"></i> Анализ диверсификации</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="diversificationAnalysis">Загрузка...</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5><i class="bi bi-lightbulb"></i> Рекомендации</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div id="recommendations">Загрузка...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Валидация покупок -->
+                <div id="validation-section" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="bi bi-check-circle"></i> Проверка покупки</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-4">
+                                    <label for="validationFigi" class="form-label">FIGI инструмента:</label>
+                                    <input type="text" class="form-control" id="validationFigi" placeholder="BBG000B9XRY4">
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="validationAmount" class="form-label">Сумма покупки (руб.):</label>
+                                    <input type="number" class="form-control" id="validationAmount" placeholder="10000">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">&nbsp;</label>
+                                    <button class="btn btn-primary w-100" onclick="validatePurchase()">
+                                        <i class="bi bi-search"></i> Проверить
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="validationResult" class="mt-3"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Настройки -->
+                <div id="settings-section" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5><i class="bi bi-gear"></i> Настройки диверсификации</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label for="maxSectorExposure" class="form-label">Максимальная доля сектора (%):</label>
+                                    <input type="number" class="form-control" id="maxSectorExposure" value="15" min="5" max="50">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="maxPositionsPerSector" class="form-label">Максимум позиций в секторе:</label>
+                                    <input type="number" class="form-control" id="maxPositionsPerSector" value="3" min="1" max="10">
+                                </div>
+                            </div>
+                            <div class="row mt-3">
+                                <div class="col-md-6">
+                                    <label for="maxTotalPositions" class="form-label">Максимум общих позиций:</label>
+                                    <input type="number" class="form-control" id="maxTotalPositions" value="15" min="5" max="50">
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="maxHighRiskExposure" class="form-label">Максимум высокорисковых секторов (%):</label>
+                                    <input type="number" class="form-control" id="maxHighRiskExposure" value="30" min="10" max="50">
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <button class="btn btn-success" onclick="saveSettings()">
+                                    <i class="bi bi-check"></i> Сохранить настройки
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        let currentAccountId = '';
+        let riskChart = null;
+
+        // Показать/скрыть секции
+        function showSection(sectionName) {
+            // Скрываем все секции
+            document.querySelectorAll('[id$="-section"]').forEach(el => el.style.display = 'none');
+            
+            // Показываем выбранную
+            document.getElementById(sectionName + '-section').style.display = 'block';
+            
+            // Обновляем активную ссылку
+            document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+
+        // Загрузка аккаунтов
+        async function loadAccounts() {
+            try {
+                const response = await fetch('/api/trading-bot/accounts');
+                const accounts = await response.json();
+                
+                const select = document.getElementById('accountSelect');
+                select.innerHTML = '<option value="">Выберите аккаунт</option>';
+                
+                accounts.forEach(account => {
+                    const option = document.createElement('option');
+                    option.value = account.id;
+                    option.textContent = `${account.name} (${account.id})`;
+                    select.appendChild(option);
+                });
+            } catch (error) {
+                console.error('Ошибка загрузки аккаунтов:', error);
+            }
+        }
+
+        // Загрузка данных аккаунта
+        async function loadAccountData() {
+            const accountId = document.getElementById('accountSelect').value;
+            if (!accountId) return;
+            
+            currentAccountId = accountId;
+            await loadSectorStats(accountId);
+            await loadDiversificationAnalysis(accountId);
+        }
+
+        // Загрузка статистики секторов
+        async function loadSectorStats(accountId) {
+            try {
+                const response = await fetch(`/api/sectors/stats/${accountId}`);
+                const data = await response.json();
+                
+                displaySectorStats(data);
+                updateRiskChart(data);
+            } catch (error) {
+                console.error('Ошибка загрузки статистики секторов:', error);
+                document.getElementById('sectorStats').innerHTML = '<div class="alert alert-danger">Ошибка загрузки данных</div>';
+            }
+        }
+
+        // Отображение статистики секторов
+        function displaySectorStats(data) {
+            const statsDiv = document.getElementById('sectorStats');
+            
+            const html = `
+                <div class="row text-center">
+                    <div class="col-4">
+                        <h3>${data.totalSectors}</h3>
+                        <small>Всего секторов</small>
+                    </div>
+                    <div class="col-4">
+                        <h3>${data.sectorDistribution.highRisk.count}</h3>
+                        <small>Высокий риск</small>
+                    </div>
+                    <div class="col-4">
+                        <h3>${data.sectorDistribution.mediumRisk.count}</h3>
+                        <small>Средний риск</small>
+                    </div>
+                </div>
+                <hr>
+                <div class="row text-center">
+                    <div class="col-4">
+                        <h5>${data.sectorDistribution.highRisk.percentage.toFixed(1)}%</h5>
+                        <small>Высокий риск</small>
+                    </div>
+                    <div class="col-4">
+                        <h5>${data.sectorDistribution.mediumRisk.percentage.toFixed(1)}%</h5>
+                        <small>Средний риск</small>
+                    </div>
+                    <div class="col-4">
+                        <h5>${data.sectorDistribution.lowRisk.percentage.toFixed(1)}%</h5>
+                        <small>Низкий риск</small>
+                    </div>
+                </div>
+            `;
+            
+            statsDiv.innerHTML = html;
+        }
+
+        // Обновление графика рисков
+        function updateRiskChart(data) {
+            const ctx = document.getElementById('riskChart').getContext('2d');
+            
+            if (riskChart) {
+                riskChart.destroy();
+            }
+            
+            riskChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Высокий риск', 'Средний риск', 'Низкий риск'],
+                    datasets: [{
+                        data: [
+                            data.sectorDistribution.highRisk.percentage,
+                            data.sectorDistribution.mediumRisk.percentage,
+                            data.sectorDistribution.lowRisk.percentage
+                        ],
+                        backgroundColor: ['#dc3545', '#ffc107', '#28a745'],
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Загрузка анализа диверсификации
+        async function loadDiversificationAnalysis(accountId) {
+            try {
+                const response = await fetch(`/api/sectors/diversification/${accountId}`);
+                const data = await response.json();
+                
+                displaySectorAnalysis(data);
+                displayRecommendations(data.recommendations);
+            } catch (error) {
+                console.error('Ошибка загрузки анализа диверсификации:', error);
+            }
+        }
+
+        // Отображение анализа секторов
+        function displaySectorAnalysis(data) {
+            const analysisDiv = document.getElementById('sectorAnalysis');
+            
+            let html = '<div class="row">';
+            
+            for (const [sector, analysis] of Object.entries(data.sectorAnalysis)) {
+                const riskClass = getRiskClass(sector);
+                const sectorName = getSectorDisplayName(sector);
+                
+                html += `
+                    <div class="col-md-4 mb-3">
+                        <div class="card sector-card ${riskClass}">
+                            <div class="card-body">
+                                <h6 class="card-title">${sectorName}</h6>
+                                <p class="card-text">
+                                    <strong>Доля:</strong> ${analysis.percentage.toFixed(1)}%<br>
+                                    <strong>Позиций:</strong> ${analysis.positionsCount}<br>
+                                    <strong>Стоимость:</strong> ${analysis.totalValue.toFixed(0)} ₽
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            html += '</div>';
+            analysisDiv.innerHTML = html;
+        }
+
+        // Отображение рекомендаций
+        function displayRecommendations(recommendations) {
+            const recDiv = document.getElementById('recommendations');
+            
+            if (recommendations.length === 0) {
+                recDiv.innerHTML = '<div class="alert alert-success">Портфель хорошо диверсифицирован!</div>';
+                return;
+            }
+            
+            let html = '';
+            recommendations.forEach(rec => {
+                html += `<div class="alert alert-warning">${rec}</div>`;
+            });
+            
+            recDiv.innerHTML = html;
+        }
+
+        // Валидация покупки
+        async function validatePurchase() {
+            const figi = document.getElementById('validationFigi').value;
+            const amount = document.getElementById('validationAmount').value;
+            
+            if (!figi || !amount || !currentAccountId) {
+                alert('Заполните все поля и выберите аккаунт');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/sectors/validate-purchase', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: `accountId=${currentAccountId}&figi=${figi}&positionValue=${amount}`
+                });
+                
+                const data = await response.json();
+                displayValidationResult(data);
+            } catch (error) {
+                console.error('Ошибка валидации:', error);
+                document.getElementById('validationResult').innerHTML = '<div class="alert alert-danger">Ошибка валидации</div>';
+            }
+        }
+
+        // Отображение результата валидации
+        function displayValidationResult(data) {
+            const resultDiv = document.getElementById('validationResult');
+            
+            const alertClass = data.valid ? 'alert-success' : 'alert-danger';
+            const icon = data.valid ? 'bi-check-circle' : 'bi-x-circle';
+            
+            let html = `
+                <div class="alert ${alertClass}">
+                    <h6><i class="bi ${icon}"></i> ${data.message}</h6>
+                    <p><strong>Сектор:</strong> ${data.sectorName}</p>
+                    <p><strong>Доля после покупки:</strong> ${data.newSectorPercentage ? (data.newSectorPercentage * 100).toFixed(2) + '%' : 'N/A'}</p>
+                    <p><strong>Позиций в секторе:</strong> ${data.positionsInSector}</p>
+                    <p><strong>Всего позиций:</strong> ${data.totalPositions}</p>
+                </div>
+            `;
+            
+            if (data.violations.length > 0) {
+                html += '<div class="alert alert-warning"><strong>Нарушения:</strong><ul>';
+                data.violations.forEach(v => html += `<li>${v}</li>`);
+                html += '</ul></div>';
+            }
+            
+            if (data.warnings.length > 0) {
+                html += '<div class="alert alert-info"><strong>Предупреждения:</strong><ul>';
+                data.warnings.forEach(w => html += `<li>${w}</li>`);
+                html += '</ul></div>';
+            }
+            
+            resultDiv.innerHTML = html;
+        }
+
+        // Сохранение настроек
+        async function saveSettings() {
+            const settings = {
+                maxSectorExposure: document.getElementById('maxSectorExposure').value,
+                maxPositionsPerSector: document.getElementById('maxPositionsPerSector').value,
+                maxTotalPositions: document.getElementById('maxTotalPositions').value,
+                maxHighRiskExposure: document.getElementById('maxHighRiskExposure').value
+            };
+            
+            // Здесь можно добавить API для сохранения настроек
+            alert('Настройки сохранены!');
+        }
+
+        // Получение класса риска
+        function getRiskClass(sector) {
+            const highRiskSectors = ['BANKS', 'METALS', 'CHEMICALS', 'CONSTRUCTION', 'TECH'];
+            const lowRiskSectors = ['TELECOM', 'UTILITIES', 'HEALTHCARE', 'CONSUMER_GOODS'];
+            
+            if (highRiskSectors.includes(sector)) return 'risk-high';
+            if (lowRiskSectors.includes(sector)) return 'risk-low';
+            return 'risk-medium';
+        }
+
+        // Получение отображаемого имени сектора
+        function getSectorDisplayName(sector) {
+            const names = {
+                'BANKS': 'Банки и финансы',
+                'OIL_GAS': 'Нефть и газ',
+                'METALS': 'Металлургия',
+                'TELECOM': 'Телекоммуникации',
+                'RETAIL': 'Розничная торговля',
+                'TRANSPORT': 'Транспорт',
+                'CHEMICALS': 'Химическая промышленность',
+                'CONSTRUCTION': 'Строительство',
+                'AGRICULTURE': 'Сельское хозяйство',
+                'TECH': 'Технологии',
+                'UTILITIES': 'Коммунальные услуги',
+                'REAL_ESTATE': 'Недвижимость',
+                'HEALTHCARE': 'Здравоохранение',
+                'CONSUMER_GOODS': 'Товары народного потребления',
+                'OTHER': 'Прочие'
+            };
+            
+            return names[sector] || sector;
+        }
+
+        // Обновление данных
+        function refreshData() {
+            if (currentAccountId) {
+                loadAccountData();
+            }
+        }
+
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            loadAccounts();
+        });
+    </script>
+</body>
+</html>

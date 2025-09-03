@@ -36,6 +36,7 @@ public class PortfolioManagementService {
     private final AdvancedTradingStrategyService advancedTradingStrategyService;
     private final TradingSettingsService tradingSettingsService;
     private final InstrumentNameService instrumentNameService;
+    private final SectorManagementService sectorManagementService;
     
     // Целевые доли активов в портфеле
     private final Map<String, BigDecimal> targetAllocations = new HashMap<>();
@@ -587,6 +588,41 @@ public class PortfolioManagementService {
                         // Определяем тип операции (маржинальная или обычная)
                         String operationType = (allowNegativeCash && availableCash.compareTo(BigDecimal.ZERO) < 0) ? "маржинальная " : "";
                         String fullActionType = operationType + actionType;
+                        
+                        // Проверка диверсификации по секторам
+                        try {
+                            ru.perminov.service.SectorManagementService.SectorValidationResult sectorValidation = 
+                                sectorManagementService.validateSectorDiversification(
+                                    figi, 
+                                    totalCost, 
+                                    portfolioAnalysis.getTotalValue(),
+                                    portfolioAnalysis.getPositions()
+                                );
+                            
+                            if (!sectorValidation.isValid()) {
+                                log.warn("🚨 НАРУШЕНИЕ ДИВЕРСИФИКАЦИИ: {} [{} , accountId={}]", 
+                                    String.join("; ", sectorValidation.getViolations()), displayOf(figi), accountId);
+                                
+                                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                                    "Нарушение диверсификации по секторам", String.format("%s, Account: %s, Сектор: %s, Нарушения: %s", 
+                                        displayOf(figi), accountId, sectorValidation.getSectorName(), 
+                                        String.join("; ", sectorValidation.getViolations())));
+                                
+                                // Добавляем предупреждения
+                                for (String warning : sectorValidation.getWarnings()) {
+                                    log.info("⚠️ Предупреждение диверсификации: {}", warning);
+                                }
+                                
+                                return; // Блокируем покупку при нарушении диверсификации
+                            }
+                            
+                            log.info("✅ Диверсификация по секторам в норме: сектор {}, доля после покупки: %.2f%%", 
+                                sectorValidation.getSectorName(), sectorValidation.getNewSectorPercentage().multiply(BigDecimal.valueOf(100)));
+                            
+                        } catch (Exception e) {
+                            log.warn("Ошибка проверки диверсификации секторов для {}: {}", displayOf(figi), e.getMessage());
+                            // Продолжаем выполнение, но с осторожностью
+                        }
                         
                         log.info("Размещение ордера на {} по {}: {} лотов по цене {} (общая стоимость: {}, доступные средства: {})", 
                             fullActionType, displayOf(figi), lots, trend.getCurrentPrice(), totalCost, availableCash);
