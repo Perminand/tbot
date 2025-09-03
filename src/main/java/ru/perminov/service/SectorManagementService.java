@@ -18,11 +18,17 @@ import java.util.stream.Collectors;
 @Slf4j
 public class SectorManagementService {
     
+    static {
+        log.info("🚀 SectorManagementService инициализируется...");
+    }
+    
     private final BotLogService botLogService;
     
     // Российские ограничения для неквалифицированных инвесторов
     @Value("${position-management.max-sector-exposure-pct:0.15}")
     private BigDecimal maxSectorExposurePct;
+    
+
     
     @Value("${position-management.max-positions-per-sector:3}")
     private int maxPositionsPerSector;
@@ -140,6 +146,9 @@ public class SectorManagementService {
             BigDecimal positionValue, 
             BigDecimal portfolioValue,
             List<Position> currentPositions) {
+        
+        log.info("🔍 Валидация диверсификации: figi={}, positionValue={}, portfolioValue={}, positions={}", 
+            figi, positionValue, portfolioValue, currentPositions.size());
         
         SectorValidationResult result = new SectorValidationResult();
         result.setValid(true);
