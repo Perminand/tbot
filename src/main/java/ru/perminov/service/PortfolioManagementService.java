@@ -470,10 +470,10 @@ public class PortfolioManagementService {
                                     if (estimatedNewLiquid.compareTo(currentMinimal) < 0) {
                                         log.warn("🚨 МАРЖИНАЛЬНЫЙ ЛИМИТ: новая позиция превысит минимальный уровень маржи [{} , accountId={}]. Текущий liquid: {}, минимальный: {}, после сделки: {}", 
                                             displayOf(figi), accountId, currentLiquid, currentMinimal, estimatedNewLiquid);
-                                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                            botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                                             "Превышение минимального уровня маржи", String.format("%s, Account: %s, Текущий liquid: %.2f, Минимальный: %.2f, После сделки: %.2f", 
                                                 displayOf(figi), accountId, currentLiquid, currentMinimal, estimatedNewLiquid));
-                                        return;
+                            return;
                                     }
                                     
                                     // Проверяем, не увеличит ли сделка недостаток средств
@@ -529,8 +529,8 @@ public class PortfolioManagementService {
                                     }
                                     
                                     log.info("✅ Диверсификация в норме: текущих позиций {}, максимум 15", totalPositions);
-                                }
-                            } catch (Exception e) {
+                        }
+                    } catch (Exception e) {
                                 log.warn("Ошибка проверки маржинальных лимитов для {}: {}", displayOf(figi), e.getMessage());
                                 // Продолжаем выполнение, но с осторожностью
                             }
@@ -1591,10 +1591,10 @@ public class PortfolioManagementService {
                     sellCount++;
                     if (bestTradingOpportunity == null || opportunity.getScore().compareTo(bestTradingOpportunity.getScore()) > 0) {
                         bestTradingOpportunity = opportunity;
-                    }
+                }
                 } else {
                     holdCount++;
-                }
+            }
             }
             log.info("Статистика сигналов: BUY={}, SELL={}, HOLD={}", buyCount, sellCount, holdCount);
             

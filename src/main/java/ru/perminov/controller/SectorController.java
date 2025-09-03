@@ -27,7 +27,7 @@ public class SectorController {
      * Получение анализа диверсификации по секторам
      */
     @GetMapping("/diversification/{accountId}")
-    public ResponseEntity<?> getSectorDiversification(@PathVariable String accountId) {
+    public ResponseEntity<?> getSectorDiversification(@PathVariable("accountId") String accountId) {
         try {
             log.info("🔍 Получение анализа диверсификации для аккаунта: {}", accountId);
             
@@ -124,9 +124,9 @@ public class SectorController {
      */
     @PostMapping("/validate-purchase")
     public ResponseEntity<?> validatePurchase(
-            @RequestParam String accountId,
-            @RequestParam String figi,
-            @RequestParam BigDecimal positionValue) {
+            @RequestParam("accountId") String accountId,
+            @RequestParam("figi") String figi,
+            @RequestParam("positionValue") BigDecimal positionValue) {
         
         try {
             // Проверяем, что сервисы не null
@@ -211,7 +211,7 @@ public class SectorController {
      * Получение информации о секторе
      */
     @GetMapping("/info/{sector}")
-    public ResponseEntity<?> getSectorInfo(@PathVariable String sector) {
+    public ResponseEntity<?> getSectorInfo(@PathVariable("sector") String sector) {
         try {
             // Проверяем, что сервис не null
             if (sectorManagementService == null) {
@@ -349,7 +349,7 @@ public class SectorController {
      * Получение статистики по секторам
      */
     @GetMapping("/stats/{accountId}")
-    public ResponseEntity<?> getSectorStats(@PathVariable String accountId) {
+    public ResponseEntity<?> getSectorStats(@PathVariable("accountId") String accountId) {
         try {
             log.info("📊 Получение статистики секторов для аккаунта: {}", accountId);
             
