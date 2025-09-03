@@ -445,6 +445,74 @@ public class PortfolioManagementService {
                         BigDecimal availableForTrade = (allowNegativeCash && realAvailableCash.compareTo(BigDecimal.ZERO) < 0) 
                             ? buyingPower : realAvailableCash;
                         
+                        // Дополнительные проверки для маржинальной торговли
+                        if (allowNegativeCash && realAvailableCash.compareTo(BigDecimal.ZERO) < 0) {
+                            // Получаем текущие маржинальные атрибуты для проверки лимитов
+                            try {
+                                var marginAttributes = marginService.getAccountMarginAttributes(accountId);
+                                if (marginAttributes != null) {
+                                    BigDecimal currentLiquid = new BigDecimal(marginAttributes.getLiquidPortfolio().getUnits() + "." + String.format("%09d", marginAttributes.getLiquidPortfolio().getNano()).replaceFirst("0+$", ""));
+                                    BigDecimal currentMinimal = new BigDecimal(marginAttributes.getMinimalMargin().getUnits() + "." + String.format("%09d", marginAttributes.getMinimalMargin().getNano()).replaceFirst("0+$", ""));
+                                    BigDecimal currentMissing = new BigDecimal(marginAttributes.getAmountOfMissingFunds().getUnits() + "." + String.format("%09d", marginAttributes.getAmountOfMissingFunds().getNano()).replaceFirst("0+$", ""));
+                                    
+                                    // Проверяем, не превысит ли новая позиция минимальный уровень маржи
+                                    BigDecimal estimatedNewLiquid = currentLiquid.subtract(requiredAmount);
+                                    if (estimatedNewLiquid.compareTo(currentMinimal) < 0) {
+                                        log.warn("🚨 МАРЖИНАЛЬНЫЙ ЛИМИТ: новая позиция превысит минимальный уровень маржи [{} , accountId={}]. Текущий liquid: {}, минимальный: {}, после сделки: {}", 
+                                            displayOf(figi), accountId, currentLiquid, currentMinimal, estimatedNewLiquid);
+                                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                                            "Превышение минимального уровня маржи", String.format("%s, Account: %s, Текущий liquid: %.2f, Минимальный: %.2f, После сделки: %.2f", 
+                                                displayOf(figi), accountId, currentLiquid, currentMinimal, estimatedNewLiquid));
+                                        return;
+                                    }
+                                    
+                                    // Проверяем, не увеличит ли сделка недостаток средств
+                                    if (currentMissing.compareTo(BigDecimal.ZERO) < 0) {
+                                        BigDecimal newMissing = currentMissing.subtract(requiredAmount);
+                                        if (newMissing.compareTo(currentMissing) < 0) {
+                                            log.warn("🚨 МАРЖИНАЛЬНЫЙ РИСК: сделка увеличит недостаток средств [{} , accountId={}]. Текущий missing: {}, после сделки: {}", 
+                                                displayOf(figi), accountId, currentMissing, newMissing);
+                                            botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                                                "Увеличение недостатка средств", String.format("%s, Account: %s, Текущий missing: %.2f, После сделки: %.2f", 
+                                                    displayOf(figi), accountId, currentMissing, newMissing));
+                                            return;
+                                        }
+                                    }
+                                    
+                                    // Дополнительная проверка: не превышаем ли максимальное использование маржи
+                                    BigDecimal maxUtilization = portfolioAnalysis.getTotalValue().multiply(marginService.getMaxUtilizationPct());
+                                    if (currentLiquid.subtract(requiredAmount).compareTo(maxUtilization) < 0) {
+                                        log.warn("🚨 МАРЖИНАЛЬНЫЙ ЛИМИТ: превышение максимального использования маржи [{} , accountId={}]. Максимум: {}, после сделки: {}", 
+                                            displayOf(figi), accountId, maxUtilization, currentLiquid.subtract(requiredAmount));
+                                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                                            "Превышение максимального использования маржи", String.format("%s, Account: %s, Максимум: %.2f, После сделки: %.2f", 
+                                                displayOf(figi), accountId, maxUtilization, currentLiquid.subtract(requiredAmount)));
+                                        return;
+                                    }
+                                    
+                                    // Проверка концентрации риска: не превышаем ли максимальную долю на один инструмент
+                                    BigDecimal currentPositionValue = portfolioAnalysis.getPositionValues().getOrDefault(figi, BigDecimal.ZERO);
+                                    BigDecimal newPositionValue = currentPositionValue.add(requiredAmount);
+                                    BigDecimal maxPositionValue = portfolioAnalysis.getTotalValue().multiply(new BigDecimal("0.20")); // Максимум 20% на один инструмент
+                                    
+                                    if (newPositionValue.compareTo(maxPositionValue) > 0) {
+                                        log.warn("🚨 КОНЦЕНТРАЦИЯ РИСКА: превышение максимальной доли на инструмент [{} , accountId={}]. Текущая позиция: {}, новая: {}, максимум: {}", 
+                                            displayOf(figi), accountId, currentPositionValue, newPositionValue, maxPositionValue);
+                                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                                            "Превышение максимальной доли на инструмент", String.format("%s, Account: %s, Текущая: %.2f, Новая: %.2f, Максимум: %.2f", 
+                                                displayOf(figi), accountId, currentPositionValue, newPositionValue, maxPositionValue));
+                                        return;
+                                    }
+                                    
+                                    log.info("✅ Маржинальные лимиты соблюдены: liquid={}, minimal={}, missing={}, maxUtilization={}, концентрация риска в норме", 
+                                        currentLiquid, currentMinimal, currentMissing, maxUtilization);
+                                }
+                            } catch (Exception e) {
+                                log.warn("Ошибка проверки маржинальных лимитов для {}: {}", displayOf(figi), e.getMessage());
+                                // Продолжаем выполнение, но с осторожностью
+                            }
+                        }
+                        
                         if (availableForTrade.compareTo(requiredAmount) < 0) {
                             log.warn("Реальная проверка: недостаточно средств [{} , accountId={}] для покупки {} лотов. Нужно: {}, Доступно: {} (buyingPower: {})", 
                                 displayOf(figi), accountId, lots, requiredAmount, availableForTrade, buyingPower);
