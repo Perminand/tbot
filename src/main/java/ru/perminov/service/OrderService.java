@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import ru.tinkoff.piapi.contract.v1.OrderState;
 import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
-import ru.tinkoff.piapi.contract.v1.ExecutionReportStatus;
 // import ru.tinkoff.piapi.core.InvestApi; // unused
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
 import ru.tinkoff.piapi.contract.v1.OrderType;
@@ -94,7 +93,7 @@ public class OrderService {
                 entity.setOrderId(response.getOrderId());
                 entity.setFigi(figi);
                 entity.setOperation(direction.name());
-                entity.setStatus(normalizeExecutionStatus(response.getExecutionReportStatus()));
+                entity.setStatus(normalizeExecutionStatus(response.getExecutionReportStatus() != null ? response.getExecutionReportStatus().name() : null));
                 // Количества
                 entity.setRequestedLots(java.math.BigDecimal.valueOf(lots));
                 try {
@@ -267,7 +266,7 @@ public class OrderService {
                 entity.setOrderId(response.getOrderId());
                 entity.setFigi(figi);
                 entity.setOperation(direction.name());
-                entity.setStatus(normalizeExecutionStatus(response.getExecutionReportStatus()));
+                entity.setStatus(normalizeExecutionStatus(response.getExecutionReportStatus() != null ? response.getExecutionReportStatus().name() : null));
                 entity.setRequestedLots(BigDecimal.valueOf(lots));
                 entity.setPrice(stopPrice);
                 entity.setCurrency("RUB");
@@ -435,7 +434,7 @@ public class OrderService {
                 entity.setOrderId(response.getOrderId());
                 entity.setFigi(figi);
                 entity.setOperation(direction.name());
-                entity.setStatus(normalizeExecutionStatus(response.getExecutionReportStatus()));
+                entity.setStatus(normalizeExecutionStatus(response.getExecutionReportStatus() != null ? response.getExecutionReportStatus().name() : null));
                 entity.setRequestedLots(java.math.BigDecimal.valueOf(lots));
                 try {
                     entity.setExecutedLots(java.math.BigDecimal.valueOf(response.getLotsExecuted()));
@@ -475,21 +474,13 @@ public class OrderService {
      * Приведение статусов API к унифицированным значениям, чтобы остальные сервисы (например, cooldown)
      * могли корректно определять факт совершенной сделки.
      */
-    private String normalizeExecutionStatus(ExecutionReportStatus status) {
-        if (status == null) return "UNKNOWN";
-        switch (status) {
-            case EXECUTION_REPORT_STATUS_FILL:
-            case EXECUTION_REPORT_STATUS_PARTIALLYFILL:
-                return "FILLED";
-            case EXECUTION_REPORT_STATUS_REJECTED:
-                return "REJECTED";
-            case EXECUTION_REPORT_STATUS_NEW:
-            case EXECUTION_REPORT_STATUS_PENDINGNEW:
-            case EXECUTION_REPORT_STATUS_PENDINGREPLACE:
-                return "NEW";
-            default:
-                return status.name();
-        }
+    private String normalizeExecutionStatus(String statusName) {
+        if (statusName == null) return "UNKNOWN";
+        String s = statusName.toUpperCase();
+        if (s.contains("FILL")) return "FILLED"; // EXECUTION_REPORT_STATUS_FILL / PARTIALLYFILL
+        if (s.contains("REJECT")) return "REJECTED";
+        if (s.contains("PENDING") || s.endsWith("_NEW") || s.equals("NEW")) return "NEW";
+        return s;
     }
 
     public void cancelOrder(String accountId, String orderId) {

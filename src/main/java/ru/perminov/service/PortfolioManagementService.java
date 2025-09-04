@@ -804,7 +804,7 @@ public class PortfolioManagementService {
                             BigDecimal currentClassValue = portfolioAnalysis.getCurrentAllocations().getOrDefault(instrType, BigDecimal.ZERO);
                             BigDecimal newClassValue = currentClassValue.add(totalCost);
                             
-                            if (portfolioAnalysis.getTotalValue().compareTo(BigDecimal.ZERO) > 0) {
+                                if (portfolioAnalysis.getTotalValue().compareTo(BigDecimal.ZERO) > 0) {
                                 BigDecimal newClassShare = newClassValue.divide(portfolioAnalysis.getTotalValue(), 4, RoundingMode.HALF_UP);
                                 
                                 if (newClassShare.compareTo(adaptiveLimit) > 0) {
@@ -819,11 +819,11 @@ public class PortfolioManagementService {
                                     log.warn("🚀 Адаптивная блокировка по классу активов ({}): {} [{} , accountId={}]", 
                                         level, msg, displayOf(figi), accountId);
                                     
-                                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
                                             "Адаптивная блокировка класса активов",
                                             String.format("%s, Account: %s, Уровень портфеля: %s, Причина: %s", 
                                                 displayOf(figi), accountId, level, msg));
-                                    return;
+                                        return;
                                 } else {
                                     log.info("✅ Адаптивный лимит класса активов соблюден: {} доля {:.2f}% < {:.2f}% ({})", 
                                         getAssetClassName(instrType), 
@@ -846,24 +846,24 @@ public class PortfolioManagementService {
                                 AdaptiveDiversificationService.DiversificationSettings settings = 
                                     adaptiveDiversificationService.getDiversificationSettings(portfolioAnalysis.getTotalValue());
                                 
-                                ru.perminov.service.SectorManagementService.SectorValidationResult sectorValidation = 
+                            ru.perminov.service.SectorManagementService.SectorValidationResult sectorValidation = 
                                     sectorManagementService.validateAdaptiveSectorDiversification(
-                                        figi, 
-                                        totalCost, 
-                                        portfolioAnalysis.getTotalValue(),
+                                    figi, 
+                                    totalCost, 
+                                    portfolioAnalysis.getTotalValue(),
                                         portfolioAnalysis.getPositions(),
                                         settings
-                                    );
-                                
-                                if (!sectorValidation.isValid()) {
+                                );
+                            
+                            if (!sectorValidation.isValid()) {
                                     log.warn("🚨 НАРУШЕНИЕ АДАПТИВНОЙ ДИВЕРСИФИКАЦИИ: {} [{} , accountId={}]", 
-                                        String.join("; ", sectorValidation.getViolations()), displayOf(figi), accountId);
-                                    
-                                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                                    String.join("; ", sectorValidation.getViolations()), displayOf(figi), accountId);
+                                
+                                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                                         "Нарушение адаптивной диверсификации", String.format("%s, Account: %s, Сектор: %s, Нарушения: %s", 
-                                            displayOf(figi), accountId, sectorValidation.getSectorName(), 
-                                            String.join("; ", sectorValidation.getViolations())));
-                                    
+                                        displayOf(figi), accountId, sectorValidation.getSectorName(), 
+                                        String.join("; ", sectorValidation.getViolations())));
+                                
                                     return; // Блокируем покупку при нарушении диверсификации
                                 }
                                 
