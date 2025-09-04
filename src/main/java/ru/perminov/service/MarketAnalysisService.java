@@ -53,6 +53,13 @@ public class MarketAnalysisService {
     /**
      * Преобразование Quotation в BigDecimal
      */
+    private BigDecimal quotationToBigDecimal(ru.tinkoff.piapi.contract.v1.Quotation quotation) {
+        return new BigDecimal(quotation.getUnits() + "." + String.format("%09d", quotation.getNano()));
+    }
+
+    /**
+     * Преобразование Quotation в BigDecimal (публичный метод)
+     */
     private BigDecimal toBigDecimal(ru.tinkoff.piapi.contract.v1.Quotation q) {
         if (q == null) return BigDecimal.ZERO;
         String nano = String.format("%09d", q.getNano());
@@ -166,6 +173,33 @@ public class MarketAnalysisService {
     }
     
     /**
+     * Получение актуальной рыночной цены через OrderBook
+     */
+    public BigDecimal getCurrentMarketPrice(String figi) {
+        try {
+            apiRateLimiter.acquire();
+            var orderBook = investApiManager.getCurrentInvestApi().getMarketDataService()
+                .getOrderBookSync(figi, 1); // Глубина 1 для получения лучших цен
+            
+            if (orderBook != null && !orderBook.getBidsList().isEmpty() && !orderBook.getAsksList().isEmpty()) {
+                // Берем среднее между лучшими bid и ask
+                var bestBid = orderBook.getBidsList().get(0);
+                var bestAsk = orderBook.getAsksList().get(0);
+                
+                BigDecimal bidPrice = quotationToBigDecimal(bestBid.getPrice());
+                BigDecimal askPrice = quotationToBigDecimal(bestAsk.getPrice());
+                BigDecimal marketPrice = bidPrice.add(askPrice).divide(BigDecimal.valueOf(2), 4, RoundingMode.HALF_UP);
+                
+                log.debug("🔍 Рыночная цена через OrderBook для {}: bid={}, ask={}, middle={}", figi, bidPrice, askPrice, marketPrice);
+                return marketPrice;
+            }
+        } catch (Exception e) {
+            log.warn("Не удалось получить рыночную цену через OrderBook для {}: {}", figi, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
      * Анализ тренда
      */
     public TrendAnalysis analyzeTrend(String figi, CandleInterval interval) {
@@ -178,8 +212,18 @@ public class MarketAnalysisService {
             return new TrendAnalysis(TrendType.UNKNOWN, BigDecimal.ZERO, "Недостаточно данных");
         }
         
-        BigDecimal currentPrice = new BigDecimal(recentCandles.get(0).getClose().getUnits() + "." + 
-            String.format("%09d", recentCandles.get(0).getClose().getNano()));
+        // Пытаемся получить актуальную рыночную цену
+        BigDecimal currentPrice = getCurrentMarketPrice(figi);
+        
+        // Если не удалось получить рыночную цену, используем последнюю свечу
+        if (currentPrice == null) {
+            HistoricCandle lastCandle = recentCandles.get(recentCandles.size() - 1);
+            currentPrice = new BigDecimal(lastCandle.getClose().getUnits() + "." + 
+                String.format("%09d", lastCandle.getClose().getNano()));
+            log.debug("🔍 Цена из последней свечи для {}: {} (из {} свечей)", figi, currentPrice, recentCandles.size());
+        } else {
+            log.debug("🔍 Актуальная рыночная цена для {}: {} (через OrderBook)", figi, currentPrice);
+        }
         
         TrendType trend;
         String signal;
