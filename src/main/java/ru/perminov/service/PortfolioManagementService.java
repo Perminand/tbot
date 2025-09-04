@@ -38,6 +38,7 @@ public class PortfolioManagementService {
     private final InstrumentNameService instrumentNameService;
     private final SectorManagementService sectorManagementService;
     private final CapitalManagementService capitalManagementService;
+    private final ru.perminov.repository.InstrumentRepository instrumentRepository;
     
     // Целевые доли активов в портфеле
     private final Map<String, BigDecimal> targetAllocations = new HashMap<>();
@@ -69,6 +70,22 @@ public class PortfolioManagementService {
             if (ticker != null) return ticker;
         } catch (Exception ignore) {}
         return figi;
+    }
+
+    private String determineInstrumentType(String figi) {
+        try {
+            if ("RUB000UTSTOM".equals(figi)) return "currency";
+            var opt = instrumentRepository.findById(figi);
+            if (opt.isPresent() && opt.get().getInstrumentType() != null) return opt.get().getInstrumentType();
+        } catch (Exception ignore) {}
+        // Фолбэк: пробуем по Invest API
+        try {
+            var api = investApiManager.getCurrentInvestApi();
+            try { if (api.getInstrumentsService().getShareByFigiSync(figi) != null) return "share"; } catch (Exception ignore) {}
+            try { if (api.getInstrumentsService().getBondByFigiSync(figi) != null) return "bond"; } catch (Exception ignore) {}
+            try { if (api.getInstrumentsService().getEtfByFigiSync(figi) != null) return "etf"; } catch (Exception ignore) {}
+        } catch (Exception ignore) {}
+        return "share";
     }
     
     /**
@@ -579,6 +596,31 @@ public class PortfolioManagementService {
                         // Определяем тип операции (маржинальная или обычная)
                         String operationType = (allowNegativeCash && availableCash.compareTo(BigDecimal.ZERO) < 0) ? "маржинальная " : "";
                         String fullActionType = operationType + actionType;
+                        
+                        // Ограничение доли класса активов: облигации не более N% от портфеля
+                        try {
+                            String instrType = determineInstrumentType(figi);
+                            if ("bond".equalsIgnoreCase(instrType)) {
+                                double cap = tradingSettingsService.getDouble("asset-cap.bonds-pct", 0.30);
+                                BigDecimal maxBondsPct = BigDecimal.valueOf(cap);
+                                BigDecimal currentBondsValue = portfolioAnalysis.getCurrentAllocations().getOrDefault("bond", BigDecimal.ZERO);
+                                BigDecimal newBondsValue = currentBondsValue.add(totalCost);
+                                if (portfolioAnalysis.getTotalValue().compareTo(BigDecimal.ZERO) > 0) {
+                                    BigDecimal newBondsShare = newBondsValue.divide(portfolioAnalysis.getTotalValue(), 4, RoundingMode.HALF_UP);
+                                    if (newBondsShare.compareTo(maxBondsPct) > 0) {
+                                        String msg = String.format("Покупка облигаций превысит лимит %.2f%%: новая доля %.2f%%",
+                                                maxBondsPct.multiply(BigDecimal.valueOf(100)), newBondsShare.multiply(BigDecimal.valueOf(100)));
+                                        log.warn("Блокировка по классу активов (облигации): {} [{} , accountId={}]", msg, displayOf(figi), accountId);
+                                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                                "Блокировка доли класса активов",
+                                                String.format("%s, Account: %s, Причина: %s", displayOf(figi), accountId, msg));
+                                        return;
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            log.warn("Ошибка проверки лимита по классу активов для {}: {}", displayOf(figi), e.getMessage());
+                        }
                         
                         // Проверка диверсификации по секторам
                         try {

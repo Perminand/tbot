@@ -162,6 +162,10 @@ public class CapitalManagementService {
             return SizingResult.builder().blocked(true).blockReason("Ошибка расчета размера позиции").build();
         }
     }
+
+    public BigDecimal getMaxPositionSizePct() {
+        return maxPositionSizePct;
+    }
 }
 
 
