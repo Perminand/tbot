@@ -1,17 +1,20 @@
 package ru.perminov.service;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import ru.perminov.dto.ShareDto;
 import ru.tinkoff.piapi.core.models.Position;
 import ru.perminov.service.BotLogService;
+import ru.perminov.repository.InstrumentRepository;
+import ru.perminov.model.Instrument;
+import ru.tinkoff.piapi.core.InvestApi;
+import ru.tinkoff.piapi.contract.v1.Share;
+import ru.tinkoff.piapi.contract.v1.Bond;
+import ru.tinkoff.piapi.contract.v1.Etf;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.*;
-import java.util.stream.Collectors;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Slf4j
@@ -20,12 +23,17 @@ public class SectorManagementService {
     // Убираем статический блок с log, так как log еще не инициализирован
     
     private final BotLogService botLogService;
+    private final InstrumentRepository instrumentRepository;
+    private final InvestApiManager investApiManager;
+    private final Map<String, String> sectorCache = new ConcurrentHashMap<>();
     
     // Российские ограничения для неквалифицированных инвесторов
     private BigDecimal maxSectorExposurePct = new BigDecimal("0.15");
     
     // Конструктор с логированием
-    public SectorManagementService(BotLogService botLogService) {
+    public SectorManagementService(BotLogService botLogService,
+                                   InstrumentRepository instrumentRepository,
+                                   InvestApiManager investApiManager) {
         try {
             System.out.println("🚀 SectorManagementService конструктор начал выполнение...");
             
@@ -35,6 +43,8 @@ public class SectorManagementService {
             }
             
             this.botLogService = botLogService;
+            this.instrumentRepository = instrumentRepository;
+            this.investApiManager = investApiManager;
             System.out.println("✅ BotLogService успешно установлен");
             
             // Проверяем статические карты
@@ -329,6 +339,17 @@ public class SectorManagementService {
                     continue;
                 }
                 
+                // Исключаем валютные позиции из анализа диверсификации
+                // Они считаются кэшем и не должны попадать в сектора
+                try {
+                    String instrumentType = position.getInstrumentType();
+                    String posFigi = position.getFigi();
+                    if ("currency".equalsIgnoreCase(instrumentType) || "RUB000UTSTOM".equals(posFigi)) {
+                        log.debug("🔍 Пропускаем валютную позицию из анализа: figi={}, type={}", posFigi, instrumentType);
+                        continue;
+                    }
+                } catch (Exception ignore) { /* безопасный пропуск */ }
+
                 String figi = position.getFigi();
                 if (figi == null || figi.isEmpty()) {
                     log.warn("⚠️ FIGI позиции пустой, пропускаем");
@@ -398,16 +419,91 @@ public class SectorManagementService {
             return "OTHER";
         }
         
-        // Сначала проверяем маппинг FIGI
-        String sector = FIGI_TO_SECTOR.get(figi);
-        if (sector != null) {
-            log.debug("🔍 FIGI {} найден в маппинге: {}", figi, sector);
-            return sector;
+        // 0) Кэш
+        String cached = sectorCache.get(figi);
+        if (cached != null) return cached;
+
+        // 1) Локальная БД инструментов
+        try {
+            Optional<Instrument> opt = instrumentRepository.findById(figi);
+            if (opt.isPresent()) {
+                String raw = opt.get().getSector();
+                String normalized = normalizeSector(raw);
+                if (normalized != null) {
+                    sectorCache.put(figi, normalized);
+                    return normalized;
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Не удалось получить сектор из БД для {}: {}", figi, e.getMessage());
         }
-        
-        log.debug("🔍 FIGI {} не найден в маппинге, возвращаем OTHER", figi);
-        // Если FIGI не найден, определяем по названию
-        // Это можно расширить в будущем
+
+        // 2) Invest API (share → bond → etf)
+        try {
+            InvestApi api = investApiManager.getCurrentInvestApi();
+            try {
+                Share share = api.getInstrumentsService().getShareByFigiSync(figi);
+                if (share != null && share.getSector() != null && !share.getSector().isEmpty()) {
+                    String normalized = normalizeSector(share.getSector());
+                    if (normalized != null) {
+                        sectorCache.put(figi, normalized);
+                        return normalized;
+                    }
+                }
+            } catch (Exception ignore) {}
+            try {
+                Bond bond = api.getInstrumentsService().getBondByFigiSync(figi);
+                if (bond != null && bond.getSector() != null && !bond.getSector().isEmpty()) {
+                    String normalized = normalizeSector(bond.getSector());
+                    if (normalized != null) {
+                        sectorCache.put(figi, normalized);
+                        return normalized;
+                    }
+                }
+            } catch (Exception ignore) {}
+            try {
+                Etf etf = api.getInstrumentsService().getEtfByFigiSync(figi);
+                if (etf != null && etf.getSector() != null && !etf.getSector().isEmpty()) {
+                    String normalized = normalizeSector(etf.getSector());
+                    if (normalized != null) {
+                        sectorCache.put(figi, normalized);
+                        return normalized;
+                    }
+                }
+            } catch (Exception ignore) {}
+        } catch (Exception e) {
+            log.debug("Не удалось получить сектор из Invest API для {}: {}", figi, e.getMessage());
+        }
+
+        // 3) Статический маппинг как последний фолбэк
+        String mapped = FIGI_TO_SECTOR.get(figi);
+        if (mapped != null) {
+            sectorCache.put(figi, mapped);
+            return mapped;
+        }
+
+        log.debug("🔍 FIGI {} сектор не определён, возвращаем OTHER", figi);
+        return "OTHER";
+    }
+
+    private String normalizeSector(String rawSector) {
+        if (rawSector == null) return null;
+        String s = rawSector.trim().toLowerCase();
+        if (s.isEmpty()) return null;
+        if (s.contains("bank") || s.contains("financ")) return "BANKS";
+        if (s.contains("oil") || s.contains("gas") || s.contains("energy")) return "OIL_GAS";
+        if (s.contains("metal") || s.contains("mining") || s.contains("steel")) return "METALS";
+        if (s.contains("tele") || s.contains("communication")) return "TELECOM";
+        if (s.contains("retail") || s.contains("consumer")) return "RETAIL"; // гибко: при необходимости развести на CONSUMER_GOODS
+        if (s.contains("transport") || s.contains("aero") || s.contains("rail")) return "TRANSPORT";
+        if (s.contains("chem")) return "CHEMICALS";
+        if (s.contains("construct") || s.contains("build")) return "CONSTRUCTION";
+        if (s.contains("agri")) return "AGRICULTURE";
+        if (s.contains("tech") || s.contains("it") || s.contains("software")) return "TECH";
+        if (s.contains("utilit")) return "UTILITIES";
+        if (s.contains("real") && s.contains("estate")) return "REAL_ESTATE";
+        if (s.contains("health")) return "HEALTHCARE";
+        if (s.contains("goods")) return "CONSUMER_GOODS";
         return "OTHER";
     }
     
