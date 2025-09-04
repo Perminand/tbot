@@ -26,10 +26,10 @@ public class StartupInitializer {
             setDefaultIfMissing("atr.min.pct", "0.002", "Min ATR percent");
             setDefaultIfMissing("atr.max.pct", "0.08", "Max ATR percent");
             setDefaultIfMissing("signal.min.strength", "50", "Min advanced signal strength");
-            setDefaultIfMissing("risk_default_sl_pct", "0.05", "Default stop loss percent");
-            setDefaultIfMissing("risk_default_tp_pct", "0.10", "Default take profit percent");
-            setDefaultIfMissing("risk_default_trailing_pct", "0.05", "Default trailing stop percent");
-            setDefaultIfMissing("risk_per_trade_pct", "0.01", "Risk per trade percent of portfolio");
+            setDefaultIfMissing("risk_default_sl_pct", "0.02", "Default stop loss percent (2% instead of 5%)");
+            setDefaultIfMissing("risk_default_tp_pct", "0.06", "Default take profit percent (6% instead of 10%)");
+            setDefaultIfMissing("risk_default_trailing_pct", "0.03", "Default trailing stop percent (3% instead of 5%)");
+            setDefaultIfMissing("risk_per_trade_pct", "0.005", "Risk per trade percent of portfolio (0.5% instead of 1%)");
             setDefaultIfMissing("hard_stops.enabled", "true", "Enable hard OCO stops in production");
             setDefaultIfMissing("hard_stops.trailing.enabled", "true", "Enable trailing with OCO re-posting");
 

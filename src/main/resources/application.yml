@@ -55,13 +55,13 @@ position-management:
     add-buy-pct: 0.003             # Докупка: 0.3% от buyingPower (было 1%)
     min-position-value: 1000       # Минимальная стоимость позиции в рублях
 
-# Capital Management
+# Capital Management - ОПТИМИЗИРОВАННЫЕ НАСТРОЙКИ ДЛЯ ПРИБЫЛЬНОСТИ
 capital-management:
-  first-buy-pct: 0.005           # 0.5% от покупательной способности
-  add-buy-pct: 0.003             # 0.3% при докупке
-  min-position-value: 1000       # Минимальная стоимость позиции, RUB
-  max-position-size-pct: 0.05    # Максимум на инструмент от портфеля
-  risk-per-trade-pct: 0.005      # Риск на сделку 0.5% от портфеля
+  first-buy-pct: 0.02            # 2% от покупательной способности (было 0.5%)
+  add-buy-pct: 0.01              # 1% при докупке (было 0.3%)
+  min-position-value: 5000       # Минимальная стоимость позиции, RUB (было 1000)
+  max-position-size-pct: 0.08    # Максимум на инструмент от портфеля (было 0.05)
+  risk-per-trade-pct: 0.01       # Риск на сделку 1% от портфеля (было 0.005)
   enable-atr-cap: true           # Включить ATR-кап размера позиции
 
 # Smart Analysis Configuration

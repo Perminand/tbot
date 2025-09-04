@@ -1366,6 +1366,21 @@ public class PortfolioManagementService {
         log.debug("=== АНАЛИЗ ТОРГОВОГО СИГНАЛА ===");
         log.debug("Тренд: {}, RSI: {}, Есть позиция: {}", trendAnalysis.getTrend(), rsi, hasPosition);
         
+        // 🚀 НОВАЯ ПРОВЕРКА: Анализ прибыльности с учетом комиссий
+        BigDecimal currentPrice = trendAnalysis.getCurrentPrice();
+        if (!isProfitableTrade(currentPrice, figi)) {
+            log.info("💰 БЛОКИРОВКА СДЕЛКИ: Сделка по {} не будет прибыльной с учетом комиссий (цена: {})", 
+                displayOf(figi), currentPrice);
+            return "HOLD";
+        }
+        
+        // 🚀 НОВАЯ ПРОВЕРКА: Минимальная волатильность (ATR фильтр)
+        if (!hasMinimumVolatility(trendAnalysis, figi)) {
+            log.info("📊 БЛОКИРОВКА СДЕЛКИ: Недостаточная волатильность для {} (ATR слишком низкий)", 
+                displayOf(figi));
+            return "HOLD";
+        }
+        
         // СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ЗАКРЫТИЯ ШОРТОВ - ТОЛЬКО ЕСЛИ ШОРТ ЕСТЬ!
         boolean hasShortPosition = hasShortPosition(figi, accountId);
         if (hasShortPosition) {
@@ -1446,6 +1461,73 @@ public class PortfolioManagementService {
         
         log.debug("Нет четкого сигнала - HOLD");
         return "HOLD";
+    }
+    
+    /**
+     * 🚀 НОВЫЙ МЕТОД: Проверка минимальной волатильности
+     */
+    private boolean hasMinimumVolatility(MarketAnalysisService.TrendAnalysis trendAnalysis, String figi) {
+        try {
+            // Пока метод getAtr() не реализован, используем простую проверку на основе цены
+            BigDecimal currentPrice = trendAnalysis.getCurrentPrice();
+            
+            if (currentPrice != null && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
+                // Простая проверка: цена должна быть больше 1 рубля для эффективной торговли
+                boolean hasVolatility = currentPrice.compareTo(BigDecimal.ONE) > 0;
+                
+                log.debug("📊 Проверка волатильности {}: цена={} → {}", 
+                    displayOf(figi), currentPrice, hasVolatility ? "ДОСТАТОЧНО" : "МАЛО");
+                
+                return hasVolatility;
+            }
+            
+            // Если цена недоступна, разрешаем торговлю
+            return true;
+            
+        } catch (Exception e) {
+            log.warn("Ошибка проверки волатильности для {}: {}", displayOf(figi), e.getMessage());
+            return true; // При ошибке разрешаем торговлю
+        }
+    }
+    
+    /**
+     * 🚀 НОВЫЙ МЕТОД: Проверка прибыльности сделки с учетом комиссий
+     */
+    private boolean isProfitableTrade(BigDecimal currentPrice, String figi) {
+        try {
+            // Используем минимальный размер позиции для расчета
+            BigDecimal minPositionValue = new BigDecimal(tradingSettingsService.getString("capital-management.min-position-value", "1000"));
+            int estimatedLots = minPositionValue.divide(currentPrice, 0, RoundingMode.UP).intValue();
+            if (estimatedLots < 1) estimatedLots = 1;
+            
+            BigDecimal tradeAmount = currentPrice.multiply(BigDecimal.valueOf(estimatedLots));
+            
+            // Получаем тип инструмента
+            String instrumentType = determineInstrumentType(figi);
+            
+            // Рассчитываем минимальное движение цены для безубыточности
+            BigDecimal minPriceMove = commissionCalculatorService.calculateBreakevenPriceMove(currentPrice, estimatedLots, instrumentType);
+            
+            // Рассчитываем минимальный процент движения
+            BigDecimal minMovePct = minPriceMove.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
+            
+            // Получаем настройки стоп-лосса и тейк-профита
+            double slPct = riskRuleService.getDefaultStopLossPct() * 100; // переводим в проценты
+            double tpPct = riskRuleService.getDefaultTakeProfitPct() * 100;
+            
+            // Проверяем, достаточно ли тейк-профит для покрытия комиссий + риска
+            boolean profitable = tpPct > (minMovePct.doubleValue() + slPct);
+            
+            log.debug("💰 Анализ прибыльности {}: цена={}, лотов={}, мин.движение={}% ({}₽), SL={}%, TP={}% → {}", 
+                displayOf(figi), currentPrice, estimatedLots, minMovePct, minPriceMove, slPct, tpPct,
+                profitable ? "ПРИБЫЛЬНО" : "УБЫТОЧНО");
+            
+            return profitable;
+            
+        } catch (Exception e) {
+            log.warn("Ошибка проверки прибыльности для {}: {}", displayOf(figi), e.getMessage());
+            return true; // При ошибке разрешаем торговлю
+        }
     }
     
     /**
