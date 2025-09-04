@@ -671,29 +671,48 @@ public class PortfolioManagementService {
                         String operationType = (allowNegativeCash && availableCash.compareTo(BigDecimal.ZERO) < 0) ? "маржинальная " : "";
                         String fullActionType = operationType + actionType;
                         
-                        // Ограничение доли класса активов: облигации не более N% от портфеля
+                        // 🚀 АДАПТИВНОЕ ОГРАНИЧЕНИЕ ДОЛИ КЛАССА АКТИВОВ
                         try {
                             String instrType = determineInstrumentType(figi);
-                            if ("bond".equalsIgnoreCase(instrType)) {
-                                double cap = tradingSettingsService.getDouble("asset-cap.bonds-pct", 0.30);
-                                BigDecimal maxBondsPct = BigDecimal.valueOf(cap);
-                                BigDecimal currentBondsValue = portfolioAnalysis.getCurrentAllocations().getOrDefault("bond", BigDecimal.ZERO);
-                                BigDecimal newBondsValue = currentBondsValue.add(totalCost);
-                                if (portfolioAnalysis.getTotalValue().compareTo(BigDecimal.ZERO) > 0) {
-                                    BigDecimal newBondsShare = newBondsValue.divide(portfolioAnalysis.getTotalValue(), 4, RoundingMode.HALF_UP);
-                                    if (newBondsShare.compareTo(maxBondsPct) > 0) {
-                                        String msg = String.format("Покупка облигаций превысит лимит %.2f%%: новая доля %.2f%%",
-                                                maxBondsPct.multiply(BigDecimal.valueOf(100)), newBondsShare.multiply(BigDecimal.valueOf(100)));
-                                        log.warn("Блокировка по классу активов (облигации): {} [{} , accountId={}]", msg, displayOf(figi), accountId);
-                                        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
-                                                "Блокировка доли класса активов",
-                                                String.format("%s, Account: %s, Причина: %s", displayOf(figi), accountId, msg));
-                                        return;
-                                    }
+                            
+                            // Получаем адаптивный лимит для данного класса активов
+                            BigDecimal adaptiveLimit = adaptiveDiversificationService.getMaxAssetClassPercentage(
+                                portfolioAnalysis.getTotalValue(), instrType);
+                            
+                            // Проверяем текущую долю класса активов
+                            BigDecimal currentClassValue = portfolioAnalysis.getCurrentAllocations().getOrDefault(instrType, BigDecimal.ZERO);
+                            BigDecimal newClassValue = currentClassValue.add(totalCost);
+                            
+                            if (portfolioAnalysis.getTotalValue().compareTo(BigDecimal.ZERO) > 0) {
+                                BigDecimal newClassShare = newClassValue.divide(portfolioAnalysis.getTotalValue(), 4, RoundingMode.HALF_UP);
+                                
+                                if (newClassShare.compareTo(adaptiveLimit) > 0) {
+                                    String assetClassName = getAssetClassName(instrType);
+                                    String msg = String.format("Покупка %s превысит адаптивный лимит %.2f%%: новая доля %.2f%%",
+                                            assetClassName, adaptiveLimit.multiply(BigDecimal.valueOf(100)), 
+                                            newClassShare.multiply(BigDecimal.valueOf(100)));
+                                    
+                                    AdaptiveDiversificationService.PortfolioLevel level = 
+                                        adaptiveDiversificationService.getPortfolioLevel(portfolioAnalysis.getTotalValue());
+                                    
+                                    log.warn("🚀 Адаптивная блокировка по классу активов ({}): {} [{} , accountId={}]", 
+                                        level, msg, displayOf(figi), accountId);
+                                    
+                                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                            "Адаптивная блокировка класса активов",
+                                            String.format("%s, Account: %s, Уровень портфеля: %s, Причина: %s", 
+                                                displayOf(figi), accountId, level, msg));
+                                    return;
+                                } else {
+                                    log.info("✅ Адаптивный лимит класса активов соблюден: {} доля {:.2f}% < {:.2f}% ({})", 
+                                        getAssetClassName(instrType), 
+                                        newClassShare.multiply(BigDecimal.valueOf(100)), 
+                                        adaptiveLimit.multiply(BigDecimal.valueOf(100)),
+                                        adaptiveDiversificationService.getPortfolioLevel(portfolioAnalysis.getTotalValue()));
                                 }
                             }
                         } catch (Exception e) {
-                            log.warn("Ошибка проверки лимита по классу активов для {}: {}", displayOf(figi), e.getMessage());
+                            log.warn("Ошибка проверки адаптивного лимита по классу активов для {}: {}", displayOf(figi), e.getMessage());
                         }
                         
                         // 🚀 АДАПТИВНАЯ ПРОВЕРКА ДИВЕРСИФИКАЦИИ ПО СЕКТОРАМ
@@ -1919,6 +1938,23 @@ public class PortfolioManagementService {
             
         } catch (Exception e) {
             log.warn("Ошибка в быстром мониторинге: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * 🚀 НОВЫЙ МЕТОД: Получение читаемого названия класса активов
+     */
+    private String getAssetClassName(String instrumentType) {
+        switch (instrumentType.toLowerCase()) {
+            case "bond":
+                return "облигаций";
+            case "share":
+            case "stock":
+                return "акций";
+            case "etf":
+                return "ETF";
+            default:
+                return instrumentType;
         }
     }
 } 

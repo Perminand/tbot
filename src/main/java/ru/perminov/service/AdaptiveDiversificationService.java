@@ -53,6 +53,10 @@ public class AdaptiveDiversificationService {
                 settings.setMaxTotalPositions(8);                          // Максимум 8 позиций
                 settings.setMaxPositionSizePct(new BigDecimal("0.25"));    // 25% на позицию
                 settings.setDiversificationEnabled(false);                 // Отключаем строгую диверсификацию
+                // 🚀 АДАПТИВНЫЕ ЛИМИТЫ ПО КЛАССАМ АКТИВОВ для малого портфеля
+                settings.setMaxBondsPercentage(new BigDecimal("0.70"));    // 70% облигаций (консервативно)
+                settings.setMaxStocksPercentage(new BigDecimal("0.80"));   // 80% акций (рост)
+                settings.setMaxEtfPercentage(new BigDecimal("0.60"));      // 60% ETF
                 settings.setReason("Малый портфель: фокус на росте, минимальные ограничения");
                 break;
                 
@@ -63,6 +67,10 @@ public class AdaptiveDiversificationService {
                 settings.setMaxTotalPositions(12);                         // Максимум 12 позиций
                 settings.setMaxPositionSizePct(new BigDecimal("0.15"));    // 15% на позицию
                 settings.setDiversificationEnabled(true);                  // Умеренная диверсификация
+                // 🚀 АДАПТИВНЫЕ ЛИМИТЫ ПО КЛАССАМ АКТИВОВ для среднего портфеля
+                settings.setMaxBondsPercentage(new BigDecimal("0.50"));    // 50% облигаций
+                settings.setMaxStocksPercentage(new BigDecimal("0.60"));   // 60% акций
+                settings.setMaxEtfPercentage(new BigDecimal("0.40"));      // 40% ETF
                 settings.setReason("Средний портфель: баланс роста и защиты");
                 break;
                 
@@ -73,6 +81,10 @@ public class AdaptiveDiversificationService {
                 settings.setMaxTotalPositions(20);                         // Максимум 20 позиций
                 settings.setMaxPositionSizePct(new BigDecimal("0.08"));    // 8% на позицию
                 settings.setDiversificationEnabled(true);                  // Строгая диверсификация
+                // 🚀 АДАПТИВНЫЕ ЛИМИТЫ ПО КЛАССАМ АКТИВОВ для большого портфеля
+                settings.setMaxBondsPercentage(new BigDecimal("0.30"));    // 30% облигаций (строго)
+                settings.setMaxStocksPercentage(new BigDecimal("0.40"));   // 40% акций (консервативно)
+                settings.setMaxEtfPercentage(new BigDecimal("0.25"));      // 25% ETF
                 settings.setReason("Большой портфель: приоритет защиты капитала");
                 break;
         }
@@ -113,6 +125,41 @@ public class AdaptiveDiversificationService {
     }
     
     /**
+     * 🚀 НОВЫЕ МЕТОДЫ: Получение адаптивных лимитов по классам активов
+     */
+    public BigDecimal getMaxBondsPercentage(BigDecimal portfolioValue) {
+        return getDiversificationSettings(portfolioValue).getMaxBondsPercentage();
+    }
+    
+    public BigDecimal getMaxStocksPercentage(BigDecimal portfolioValue) {
+        return getDiversificationSettings(portfolioValue).getMaxStocksPercentage();
+    }
+    
+    public BigDecimal getMaxEtfPercentage(BigDecimal portfolioValue) {
+        return getDiversificationSettings(portfolioValue).getMaxEtfPercentage();
+    }
+    
+    /**
+     * Универсальный метод получения лимита по типу инструмента
+     */
+    public BigDecimal getMaxAssetClassPercentage(BigDecimal portfolioValue, String instrumentType) {
+        DiversificationSettings settings = getDiversificationSettings(portfolioValue);
+        
+        switch (instrumentType.toLowerCase()) {
+            case "bond":
+                return settings.getMaxBondsPercentage();
+            case "share":
+            case "stock":
+                return settings.getMaxStocksPercentage();
+            case "etf":
+                return settings.getMaxEtfPercentage();
+            default:
+                // Для неизвестных типов используем лимит акций
+                return settings.getMaxStocksPercentage();
+        }
+    }
+    
+    /**
      * Уровни портфеля
      */
     public enum PortfolioLevel {
@@ -143,6 +190,11 @@ public class AdaptiveDiversificationService {
         private boolean diversificationEnabled;
         private String reason;
         
+        // 🚀 НОВОЕ: Адаптивные лимиты по классам активов
+        private BigDecimal maxBondsPercentage;
+        private BigDecimal maxStocksPercentage;
+        private BigDecimal maxEtfPercentage;
+        
         // Getters and Setters
         public BigDecimal getMaxSectorExposurePct() { return maxSectorExposurePct; }
         public void setMaxSectorExposurePct(BigDecimal maxSectorExposurePct) { this.maxSectorExposurePct = maxSectorExposurePct; }
@@ -161,5 +213,15 @@ public class AdaptiveDiversificationService {
         
         public String getReason() { return reason; }
         public void setReason(String reason) { this.reason = reason; }
+        
+        // 🚀 НОВЫЕ ГЕТТЕРЫ/СЕТТЕРЫ для классов активов
+        public BigDecimal getMaxBondsPercentage() { return maxBondsPercentage; }
+        public void setMaxBondsPercentage(BigDecimal maxBondsPercentage) { this.maxBondsPercentage = maxBondsPercentage; }
+        
+        public BigDecimal getMaxStocksPercentage() { return maxStocksPercentage; }
+        public void setMaxStocksPercentage(BigDecimal maxStocksPercentage) { this.maxStocksPercentage = maxStocksPercentage; }
+        
+        public BigDecimal getMaxEtfPercentage() { return maxEtfPercentage; }
+        public void setMaxEtfPercentage(BigDecimal maxEtfPercentage) { this.maxEtfPercentage = maxEtfPercentage; }
     }
 }

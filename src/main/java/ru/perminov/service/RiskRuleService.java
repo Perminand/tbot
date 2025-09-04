@@ -28,22 +28,26 @@ public class RiskRuleService {
     }
 
     public double getDefaultStopLossPct() {
-        return settingsRepository.findByKey("risk_default_sl_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.05);
+        // 🚀 ИСПРАВЛЕНО: Используем новые оптимизированные значения по умолчанию
+        return settingsRepository.findByKey("risk_default_sl_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.02);
     }
 
     public double getDefaultTakeProfitPct() {
-        return settingsRepository.findByKey("risk_default_tp_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.10);
+        // 🚀 ИСПРАВЛЕНО: Используем новые оптимизированные значения по умолчанию
+        return settingsRepository.findByKey("risk_default_tp_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.06);
     }
 
     public double getRiskPerTradePct() {
-        return settingsRepository.findByKey("risk_per_trade_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.01);
+        // 🚀 ИСПРАВЛЕНО: Используем новые оптимизированные значения по умолчанию
+        return settingsRepository.findByKey("risk_per_trade_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.005);
     }
 
     /**
      * Дефолтный трейлинг-стоп в долях (например, 0.05 = 5%)
      */
     public double getDefaultTrailingStopPct() {
-        return settingsRepository.findByKey("risk_default_trailing_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.05);
+        // 🚀 ИСПРАВЛЕНО: Используем новые оптимизированные значения по умолчанию
+        return settingsRepository.findByKey("risk_default_trailing_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.03);
     }
 }
 
