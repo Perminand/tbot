@@ -38,6 +38,7 @@ public class PortfolioManagementService {
     private final InstrumentNameService instrumentNameService;
     private final SectorManagementService sectorManagementService;
     private final CapitalManagementService capitalManagementService;
+    private final CommissionCalculatorService commissionCalculatorService;
     private final ru.perminov.repository.InstrumentRepository instrumentRepository;
     
     // Целевые доли активов в портфеле
@@ -801,6 +802,14 @@ public class PortfolioManagementService {
                             String.format("%s (%s), Account: %s, Target: %.2f, Price: %.4f", prettyName, prettyTicker, accountId, targetShortAmount, trend.getCurrentPrice()));
                         if (targetShortAmount.compareTo(trend.getCurrentPrice()) >= 0) {
                             int lots = targetShortAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
+                            
+                            // Проверяем рентабельность шорта с учетом комиссий
+                            BigDecimal tradeAmount = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
+                            BigDecimal minPriceMove = commissionCalculatorService.calculateBreakevenPriceMove(
+                                trend.getCurrentPrice(), lots, "share");
+                            
+                            log.info("💰 Анализ рентабельности шорта: {} лотов по {}₽, нужно падение минимум на {}₽", 
+                                lots, trend.getCurrentPrice(), minPriceMove);
                             
                             // Дополнительная проверка реальной доступности маржи для шорта
                             try {
