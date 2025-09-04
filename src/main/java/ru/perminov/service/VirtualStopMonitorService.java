@@ -33,8 +33,10 @@ public class VirtualStopMonitorService {
     public void monitorVirtualStops() {
         try {
             // Получаем все активные виртуальные ордера
-            List<Order> virtualStops = orderRepository.findByStatusAndOrderTypeIn("MONITORING", 
-                List.of("VIRTUAL_STOP_LOSS", "VIRTUAL_TAKE_PROFIT"));
+                            List<Order> virtualStops = orderRepository.findByStatus("MONITORING").stream()
+                    .filter(order -> "VIRTUAL_STOP_LOSS".equals(order.getOrderType()) || 
+                                   "VIRTUAL_TAKE_PROFIT".equals(order.getOrderType()))
+                    .collect(java.util.stream.Collectors.toList());
             
             if (virtualStops.isEmpty()) {
                 return;
@@ -197,7 +199,9 @@ public class VirtualStopMonitorService {
             if (ocoGroupId == null) return;
             
             // Находим все ордера в этой OCO группе
-            List<Order> ocoOrders = orderRepository.findByStatusAndMessageContaining("MONITORING", "OCO_GROUP:" + ocoGroupId);
+            List<Order> ocoOrders = orderRepository.findByStatus("MONITORING").stream()
+                .filter(order -> order.getMessage() != null && order.getMessage().contains("OCO_GROUP:" + ocoGroupId))
+                .collect(java.util.stream.Collectors.toList());
             
             for (Order ocoOrder : ocoOrders) {
                 // Отменяем все кроме исполненного
@@ -221,7 +225,7 @@ public class VirtualStopMonitorService {
      */
     private String displayOf(String figi) {
         try {
-            return instrumentNameService.getDisplayName(figi);
+            return instrumentNameService.getInstrumentName(figi, "SHARE");
         } catch (Exception e) {
             return figi;
         }

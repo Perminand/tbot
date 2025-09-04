@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 
 /**
  * 🚀 НОВЫЙ СЕРВИС: Адаптивная диверсификация в зависимости от размера портфеля
