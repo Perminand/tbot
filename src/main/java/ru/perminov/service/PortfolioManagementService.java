@@ -257,6 +257,37 @@ public class PortfolioManagementService {
     }
     
     /**
+     * Принудительная проверка всех шорт позиций для их закрытия
+     */
+    public void checkAndCloseShortPositions(String accountId) {
+        try {
+            log.info("🔍 ПРИНУДИТЕЛЬНАЯ ПРОВЕРКА ШОРТ ПОЗИЦИЙ для аккаунта {}", accountId);
+            PortfolioManagementService.PortfolioAnalysis analysis = analyzePortfolio(accountId);
+            
+            List<Position> shortPositions = analysis.getPositions().stream()
+                .filter(p -> p.getQuantity().compareTo(BigDecimal.ZERO) < 0)
+                .filter(p -> !"currency".equals(p.getInstrumentType()))
+                .collect(Collectors.toList());
+                
+            log.info("🎯 Найдено {} шорт позиций", shortPositions.size());
+            
+            for (Position shortPos : shortPositions) {
+                String figi = shortPos.getFigi();
+                log.info("🔍 Анализ шорт позиции: FIGI={}, quantity={}", figi, shortPos.getQuantity());
+                
+                // Принудительно анализируем торговый сигнал для каждой шорт позиции
+                executeTradingStrategy(accountId, figi);
+                
+                // Небольшая задержка между анализами
+                Thread.sleep(200);
+            }
+            
+        } catch (Exception e) {
+            log.error("Ошибка при проверке шорт позиций: {}", e.getMessage());
+        }
+    }
+
+    /**
      * Автоматическая торговля на основе анализа
      */
     public void executeTradingStrategy(String accountId, String figi) {
@@ -330,21 +361,21 @@ public class PortfolioManagementService {
                         if (lotsToClose > 0) {
                             String prettyName = instrumentNameService != null ? instrumentNameService.getInstrumentName(figi, "share") : figi;
                             String prettyTicker = instrumentNameService != null ? instrumentNameService.getTicker(figi, "share") : figi;
-                            log.info("Немедленное закрытие шорта [{}]: {} лотов по цене {} (без проверок BP)",
+                            log.info("🎯 НЕМЕДЛЕННОЕ ЗАКРЫТИЕ ШОРТА [{}]: {} лотов по цене {} (без проверок BP)",
                                 displayOf(figi), lotsToClose, trend.getCurrentPrice());
                             botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                     "Закрытие шорта (приоритет)", String.format("%s, Лотов: %d, Цена: %.4f",
                                             displayOf(figi), lotsToClose, trend.getCurrentPrice()));
                             try {
-                                log.info("Размещаем ордер на закрытие шорта: {} лотов BUY по цене {}", lotsToClose, trend.getCurrentPrice());
+                                log.info("🎯 Размещаем ордер на закрытие шорта: {} лотов BUY по цене {}", lotsToClose, trend.getCurrentPrice());
                                 PostOrderResponse response = orderService.placeMarketOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId);
-                                log.info("Ордер на закрытие шорта размещен успешно: orderId={}, status={}", 
+                                log.info("✅ Ордер на закрытие шорта размещен успешно: orderId={}, status={}", 
                                     response.getOrderId(), response.getExecutionReportStatus());
                                 botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                         "Шорт закрыт", String.format("%s, Лотов: %d, OrderId: %s", displayOf(figi), lotsToClose, response.getOrderId()));
                                 return;
                             } catch (Exception e) {
-                                log.error("Ошибка немедленного закрытия шорта [{}]: {}", displayOf(figi), e.getMessage(), e);
+                                log.error("❌ Ошибка немедленного закрытия шорта [{}]: {}", displayOf(figi), e.getMessage(), e);
                                 botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                         "Ошибка закрытия шорта", String.format("%s, Лотов: %d, Ошибка: %s", displayOf(figi), lotsToClose, e.getMessage()));
                                 // Если не получилось — продолжаем стандартные проверки
@@ -1274,6 +1305,19 @@ public class PortfolioManagementService {
         
         log.debug("=== АНАЛИЗ ТОРГОВОГО СИГНАЛА ===");
         log.debug("Тренд: {}, RSI: {}, Есть позиция: {}", trendAnalysis.getTrend(), rsi, hasPosition);
+        
+        // СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ЗАКРЫТИЯ ШОРТОВ
+        // Если RSI упал ниже 30 - это хороший момент для закрытия шорта (покупки)
+        if (rsi.compareTo(BigDecimal.valueOf(30)) < 0) {
+            log.info("🎯 СИГНАЛ НА ЗАКРЫТИЕ ШОРТА: RSI {} < 30 (сильная перепроданность)", rsi);
+            return "BUY"; // Закрытие шорта при сильной перепроданности
+        }
+        
+        // Если восходящий тренд начинается - закрываем шорт
+        if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BULLISH && rsi.compareTo(BigDecimal.valueOf(40)) < 0) {
+            log.info("🎯 СИГНАЛ НА ЗАКРЫТИЕ ШОРТА: BULLISH тренд + RSI {} < 40", rsi);
+            return "BUY"; // Закрытие шорта при развороте тренда
+        }
         
         // Вариант 1: встроить открытие шорта в стратегию
         // Если нисходящий тренд и позиции нет — разрешаем SELL (вход в шорт) при признаках слабости/перекупленности

@@ -128,11 +128,15 @@ public class SmartAnalysisService {
                 if (position.getQuantity().compareTo(BigDecimal.ZERO) != 0 && 
                     !"currency".equals(position.getInstrumentType())) {
                     
+                    boolean isShort = position.getQuantity().compareTo(BigDecimal.ZERO) < 0;
+                    log.info("🔍 ПОЗИЦИЯ для анализа: FIGI={}, quantity={}, тип={}, шорт={}", 
+                        position.getFigi(), position.getQuantity(), position.getInstrumentType(), isShort);
+                    
                     // Конвертируем Position в ShareDto
                     ShareDto shareDto = new ShareDto();
                     shareDto.setFigi(position.getFigi());
                     shareDto.setTicker(position.getFigi().substring(0, Math.min(8, position.getFigi().length())));
-                    shareDto.setName("Позиция: " + position.getInstrumentType());
+                    shareDto.setName("Позиция: " + position.getInstrumentType() + (isShort ? " (ШОРТ)" : " (ЛОНГ)"));
                     shareDto.setInstrumentType(position.getInstrumentType());
                     shareDto.setCurrency("RUB");
                     shareDto.setExchange("MOEX");
@@ -142,6 +146,7 @@ public class SmartAnalysisService {
                 }
             }
             
+            log.info("🎯 Итого позиций для анализа: {}", positions.size());
             return positions;
             
         } catch (Exception e) {

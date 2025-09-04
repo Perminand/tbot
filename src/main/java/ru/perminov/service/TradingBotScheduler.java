@@ -51,6 +51,9 @@ public class TradingBotScheduler {
             List<String> accountIds = getAccountIds();
             
             for (String accountId : accountIds) {
+                // ПРИОРИТЕТ: Сначала проверяем все шорт позиции для закрытия
+                portfolioManagementService.checkAndCloseShortPositions(accountId);
+                
                 // Получаем инструменты для быстрого анализа через умную стратегию
                 List<ShareDto> instrumentsToAnalyze = smartAnalysisService.getInstrumentsForQuickAnalysis(accountId);
                 
