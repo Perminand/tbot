@@ -287,7 +287,7 @@ public class PortfolioManagementService {
             log.error("Ошибка при проверке шорт позиций: {}", e.getMessage());
         }
     }
-
+    
     /**
      * Автоматическая торговля на основе анализа
      */
@@ -730,11 +730,31 @@ public class PortfolioManagementService {
                             "Размещение ордера на " + fullActionType, String.format("%s, Лотов: %d, Цена: %.2f, Стоимость: %.2f, Средства: %.2f", 
                                 displayOf(figi), lots, trend.getCurrentPrice(), totalCost, availableCash));
                         
-                        // Размещаем реальный ордер
+                        // 🚀 ИСПОЛЬЗУЕМ УМНЫЙ ЛИМИТНЫЙ ОРДЕР вместо рыночного
                         try {
-                            orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                            orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId, trend.getCurrentPrice());
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
                                 "Ордер на " + fullActionType + " размещен", String.format("%s, Лотов: %d", displayOf(figi), lots));
+                            
+                            // 🚀 НОВОЕ: Автоматическое размещение OCO (TP + SL) после входа
+                            try {
+                                double sl = riskRuleService.findByFigi(figi)
+                                    .map(rule -> rule.getStopLossPct())
+                                    .orElse(riskRuleService.getDefaultStopLossPct());
+                                double tp = riskRuleService.findByFigi(figi)
+                                    .map(rule -> rule.getTakeProfitPct())
+                                    .orElse(riskRuleService.getDefaultTakeProfitPct());
+                                
+                                orderService.placeVirtualOCO(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, 
+                                    accountId, trend.getCurrentPrice(), tp, sl);
+                                
+                                log.info("🎯 Запланирован OCO для ЛОНГА {}: TP={}%, SL={}% от цены {}", 
+                                    displayOf(figi), tp * 100, sl * 100, trend.getCurrentPrice());
+                                
+                            } catch (Exception e) {
+                                log.warn("❌ Не удалось запланировать OCO для {}: {}", displayOf(figi), e.getMessage());
+                            }
+                            
                             // Авто-установка SL/TP по дефолтным настройкам, если для FIGI ещё нет правил
                             try {
                                 if (riskRuleService.findByFigi(figi).isEmpty()) {
@@ -797,9 +817,9 @@ public class PortfolioManagementService {
                             "Размещение ордера на " + actionDescription, String.format("%s, Лотов: %d, Цена: %.2f", 
                                 displayOf(figi), lots, trend.getCurrentPrice()));
                         
-                        // Размещаем реальный ордер
+                        // 🚀 ИСПОЛЬЗУЕМ УМНЫЙ ЛИМИТНЫЙ ОРДЕР вместо рыночного
                         try {
-                            orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
+                            orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, trend.getCurrentPrice());
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
                                 "Ордер на " + actionDescription + " размещен", String.format("%s, Лотов: %d", displayOf(figi), lots));
                         } catch (Exception e) {
@@ -874,11 +894,30 @@ public class PortfolioManagementService {
                                 "Открытие шорта", String.format("%s, Лотов: %d", displayOf(figi), lots));
                             try {
                                 log.info("🎯 Размещаем ордер на открытие шорта: {} лотов SELL по цене {}", lots, trend.getCurrentPrice());
-                                PostOrderResponse response = orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
+                                PostOrderResponse response = orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, trend.getCurrentPrice());
                                 log.info("🎯 Ордер на открытие шорта размещен успешно: orderId={}, status={}", 
                                     response.getOrderId(), response.getExecutionReportStatus());
                                 botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                     "Шорт открыт", String.format("FIGI: %s, Лотов: %d, OrderId: %s", figi, lots, response.getOrderId()));
+                                
+                                // 🚀 НОВОЕ: Автоматический OCO для шорта
+                                try {
+                                    double sl = riskRuleService.findByFigi(figi)
+                                        .map(rule -> rule.getStopLossPct())
+                                        .orElse(riskRuleService.getDefaultStopLossPct());
+                                    double tp = riskRuleService.findByFigi(figi)
+                                        .map(rule -> rule.getTakeProfitPct())
+                                        .orElse(riskRuleService.getDefaultTakeProfitPct());
+                                    
+                                    orderService.placeVirtualOCO(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, 
+                                        accountId, trend.getCurrentPrice(), tp, sl);
+                                    
+                                    log.info("🎯 Запланирован OCO для ШОРТА {}: TP={}%, SL={}% от цены {}", 
+                                        displayOf(figi), tp * 100, sl * 100, trend.getCurrentPrice());
+                                    
+                                } catch (Exception e) {
+                                    log.warn("❌ Не удалось запланировать OCO для шорта {}: {}", displayOf(figi), e.getMessage());
+                                }
                                 // Авто-установка SL/TP по дефолтным настройкам, если для FIGI ещё нет правил
                                 try {
                                     if (riskRuleService.findByFigi(figi).isEmpty()) {

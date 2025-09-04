@@ -12,6 +12,8 @@ import ru.tinkoff.piapi.contract.v1.Quotation;
 import ru.perminov.repository.OrderRepository;
 import ru.perminov.model.Order;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -145,6 +147,249 @@ public class OrderService {
             
             log.error("=== ВЫБРАСЫВАЕМ ИСКЛЮЧЕНИЕ ИЗ placeMarketOrder ===");
             throw new RuntimeException("Ошибка при размещении рыночного ордера: " + errorMsg, e);
+        }
+    }
+
+    /**
+     * 🚀 НОВЫЙ МЕТОД: Умный лимитный ордер с отступом от рынка
+     */
+    public PostOrderResponse placeSmartLimitOrder(String figi, int lots, OrderDirection direction, String accountId, BigDecimal marketPrice) {
+        try {
+            // Рассчитываем отступ в зависимости от направления
+            BigDecimal offsetPct = getOptimalOffset(figi, direction);
+            BigDecimal limitPrice;
+            
+            if (direction == OrderDirection.ORDER_DIRECTION_BUY) {
+                // Покупка: размещаем чуть ниже рынка
+                limitPrice = marketPrice.multiply(BigDecimal.ONE.subtract(offsetPct));
+                log.info("📈 ПОКУПКА: рынок {} → лимит {} (отступ -{}%)", marketPrice, limitPrice, offsetPct.multiply(BigDecimal.valueOf(100)));
+            } else {
+                // Продажа: размещаем чуть выше рынка  
+                limitPrice = marketPrice.multiply(BigDecimal.ONE.add(offsetPct));
+                log.info("📉 ПРОДАЖА: рынок {} → лимит {} (отступ +{}%)", marketPrice, limitPrice, offsetPct.multiply(BigDecimal.valueOf(100)));
+            }
+            
+            return placeLimitOrder(figi, lots, direction, accountId, limitPrice.setScale(4, RoundingMode.HALF_UP).toPlainString());
+            
+        } catch (Exception e) {
+            log.warn("⚠️ Ошибка умного лимита для {}, переходим на рыночный: {}", figi, e.getMessage());
+            return placeMarketOrder(figi, lots, direction, accountId);
+        }
+    }
+    
+    /**
+     * Получение оптимального отступа для инструмента
+     */
+    private BigDecimal getOptimalOffset(String figi, OrderDirection direction) {
+        // Настройки отступов для разных типов инструментов
+        if (isBlueChip(figi)) {
+            // Голубые фишки: меньший отступ (высокая ликвидность)
+            return new BigDecimal("0.0003"); // 0.03%
+        } else if (isETF(figi)) {
+            // ETF: средний отступ
+            return new BigDecimal("0.0005"); // 0.05%
+        } else {
+            // Остальные акции: больший отступ (меньше ликвидности)
+            return new BigDecimal("0.001"); // 0.1%
+        }
+    }
+    
+    /**
+     * Проверка является ли инструмент голубой фишкой
+     */
+    private boolean isBlueChip(String figi) {
+        // Список основных голубых фишек
+        return figi.equals("BBG004730N88") || // SBER
+               figi.equals("BBG004731354") || // GAZP  
+               figi.equals("BBG004730RP0") || // LKOH
+               figi.equals("BBG00475KKY8") || // NVTK
+               figi.equals("BBG004731032") || // GMKN
+               figi.equals("BBG004730ZJ9");   // YNDX
+    }
+    
+    /**
+     * Проверка является ли инструмент ETF
+     */
+    private boolean isETF(String figi) {
+        // Простая проверка по префиксу или известным ETF
+        return figi.startsWith("BBG00") && figi.contains("ETF"); // Упрощенная логика
+    }
+    
+    /**
+     * 🚀 НОВЫЙ МЕТОД: Размещение стоп-ордера
+     */
+    public PostOrderResponse placeStopOrder(String figi, int lots, OrderDirection direction, String accountId, BigDecimal stopPrice) {
+        try {
+            String orderId = UUID.randomUUID().toString();
+            log.info("🛑 Размещение стоп-ордера: {} лотов, направление {}, стоп-цена {}, аккаунт {}, ID {}", 
+                    lots, direction, stopPrice, accountId, orderId);
+            
+            // Создаем стоп-цену
+            Quotation stopPriceObj = Quotation.newBuilder()
+                .setUnits(stopPrice.longValue())
+                .setNano((int)((stopPrice.remainder(BigDecimal.ONE)).multiply(BigDecimal.valueOf(1_000_000_000)).longValue()))
+                .build();
+            
+            // Пока используем лимитный ордер вместо стоп-ордера (API ограничения)
+            // В будущем можно заменить на настоящие стоп-ордера
+            log.warn("⚠️ Используем лимитный ордер вместо стоп-ордера (API ограничения)");
+            
+            apiRateLimiter.acquire();
+            CompletableFuture<PostOrderResponse> future = investApiManager.getCurrentInvestApi().getOrdersService().postOrder(
+                figi,
+                lots,
+                stopPriceObj,
+                direction,
+                accountId,
+                OrderType.ORDER_TYPE_LIMIT,
+                UUID.randomUUID().toString()
+            );
+            
+            PostOrderResponse response = future.get();
+            log.info("🛑 Стоп-ордер успешно размещен: orderId={}, status={}", 
+                    response.getOrderId(), response.getExecutionReportStatus());
+            
+            // Сохраняем в БД
+            try {
+                Order entity = new Order();
+                entity.setOrderId(response.getOrderId());
+                entity.setFigi(figi);
+                entity.setOperation(direction.name());
+                entity.setStatus(response.getExecutionReportStatus().name());
+                entity.setRequestedLots(BigDecimal.valueOf(lots));
+                entity.setPrice(stopPrice);
+                entity.setCurrency("RUB");
+                entity.setOrderDate(java.time.LocalDateTime.now());
+                entity.setOrderType("STOP_LOSS");
+                entity.setAccountId(accountId);
+                entity.setMessage("Stop-Loss order");
+                orderRepository.save(entity);
+            } catch (Exception persistEx) {
+                log.warn("Не удалось сохранить стоп-ордер {} в БД: {}", response.getOrderId(), persistEx.getMessage());
+            }
+            
+            return response;
+            
+        } catch (InterruptedException | ExecutionException e) {
+            String errorMsg = e.getMessage();
+            log.error("Ошибка при размещении стоп-ордера: {} лотов, стоп-цена {}, аккаунт {}, ошибка: {}", 
+                    lots, stopPrice, accountId, errorMsg, e);
+            throw new RuntimeException("Ошибка при размещении стоп-ордера: " + errorMsg, e);
+        }
+    }
+    
+    /**
+     * 🚀 НОВЫЙ МЕТОД: Автоматическое размещение стоп-лосса после входа в позицию
+     * Использует виртуальную систему мониторинга вместо реальных стоп-ордеров
+     */
+    public void placeAutoStopLoss(String figi, int lots, OrderDirection direction, String accountId, BigDecimal entryPrice, double stopLossPct) {
+        try {
+            BigDecimal stopPrice;
+            String positionType;
+            
+            if (direction == OrderDirection.ORDER_DIRECTION_BUY) {
+                // Для лонга: стоп ниже цены входа
+                stopPrice = entryPrice.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(stopLossPct)));
+                positionType = "LONG";
+                log.info("📈 ЛОНГ: виртуальный стоп-лосс {} на уровне {} (-{}%)", figi, stopPrice, stopLossPct * 100);
+            } else {
+                // Для шорта: стоп выше цены входа  
+                stopPrice = entryPrice.multiply(BigDecimal.ONE.add(BigDecimal.valueOf(stopLossPct)));
+                positionType = "SHORT";
+                log.info("📉 ШОРТ: виртуальный стоп-лосс {} на уровне {} (+{}%)", figi, stopPrice, stopLossPct * 100);
+            }
+            
+            // Сохраняем информацию о виртуальном стопе в БД для мониторинга
+            try {
+                Order virtualStop = new Order();
+                virtualStop.setOrderId("VIRTUAL_STOP_" + System.currentTimeMillis());
+                virtualStop.setFigi(figi);
+                virtualStop.setOperation("VIRTUAL_STOP_" + positionType);
+                virtualStop.setStatus("MONITORING");
+                virtualStop.setRequestedLots(BigDecimal.valueOf(lots));
+                virtualStop.setPrice(stopPrice);
+                virtualStop.setCurrency("RUB");
+                virtualStop.setOrderDate(java.time.LocalDateTime.now());
+                virtualStop.setOrderType("VIRTUAL_STOP_LOSS");
+                virtualStop.setAccountId(accountId);
+                virtualStop.setMessage("Entry: " + entryPrice + ", StopLoss: " + stopLossPct * 100 + "%");
+                orderRepository.save(virtualStop);
+                
+                log.info("💾 Виртуальный стоп-лосс сохранен в БД: {} → {}", figi, stopPrice);
+                
+            } catch (Exception e) {
+                log.warn("Не удалось сохранить виртуальный стоп в БД: {}", e.getMessage());
+            }
+            
+        } catch (Exception e) {
+            log.error("Ошибка создания виртуального стоп-лосса для {}: {}", figi, e.getMessage());
+        }
+    }
+    
+    /**
+     * 🚀 НОВЫЙ МЕТОД: OCO ордера (One-Cancels-Other) - виртуальная реализация
+     * Размещает одновременно Take-Profit и Stop-Loss, при срабатывании одного отменяет другой
+     */
+    public void placeVirtualOCO(String figi, int lots, OrderDirection originalDirection, String accountId, 
+                                BigDecimal entryPrice, double takeProfitPct, double stopLossPct) {
+        try {
+            BigDecimal takeProfitPrice;
+            BigDecimal stopLossPrice;
+            String positionType;
+            
+            if (originalDirection == OrderDirection.ORDER_DIRECTION_BUY) {
+                // Для лонга
+                takeProfitPrice = entryPrice.multiply(BigDecimal.ONE.add(BigDecimal.valueOf(takeProfitPct)));
+                stopLossPrice = entryPrice.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(stopLossPct)));
+                positionType = "LONG";
+                log.info("📈 ЛОНГ OCO: TP={} (+{}%), SL={} (-{}%)", 
+                    takeProfitPrice, takeProfitPct * 100, stopLossPrice, stopLossPct * 100);
+            } else {
+                // Для шорта
+                takeProfitPrice = entryPrice.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(takeProfitPct)));
+                stopLossPrice = entryPrice.multiply(BigDecimal.ONE.add(BigDecimal.valueOf(stopLossPct)));
+                positionType = "SHORT";
+                log.info("📉 ШОРТ OCO: TP={} (-{}%), SL={} (+{}%)", 
+                    takeProfitPrice, takeProfitPct * 100, stopLossPrice, stopLossPct * 100);
+            }
+            
+            String ocoGroupId = "OCO_" + System.currentTimeMillis();
+            
+            // Создаем виртуальный Take-Profit
+            Order virtualTP = new Order();
+            virtualTP.setOrderId("VIRTUAL_TP_" + System.currentTimeMillis());
+            virtualTP.setFigi(figi);
+            virtualTP.setOperation("VIRTUAL_TP_" + positionType);
+            virtualTP.setStatus("MONITORING");
+            virtualTP.setRequestedLots(BigDecimal.valueOf(lots));
+            virtualTP.setPrice(takeProfitPrice);
+            virtualTP.setCurrency("RUB");
+            virtualTP.setOrderDate(java.time.LocalDateTime.now());
+            virtualTP.setOrderType("VIRTUAL_TAKE_PROFIT");
+            virtualTP.setAccountId(accountId);
+            virtualTP.setMessage("OCO_GROUP:" + ocoGroupId + " | Entry: " + entryPrice + ", TP: " + takeProfitPct * 100 + "%");
+            orderRepository.save(virtualTP);
+            
+            // Создаем виртуальный Stop-Loss
+            Order virtualSL = new Order();
+            virtualSL.setOrderId("VIRTUAL_SL_" + (System.currentTimeMillis() + 1));
+            virtualSL.setFigi(figi);
+            virtualSL.setOperation("VIRTUAL_STOP_" + positionType);
+            virtualSL.setStatus("MONITORING");
+            virtualSL.setRequestedLots(BigDecimal.valueOf(lots));
+            virtualSL.setPrice(stopLossPrice);
+            virtualSL.setCurrency("RUB");
+            virtualSL.setOrderDate(java.time.LocalDateTime.now());
+            virtualSL.setOrderType("VIRTUAL_STOP_LOSS");
+            virtualSL.setAccountId(accountId);
+            virtualSL.setMessage("OCO_GROUP:" + ocoGroupId + " | Entry: " + entryPrice + ", SL: " + stopLossPct * 100 + "%");
+            orderRepository.save(virtualSL);
+            
+            log.info("🎯 Виртуальный OCO создан: {} | TP: {} | SL: {} | Группа: {}", 
+                figi, takeProfitPrice, stopLossPrice, ocoGroupId);
+            
+        } catch (Exception e) {
+            log.error("Ошибка создания виртуального OCO для {}: {}", figi, e.getMessage());
         }
     }
 

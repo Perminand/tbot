@@ -15,7 +15,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Slf4j
 public class SectorController {
-
+    
     private final SectorManagementService sectorManagementService;
 
     /**
@@ -39,7 +39,7 @@ public class SectorController {
             return ResponseEntity.status(500).body("Ошибка: " + e.getMessage());
         }
     }
-
+    
     /**
      * Принудительное обновление сектора через API
      */
@@ -63,7 +63,7 @@ public class SectorController {
             return ResponseEntity.status(500).body("Ошибка: " + e.getMessage());
         }
     }
-
+    
     /**
      * Массовое обновление секторов
      */
@@ -82,7 +82,7 @@ public class SectorController {
             return ResponseEntity.status(500).body("Ошибка: " + e.getMessage());
         }
     }
-
+    
     /**
      * Обновление секторов для всех инструментов портфеля
      */
