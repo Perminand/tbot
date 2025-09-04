@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import ru.tinkoff.piapi.contract.v1.OrderState;
 import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
+import ru.tinkoff.piapi.contract.v1.ExecutionReportStatus;
 // import ru.tinkoff.piapi.core.InvestApi; // unused
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
 import ru.tinkoff.piapi.contract.v1.OrderType;
@@ -93,7 +94,7 @@ public class OrderService {
                 entity.setOrderId(response.getOrderId());
                 entity.setFigi(figi);
                 entity.setOperation(direction.name());
-                entity.setStatus(response.getExecutionReportStatus().name());
+                entity.setStatus(normalizeExecutionStatus(response.getExecutionReportStatus()));
                 // Количества
                 entity.setRequestedLots(java.math.BigDecimal.valueOf(lots));
                 try {
@@ -266,7 +267,7 @@ public class OrderService {
                 entity.setOrderId(response.getOrderId());
                 entity.setFigi(figi);
                 entity.setOperation(direction.name());
-                entity.setStatus(response.getExecutionReportStatus().name());
+                entity.setStatus(normalizeExecutionStatus(response.getExecutionReportStatus()));
                 entity.setRequestedLots(BigDecimal.valueOf(lots));
                 entity.setPrice(stopPrice);
                 entity.setCurrency("RUB");
@@ -434,7 +435,7 @@ public class OrderService {
                 entity.setOrderId(response.getOrderId());
                 entity.setFigi(figi);
                 entity.setOperation(direction.name());
-                entity.setStatus(response.getExecutionReportStatus().name());
+                entity.setStatus(normalizeExecutionStatus(response.getExecutionReportStatus()));
                 entity.setRequestedLots(java.math.BigDecimal.valueOf(lots));
                 try {
                     entity.setExecutedLots(java.math.BigDecimal.valueOf(response.getLotsExecuted()));
@@ -467,6 +468,27 @@ public class OrderService {
             log.error("Ошибка при размещении лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ошибка {}", 
                     lots, direction, accountId, price, e.getMessage(), e);
             throw new RuntimeException("Ошибка при размещении лимитного ордера: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Приведение статусов API к унифицированным значениям, чтобы остальные сервисы (например, cooldown)
+     * могли корректно определять факт совершенной сделки.
+     */
+    private String normalizeExecutionStatus(ExecutionReportStatus status) {
+        if (status == null) return "UNKNOWN";
+        switch (status) {
+            case EXECUTION_REPORT_STATUS_FILL:
+            case EXECUTION_REPORT_STATUS_PARTIALLYFILL:
+                return "FILLED";
+            case EXECUTION_REPORT_STATUS_REJECTED:
+                return "REJECTED";
+            case EXECUTION_REPORT_STATUS_NEW:
+            case EXECUTION_REPORT_STATUS_PENDINGNEW:
+            case EXECUTION_REPORT_STATUS_PENDINGREPLACE:
+                return "NEW";
+            default:
+                return status.name();
         }
     }
 

@@ -92,7 +92,15 @@ public class TradingCooldownService {
         return orderRepository.findByFigi(figi).stream()
             .filter(order -> order.getAccountId().equals(accountId))
             .filter(order -> order.getOrderDate().isAfter(cutoff))
-            .filter(order -> "EXECUTED".equals(order.getStatus()) || "FILLED".equals(order.getStatus()))
+            // Учитываем несколько вариантов статусов из API
+            .filter(order -> {
+                String s = order.getStatus() != null ? order.getStatus().toUpperCase() : "";
+                return s.contains("FILL") ||
+                       s.equals("FILLED") ||
+                       s.equals("EXECUTED") ||
+                       s.equals("PARTIALLYFILL") ||
+                       s.equals("PARTIAL_FILL");
+            })
             .sorted((o1, o2) -> o2.getOrderDate().compareTo(o1.getOrderDate())) // Сортируем по убыванию
             .limit(5) // Берем последние 5 сделок
             .toList();
