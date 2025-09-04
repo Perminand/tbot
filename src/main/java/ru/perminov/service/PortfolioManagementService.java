@@ -375,7 +375,25 @@ public class PortfolioManagementService {
             }
             
             // 🚀 ПРЕДВАРИТЕЛЬНАЯ ПРОВЕРКА COOLDOWN: Защита от частых сделок
-            String preliminaryAction = determineRecommendedAction(figi, accountId);
+            // Получаем предварительный тренд для проверки
+            MarketAnalysisService.TrendAnalysis preliminaryTrend = 
+                marketAnalysisService.analyzeTrend(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
+            if (preliminaryTrend == null) {
+                log.warn("Не удалось получить предварительный тренд для cooldown проверки {}", displayOf(figi));
+                return;
+            }
+            
+            PortfolioAnalysis preliminaryPortfolio = analyzePortfolio(accountId);
+            Position preliminaryPosition = preliminaryPortfolio.getPositions().stream()
+                .filter(p -> figi.equals(p.getFigi()))
+                .findFirst()
+                .orElse(null);
+            boolean hasPosition = preliminaryPosition != null && 
+                preliminaryPosition.getQuantity() != null && 
+                preliminaryPosition.getQuantity().compareTo(BigDecimal.ZERO) != 0;
+            
+            String preliminaryAction = determineRecommendedAction(preliminaryTrend, 
+                preliminaryTrend.getCurrentPrice(), hasPosition, figi, accountId);
             if (preliminaryAction != null && !"HOLD".equals(preliminaryAction)) {
                 TradingCooldownService.CooldownResult cooldownCheck = 
                     tradingCooldownService.canTrade(figi, preliminaryAction, accountId);

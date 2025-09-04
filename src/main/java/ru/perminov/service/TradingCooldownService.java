@@ -56,7 +56,7 @@ public class TradingCooldownService {
                 String reason = String.format(
                     "Cooldown активен: последняя сделка %d мин назад, требуется %d мин (тип: %s → %s)",
                     minutesSinceLastTrade, requiredCooldown, 
-                    getActionType(lastOrder.getDirection()), action
+                    getActionType(lastOrder.getOperation()), action
                 );
                 
                 log.warn("🚫 БЛОКИРОВКА OVERTRADING: {} для {}", reason, figi);
@@ -102,7 +102,7 @@ public class TradingCooldownService {
      * Расчет необходимого cooldown в зависимости от типа сделки
      */
     private int calculateRequiredCooldown(String currentAction, Order lastOrder) {
-        String lastAction = getActionType(lastOrder.getDirection());
+                    String lastAction = getActionType(lastOrder.getOperation());
         
         // Если пытаемся сделать ту же операцию - увеличенный cooldown
         if (currentAction.equals(lastAction)) {

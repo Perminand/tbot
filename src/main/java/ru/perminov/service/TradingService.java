@@ -25,7 +25,9 @@ public class TradingService {
         return Mono.fromCallable(() -> {
             log.info("Попытка размещения рыночного ордера на покупку: {} лотов, аккаунт {}", lots, accountId);
             // Получаем текущую цену для умного лимитного ордера
-            BigDecimal currentPrice = marketAnalysisService.getCurrentPrice(figi);
+            MarketAnalysisService.TrendAnalysis trend = marketAnalysisService.analyzeTrend(figi, 
+                ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
+            BigDecimal currentPrice = trend != null ? trend.getCurrentPrice() : BigDecimal.valueOf(100);
             PostOrderResponse response = orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId, currentPrice);
             log.info("Размещен рыночный ордер на покупку через OrderService: {} лотов", lots);
             return response.toString();
@@ -41,7 +43,9 @@ public class TradingService {
     public Mono<String> placeMarketSellOrder(String figi, int lots, String accountId) {
         return Mono.fromCallable(() -> {
             // Получаем текущую цену для умного лимитного ордера
-            BigDecimal currentPrice = marketAnalysisService.getCurrentPrice(figi);
+            MarketAnalysisService.TrendAnalysis trend = marketAnalysisService.analyzeTrend(figi, 
+                ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
+            BigDecimal currentPrice = trend != null ? trend.getCurrentPrice() : BigDecimal.valueOf(100);
             PostOrderResponse response = orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, currentPrice);
             log.info("Размещен рыночный ордер на продажу через OrderService: {} лотов", lots);
             return response.toString();
