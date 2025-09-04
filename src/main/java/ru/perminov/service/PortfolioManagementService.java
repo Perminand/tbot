@@ -1231,7 +1231,7 @@ public class PortfolioManagementService {
             log.debug("Есть позиция по {}: {}", displayOf(figi), hasPosition);
             
             // Определяем рекомендуемое действие с учетом позиций
-            String recommendedAction = determineRecommendedAction(trendAnalysis, rsi, hasPosition);
+            String recommendedAction = determineRecommendedAction(trendAnalysis, rsi, hasPosition, figi, accountId);
             log.info("🎯 РЕКОМЕНДУЕМОЕ ДЕЙСТВИЕ для {}: {}", displayOf(figi), recommendedAction);
             
             return new TradingOpportunity(
@@ -1306,26 +1306,47 @@ public class PortfolioManagementService {
     }
     
     /**
+     * Проверяет наличие открытого шорта по указанному FIGI
+     */
+    private boolean hasShortPosition(String figi, String accountId) {
+        try {
+            PortfolioAnalysis portfolioAnalysis = analyzePortfolio(accountId);
+            return portfolioAnalysis.getPositions().stream()
+                .anyMatch(p -> figi.equals(p.getFigi()) && 
+                          p.getQuantity() != null && 
+                          p.getQuantity().compareTo(BigDecimal.ZERO) < 0);
+        } catch (Exception e) {
+            log.warn("Ошибка проверки наличия шорта для {}: {}", displayOf(figi), e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
      * Определение рекомендуемого действия
      */
-    private String determineRecommendedAction(MarketAnalysisService.TrendAnalysis trendAnalysis, BigDecimal rsi, boolean hasPosition) {
+    private String determineRecommendedAction(MarketAnalysisService.TrendAnalysis trendAnalysis, BigDecimal rsi, boolean hasPosition, String figi, String accountId) {
         // Логика для принятия торговых решений с учетом возможности докупки, продажи и шортов
         // Примечание: проверка доступности средств выполняется в executeTradingStrategy
         
         log.debug("=== АНАЛИЗ ТОРГОВОГО СИГНАЛА ===");
         log.debug("Тренд: {}, RSI: {}, Есть позиция: {}", trendAnalysis.getTrend(), rsi, hasPosition);
         
-        // СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ЗАКРЫТИЯ ШОРТОВ
-        // Если RSI упал ниже 30 - это хороший момент для закрытия шорта (покупки)
-        if (rsi.compareTo(BigDecimal.valueOf(30)) < 0) {
-            log.info("🎯 СИГНАЛ НА ЗАКРЫТИЕ ШОРТА: RSI {} < 30 (сильная перепроданность)", rsi);
-            return "BUY"; // Закрытие шорта при сильной перепроданности
-        }
-        
-        // Если восходящий тренд начинается - закрываем шорт
-        if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BULLISH && rsi.compareTo(BigDecimal.valueOf(40)) < 0) {
-            log.info("🎯 СИГНАЛ НА ЗАКРЫТИЕ ШОРТА: BULLISH тренд + RSI {} < 40", rsi);
-            return "BUY"; // Закрытие шорта при развороте тренда
+        // СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ЗАКРЫТИЯ ШОРТОВ - ТОЛЬКО ЕСЛИ ШОРТ ЕСТЬ!
+        boolean hasShortPosition = hasShortPosition(figi, accountId);
+        if (hasShortPosition) {
+            log.debug("🔍 Найден открытый шорт по {}, проверяем условия закрытия", displayOf(figi));
+            
+            // Если RSI упал ниже 30 - это хороший момент для закрытия шорта (покупки)
+            if (rsi.compareTo(BigDecimal.valueOf(30)) < 0) {
+                log.info("🎯 СИГНАЛ НА ЗАКРЫТИЕ ШОРТА: RSI {} < 30 (сильная перепроданность)", rsi);
+                return "BUY"; // Закрытие шорта при сильной перепроданности
+            }
+            
+            // Если восходящий тренд начинается - закрываем шорт
+            if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BULLISH && rsi.compareTo(BigDecimal.valueOf(40)) < 0) {
+                log.info("🎯 СИГНАЛ НА ЗАКРЫТИЕ ШОРТА: BULLISH тренд + RSI {} < 40", rsi);
+                return "BUY"; // Закрытие шорта при развороте тренда
+            }
         }
         
         // Вариант 1: встроить открытие шорта в стратегию
