@@ -350,7 +350,42 @@ public class PortfolioManagementService {
             log.info("🎯 ФИНАЛЬНОЕ РЕШЕНИЕ для {}: {} (продвинутый: {}, базовый: {})", 
                 displayOf(figi), action, actionByAdvanced, opportunity.getRecommendedAction());
             
-            if ("BUY".equals(action)) {
+            if ("CLOSE_SHORT".equals(action)) {
+                // Специальная обработка закрытия шорта
+                log.info("🎯 ВЫПОЛНЯЕМ ЗАКРЫТИЕ ШОРТА для {}", displayOf(figi));
+                
+                Position shortPosition = portfolioAnalysis.getPositions().stream()
+                    .filter(p -> figi.equals(p.getFigi()))
+                    .findFirst()
+                    .orElse(null);
+                    
+                if (shortPosition != null && shortPosition.getQuantity() != null && shortPosition.getQuantity().compareTo(BigDecimal.ZERO) < 0) {
+                    int lotsToClose = Math.abs(shortPosition.getQuantity().intValue());
+                    if (lotsToClose > 0) {
+                        log.info("🎯 ЗАКРЫТИЕ ШОРТА [{}]: {} лотов по цене {} (специальное действие)",
+                            displayOf(figi), lotsToClose, trend.getCurrentPrice());
+                        botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                "💰 Размещение ордера на закрытие шорта", String.format("%s, Лотов: %d, Цена: %.2f",
+                                        displayOf(figi), lotsToClose, trend.getCurrentPrice()));
+                        try {
+                            PostOrderResponse response = orderService.placeMarketOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                            log.info("✅ Ордер на закрытие шорта размещен успешно: orderId={}, status={}", 
+                                response.getOrderId(), response.getExecutionReportStatus());
+                            botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                    "Шорт закрыт", String.format("%s, Лотов: %d, OrderId: %s", displayOf(figi), lotsToClose, response.getOrderId()));
+                            return;
+                        } catch (Exception e) {
+                            log.error("❌ Ошибка закрытия шорта [{}]: {}", displayOf(figi), e.getMessage(), e);
+                            botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING,
+                                    "Ошибка закрытия шорта", e.getMessage());
+                            return;
+                        }
+                    }
+                } else {
+                    log.warn("⚠️ Получен сигнал CLOSE_SHORT, но шорт-позиция не найдена для {}", displayOf(figi));
+                    return;
+                }
+            } else if ("BUY".equals(action)) {
                 // Приоритет: если есть открытая шорт‑позиция по этому FIGI — закрываем её немедленно, без проверок BP
                 try {
                     Position shortPosition = portfolioAnalysis.getPositions().stream()
@@ -1339,14 +1374,18 @@ public class PortfolioManagementService {
             // Если RSI упал ниже 30 - это хороший момент для закрытия шорта (покупки)
             if (rsi.compareTo(BigDecimal.valueOf(30)) < 0) {
                 log.info("🎯 СИГНАЛ НА ЗАКРЫТИЕ ШОРТА: RSI {} < 30 (сильная перепроданность)", rsi);
-                return "BUY"; // Закрытие шорта при сильной перепроданности
+                return "CLOSE_SHORT"; // Специальное действие для закрытия шорта
             }
             
             // Если восходящий тренд начинается - закрываем шорт
             if (trendAnalysis.getTrend() == MarketAnalysisService.TrendType.BULLISH && rsi.compareTo(BigDecimal.valueOf(40)) < 0) {
                 log.info("🎯 СИГНАЛ НА ЗАКРЫТИЕ ШОРТА: BULLISH тренд + RSI {} < 40", rsi);
-                return "BUY"; // Закрытие шорта при развороте тренда
+                return "CLOSE_SHORT"; // Специальное действие для закрытия шорта
             }
+            
+            // Если шорт есть, но условий для закрытия нет - держим
+            log.debug("🔒 Шорт по {} держим - условия закрытия не выполнены", displayOf(figi));
+            return "HOLD";
         }
         
         // Вариант 1: встроить открытие шорта в стратегию
