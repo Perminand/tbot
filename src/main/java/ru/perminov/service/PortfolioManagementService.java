@@ -388,12 +388,12 @@ public class PortfolioManagementService {
                 .filter(p -> figi.equals(p.getFigi()))
                 .findFirst()
                 .orElse(null);
-            boolean hasPosition = preliminaryPosition != null && 
+            boolean hasPreliminaryPosition = preliminaryPosition != null && 
                 preliminaryPosition.getQuantity() != null && 
                 preliminaryPosition.getQuantity().compareTo(BigDecimal.ZERO) != 0;
             
             String preliminaryAction = determineRecommendedAction(preliminaryTrend, 
-                preliminaryTrend.getCurrentPrice(), hasPosition, figi, accountId);
+                preliminaryTrend.getCurrentPrice(), hasPreliminaryPosition, figi, accountId);
             if (preliminaryAction != null && !"HOLD".equals(preliminaryAction)) {
                 TradingCooldownService.CooldownResult cooldownCheck = 
                     tradingCooldownService.canTrade(figi, preliminaryAction, accountId);
