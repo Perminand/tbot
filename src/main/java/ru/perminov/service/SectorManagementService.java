@@ -3,7 +3,6 @@ package ru.perminov.service;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import ru.tinkoff.piapi.core.models.Position;
-import ru.perminov.service.BotLogService;
 import ru.perminov.repository.InstrumentRepository;
 import ru.perminov.model.Instrument;
 import ru.tinkoff.piapi.core.InvestApi;
@@ -163,12 +162,20 @@ public class SectorManagementService {
             // Технологии
             FIGI_TO_SECTOR.put("BBG004S681M1", "TECH");      // Яндекс
             FIGI_TO_SECTOR.put("BBG004S681B4", "TECH");      // VK
+            FIGI_TO_SECTOR.put("TCS00A10ANA1", "TECH");      // Циан (CNRU) - недвижимость/технологии
             
             // Коммунальные услуги
             FIGI_TO_SECTOR.put("BBG004S681M1", "UTILITIES"); // Интер РАО
+            FIGI_TO_SECTOR.put("BBG00BGKYH17", "UTILITIES"); // НКХП (NKHP) - нефтехимия
             
             // Недвижимость
             FIGI_TO_SECTOR.put("BBG004S681M1", "REAL_ESTATE"); // AFK Система
+            
+            // Розничная торговля
+            FIGI_TO_SECTOR.put("BBG0047315D0", "RETAIL");    // Магнит
+            
+            // Финансы и банки
+            FIGI_TO_SECTOR.put("BBG004S682Z6", "BANKS");     // Неизвестный банк/финансы
             
             // Здравоохранение
             FIGI_TO_SECTOR.put("BBG004S681M1", "HEALTHCARE"); // Фармстандарт
@@ -444,23 +451,31 @@ public class SectorManagementService {
             try {
                 Share share = api.getInstrumentsService().getShareByFigiSync(figi);
                 if (share != null && share.getSector() != null && !share.getSector().isEmpty()) {
+                    log.info("🔍 Получен сектор из API для {}: '{}' (акция: {})", figi, share.getSector(), share.getName());
                     String normalized = normalizeSector(share.getSector());
                     if (normalized != null) {
+                        log.info("✅ Нормализованный сектор для {}: {} -> {}", figi, share.getSector(), normalized);
                         sectorCache.put(figi, normalized);
                         return normalized;
                     }
                 }
-            } catch (Exception ignore) {}
+            } catch (Exception e) {
+                log.debug("Не удалось получить акцию для {}: {}", figi, e.getMessage());
+            }
             try {
                 Bond bond = api.getInstrumentsService().getBondByFigiSync(figi);
                 if (bond != null && bond.getSector() != null && !bond.getSector().isEmpty()) {
+                    log.info("🔍 Получен сектор из API для {}: '{}' (облигация: {})", figi, bond.getSector(), bond.getName());
                     String normalized = normalizeSector(bond.getSector());
                     if (normalized != null) {
+                        log.info("✅ Нормализованный сектор для {}: {} -> {}", figi, bond.getSector(), normalized);
                         sectorCache.put(figi, normalized);
                         return normalized;
                     }
                 }
-            } catch (Exception ignore) {}
+            } catch (Exception e) {
+                log.debug("Не удалось получить облигацию для {}: {}", figi, e.getMessage());
+            }
             try {
                 Etf etf = api.getInstrumentsService().getEtfByFigiSync(figi);
                 if (etf != null && etf.getSector() != null && !etf.getSector().isEmpty()) {
@@ -478,11 +493,12 @@ public class SectorManagementService {
         // 3) Статический маппинг как последний фолбэк
         String mapped = FIGI_TO_SECTOR.get(figi);
         if (mapped != null) {
+            log.info("✅ Использован статический маппинг для {}: {}", figi, mapped);
             sectorCache.put(figi, mapped);
             return mapped;
         }
 
-        log.debug("🔍 FIGI {} сектор не определён, возвращаем OTHER", figi);
+        log.warn("⚠️ FIGI {} сектор не определён, возвращаем OTHER", figi);
         return "OTHER";
     }
 
@@ -490,21 +506,85 @@ public class SectorManagementService {
         if (rawSector == null) return null;
         String s = rawSector.trim().toLowerCase();
         if (s.isEmpty()) return null;
-        if (s.contains("bank") || s.contains("financ")) return "BANKS";
-        if (s.contains("oil") || s.contains("gas") || s.contains("energy")) return "OIL_GAS";
-        if (s.contains("metal") || s.contains("mining") || s.contains("steel")) return "METALS";
-        if (s.contains("tele") || s.contains("communication")) return "TELECOM";
-        if (s.contains("retail") || s.contains("consumer")) return "RETAIL"; // гибко: при необходимости развести на CONSUMER_GOODS
-        if (s.contains("transport") || s.contains("aero") || s.contains("rail")) return "TRANSPORT";
-        if (s.contains("chem")) return "CHEMICALS";
-        if (s.contains("construct") || s.contains("build")) return "CONSTRUCTION";
-        if (s.contains("agri")) return "AGRICULTURE";
-        if (s.contains("tech") || s.contains("it") || s.contains("software")) return "TECH";
-        if (s.contains("utilit")) return "UTILITIES";
-        if (s.contains("real") && s.contains("estate")) return "REAL_ESTATE";
-        if (s.contains("health")) return "HEALTHCARE";
-        if (s.contains("goods")) return "CONSUMER_GOODS";
+        
+        log.debug("🔍 Нормализация сектора: '{}'", rawSector);
+        
+        // Банки и финансы
+        if (s.contains("bank") || s.contains("financ") || s.contains("кредит") || s.contains("страх")) return "BANKS";
+        
+        // Нефть и газ
+        if (s.contains("oil") || s.contains("gas") || s.contains("energy") || s.contains("нефт") || s.contains("газ") || s.contains("энерг")) return "OIL_GAS";
+        
+        // Металлы
+        if (s.contains("metal") || s.contains("mining") || s.contains("steel") || s.contains("метал") || s.contains("горн") || s.contains("сталь")) return "METALS";
+        
+        // Телеком
+        if (s.contains("tele") || s.contains("communication") || s.contains("связь") || s.contains("интернет")) return "TELECOM";
+        
+        // Розничная торговля
+        if (s.contains("retail") || s.contains("торгов") || s.contains("магазин") || s.contains("супермаркет")) return "RETAIL";
+        
+        // Потребительские товары
+        if (s.contains("consumer") || s.contains("goods") || s.contains("потребит") || s.contains("товар")) return "CONSUMER_GOODS";
+        
+        // Транспорт
+        if (s.contains("transport") || s.contains("aero") || s.contains("rail") || s.contains("транспорт") || s.contains("авиа") || s.contains("жд")) return "TRANSPORT";
+        
+        // Химия
+        if (s.contains("chem") || s.contains("хим") || s.contains("удобрен")) return "CHEMICALS";
+        
+        // Строительство
+        if (s.contains("construct") || s.contains("build") || s.contains("строит") || s.contains("недвиж")) return "CONSTRUCTION";
+        
+        // Сельское хозяйство
+        if (s.contains("agri") || s.contains("сельск") || s.contains("агро")) return "AGRICULTURE";
+        
+        // Технологии
+        if (s.contains("tech") || s.contains("it") || s.contains("software") || s.contains("технол") || s.contains("программ") || s.contains("интернет")) return "TECH";
+        
+        // Коммунальные услуги
+        if (s.contains("utilit") || s.contains("коммун") || s.contains("электр") || s.contains("водо")) return "UTILITIES";
+        
+        // Недвижимость
+        if (s.contains("real") && s.contains("estate") || s.contains("недвижим") || s.contains("риэлт")) return "REAL_ESTATE";
+        
+        // Здравоохранение
+        if (s.contains("health") || s.contains("medical") || s.contains("здравоохр") || s.contains("медиц") || s.contains("фарм")) return "HEALTHCARE";
+        
+        log.debug("⚠️ Сектор '{}' не распознан, возвращаем OTHER", rawSector);
         return "OTHER";
+    }
+    
+    /**
+     * Принудительное обновление сектора через API
+     */
+    public void refreshSectorFromApi(String figi) {
+        log.info("🔄 Принудительное обновление сектора для {}", figi);
+        
+        // Очищаем кэш
+        sectorCache.remove(figi);
+        
+        // Получаем сектор заново (с логированием)
+        String sector = getSectorForInstrument(figi);
+        log.info("✅ Обновлен сектор для {}: {}", figi, sector);
+    }
+    
+    /**
+     * Массовое обновление секторов для списка FIGI
+     */
+    public void refreshSectorsFromApi(List<String> figis) {
+        log.info("🔄 Массовое обновление секторов для {} инструментов", figis.size());
+        
+        for (String figi : figis) {
+            try {
+                refreshSectorFromApi(figi);
+                Thread.sleep(100); // Небольшая задержка между запросами
+            } catch (Exception e) {
+                log.warn("⚠️ Ошибка обновления сектора для {}: {}", figi, e.getMessage());
+            }
+        }
+        
+        log.info("✅ Массовое обновление секторов завершено");
     }
     
     /**
