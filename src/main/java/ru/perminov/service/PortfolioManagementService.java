@@ -39,6 +39,7 @@ public class PortfolioManagementService {
     private final SectorManagementService sectorManagementService;
     private final CapitalManagementService capitalManagementService;
     private final CommissionCalculatorService commissionCalculatorService;
+    private final AdaptiveDiversificationService adaptiveDiversificationService;
     private final ru.perminov.repository.InstrumentRepository instrumentRepository;
     
     // Целевые доли активов в портфеле
@@ -592,18 +593,24 @@ public class PortfolioManagementService {
                                     log.info("✅ Маржинальные лимиты соблюдены: liquid={}, minimal={}, missing={}, maxUtilization={}, концентрация риска в норме", 
                                         currentLiquid, currentMinimal, currentMissing, maxUtilization);
                                     
-                                    // Проверка диверсификации: не превышаем ли лимит на количество позиций
+                                    // 🚀 АДАПТИВНАЯ ДИВЕРСИФИКАЦИЯ: лимиты зависят от размера портфеля
+                                    AdaptiveDiversificationService.DiversificationSettings diversificationSettings = 
+                                        adaptiveDiversificationService.getDiversificationSettings(portfolioAnalysis.getTotalValue());
+                                    
                                     long totalPositions = portfolioAnalysis.getPositions().size();
-                                    if (totalPositions >= 15) { // Максимум 15 позиций
-                                        log.warn("🚨 ДИВЕРСИФИКАЦИЯ: превышение лимита на количество позиций [{} , accountId={}]. Текущих позиций: {}, максимум: 15", 
-                                            displayOf(figi), accountId, totalPositions);
+                                    int maxPositions = diversificationSettings.getMaxTotalPositions();
+                                    
+                                    if (totalPositions >= maxPositions) {
+                                        log.warn("🚨 АДАПТИВНАЯ ДИВЕРСИФИКАЦИЯ: превышение лимита на количество позиций [{} , accountId={}]. Текущих позиций: {}, максимум: {} ({})", 
+                                            displayOf(figi), accountId, totalPositions, maxPositions, diversificationSettings.getReason());
                                         botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                                            "Превышение лимита на количество позиций", String.format("%s, Account: %s, Текущих: %d, Максимум: 15", 
-                                                displayOf(figi), accountId, totalPositions));
+                                            "Превышение адаптивного лимита позиций", String.format("%s, Account: %s, Текущих: %d, Максимум: %d, Причина: %s", 
+                                                displayOf(figi), accountId, totalPositions, maxPositions, diversificationSettings.getReason()));
                                         return;
                                     }
                                     
-                                    log.info("✅ Диверсификация в норме: текущих позиций {}, максимум 15", totalPositions);
+                                    log.info("✅ Адаптивная диверсификация в норме: текущих позиций {}, максимум {} ({})", 
+                                        totalPositions, maxPositions, diversificationSettings.getReason());
                         }
                     } catch (Exception e) {
                                 log.warn("Ошибка проверки маржинальных лимитов для {}: {}", displayOf(figi), e.getMessage());
@@ -689,35 +696,42 @@ public class PortfolioManagementService {
                             log.warn("Ошибка проверки лимита по классу активов для {}: {}", displayOf(figi), e.getMessage());
                         }
                         
-                        // Проверка диверсификации по секторам
+                        // 🚀 АДАПТИВНАЯ ПРОВЕРКА ДИВЕРСИФИКАЦИИ ПО СЕКТОРАМ
                         try {
-                            ru.perminov.service.SectorManagementService.SectorValidationResult sectorValidation = 
-                                sectorManagementService.validateSectorDiversification(
-                                    figi, 
-                                    totalCost, 
-                                    portfolioAnalysis.getTotalValue(),
-                                    portfolioAnalysis.getPositions()
-                                );
+                            // Проверяем, нужна ли диверсификация для данного размера портфеля
+                            boolean diversificationRequired = adaptiveDiversificationService.isDiversificationRequired(portfolioAnalysis.getTotalValue());
                             
-                            if (!sectorValidation.isValid()) {
-                                log.warn("🚨 НАРУШЕНИЕ ДИВЕРСИФИКАЦИИ: {} [{} , accountId={}]", 
-                                    String.join("; ", sectorValidation.getViolations()), displayOf(figi), accountId);
+                            if (diversificationRequired) {
+                                // Применяем адаптивные лимиты к сектору
+                                AdaptiveDiversificationService.DiversificationSettings settings = 
+                                    adaptiveDiversificationService.getDiversificationSettings(portfolioAnalysis.getTotalValue());
                                 
-                                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
-                                    "Нарушение диверсификации по секторам", String.format("%s, Account: %s, Сектор: %s, Нарушения: %s", 
-                                        displayOf(figi), accountId, sectorValidation.getSectorName(), 
-                                        String.join("; ", sectorValidation.getViolations())));
+                                ru.perminov.service.SectorManagementService.SectorValidationResult sectorValidation = 
+                                    sectorManagementService.validateAdaptiveSectorDiversification(
+                                        figi, 
+                                        totalCost, 
+                                        portfolioAnalysis.getTotalValue(),
+                                        portfolioAnalysis.getPositions(),
+                                        settings
+                                    );
                                 
-                                // Добавляем предупреждения
-                                for (String warning : sectorValidation.getWarnings()) {
-                                    log.info("⚠️ Предупреждение диверсификации: {}", warning);
+                                if (!sectorValidation.isValid()) {
+                                    log.warn("🚨 НАРУШЕНИЕ АДАПТИВНОЙ ДИВЕРСИФИКАЦИИ: {} [{} , accountId={}]", 
+                                        String.join("; ", sectorValidation.getViolations()), displayOf(figi), accountId);
+                                    
+                                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
+                                        "Нарушение адаптивной диверсификации", String.format("%s, Account: %s, Сектор: %s, Нарушения: %s", 
+                                            displayOf(figi), accountId, sectorValidation.getSectorName(), 
+                                            String.join("; ", sectorValidation.getViolations())));
+                                    
+                                    return; // Блокируем покупку при нарушении диверсификации
                                 }
                                 
-                                return; // Блокируем покупку при нарушении диверсификации
+                                log.info("✅ Адаптивная диверсификация по секторам в норме: {}", settings.getReason());
+                            } else {
+                                log.info("🚀 ДИВЕРСИФИКАЦИЯ ОТКЛЮЧЕНА для малого портфеля ({}₽) - фокус на росте", 
+                                    portfolioAnalysis.getTotalValue());
                             }
-                            
-                            log.info("✅ Диверсификация по секторам в норме: сектор {}, доля после покупки: %.2f%%", 
-                                sectorValidation.getSectorName(), sectorValidation.getNewSectorPercentage().multiply(BigDecimal.valueOf(100)));
                             
                         } catch (Exception e) {
                             log.warn("Ошибка проверки диверсификации секторов для {}: {}", displayOf(figi), e.getMessage());

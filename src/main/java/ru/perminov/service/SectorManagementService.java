@@ -191,7 +191,92 @@ public class SectorManagementService {
     }
     
     /**
-     * Проверка возможности покупки с учетом диверсификации по секторам
+     * 🚀 НОВЫЙ МЕТОД: Адаптивная проверка диверсификации с динамическими лимитами
+     */
+    public SectorValidationResult validateAdaptiveSectorDiversification(
+            String figi, 
+            BigDecimal positionValue, 
+            BigDecimal portfolioValue,
+            List<Position> currentPositions,
+            AdaptiveDiversificationService.DiversificationSettings settings) {
+        
+        log.info("🔍 Адаптивная валидация диверсификации: figi={}, positionValue={}, portfolioValue={}, settings={}", 
+            figi, positionValue, portfolioValue, settings.getReason());
+        
+        SectorValidationResult result = new SectorValidationResult();
+        result.setValid(true);
+        
+        try {
+            // Используем адаптивные лимиты из настроек
+            BigDecimal adaptiveMaxSectorExposurePct = settings.getMaxSectorExposurePct();
+            int adaptiveMaxPositionsPerSector = settings.getMaxPositionsPerSector();
+            
+            // Определяем сектор инструмента
+            String sector = getSectorForInstrument(figi);
+            if (sector == null || "OTHER".equals(sector)) {
+                result.addWarning("Сектор не определен для " + figi + ", используется категория OTHER");
+                sector = "OTHER";
+            }
+            
+            // Анализ текущих позиций по секторам
+            Map<String, SectorAnalysis> sectorAnalysis = analyzeCurrentSectors(currentPositions, portfolioValue);
+            SectorAnalysis currentSector = sectorAnalysis.getOrDefault(sector, new SectorAnalysis());
+            
+            // 1. Проверка доли сектора с адаптивным лимитом
+            BigDecimal newSectorValue = currentSector.getTotalValue().add(positionValue);
+            BigDecimal newSectorPercentage = newSectorValue.divide(portfolioValue, 4, RoundingMode.HALF_UP);
+            
+            if (newSectorPercentage.compareTo(adaptiveMaxSectorExposurePct) > 0) {
+                result.setValid(false);
+                result.addViolation(String.format(
+                    "Превышение адаптивного лимита сектора %s: %.2f%% > %.2f%% (адаптивный максимум)",
+                    RUSSIAN_SECTORS.get(sector),
+                    newSectorPercentage.multiply(BigDecimal.valueOf(100)),
+                    adaptiveMaxSectorExposurePct.multiply(BigDecimal.valueOf(100))
+                ));
+                
+                botLogService.addLogEntry(
+                    BotLogService.LogLevel.WARNING,
+                    BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "Превышение адаптивного лимита сектора",
+                    String.format("Сектор: %s, Новая доля: %.2f%%, Адаптивный максимум: %.2f%%, Причина: %s",
+                        RUSSIAN_SECTORS.get(sector),
+                        newSectorPercentage.multiply(BigDecimal.valueOf(100)),
+                        adaptiveMaxSectorExposurePct.multiply(BigDecimal.valueOf(100)),
+                        settings.getReason()
+                    )
+                );
+            }
+            
+            // 2. Проверка количества позиций в секторе с адаптивным лимитом
+            int newPositionsInSector = currentSector.getPositionsCount() + 1;
+            if (newPositionsInSector > adaptiveMaxPositionsPerSector) {
+                result.setValid(false);
+                result.addViolation(String.format(
+                    "Превышение адаптивного лимита позиций в секторе %s: %d > %d (адаптивный максимум)",
+                    RUSSIAN_SECTORS.get(sector),
+                    newPositionsInSector,
+                    adaptiveMaxPositionsPerSector
+                ));
+            }
+            
+            // Устанавливаем результаты анализа
+            result.setCurrentSectorAnalysis(currentSector);
+            result.setSectorAnalysis(sectorAnalysis);
+            result.setSectorName(RUSSIAN_SECTORS.get(sector));
+            result.setNewSectorPercentage(newSectorPercentage);
+            
+        } catch (Exception e) {
+            log.error("Ошибка адаптивной валидации диверсификации: {}", e.getMessage());
+            result.setValid(false);
+            result.addViolation("Ошибка проверки диверсификации: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Проверка возможности покупки с учетом диверсификации по секторам (старый метод)
      */
     public SectorValidationResult validateSectorDiversification(
             String figi, 
