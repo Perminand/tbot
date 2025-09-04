@@ -249,8 +249,10 @@ public class InstrumentNameService {
         // Отладочное логирование
         log.debug("DEBUG: getFallbackName для инструмента (тип: {})", instrumentType);
         
-        // Резервные названия для известных инструментов
+        // 🚀 СПЕЦИАЛЬНЫЕ СЛУЧАИ для известных проблемных инструментов
         switch (figi) {
+            case "ISSUANCEPRLS":
+                return "Размещение облигаций";
             case "TCS00A106YF0":
                 return "Тинькофф Банк";
             case "BBG004730N88":
@@ -278,14 +280,45 @@ public class InstrumentNameService {
             case "BBG000B9XRY6":
                 return "VK Group";
             default:
-                // Для неизвестных FIGI используем общее название
-                return getInstrumentTypeDisplayName(instrumentType) + " " + getFallbackTicker(figi);
+                // 🎯 УМНАЯ ОБРАБОТКА по шаблонам
+                return getSmartInstrumentName(figi, instrumentType);
         }
+    }
+    
+    /**
+     * 🚀 НОВЫЙ МЕТОД: Умное определение названий по шаблонам
+     */
+    private String getSmartInstrumentName(String figi, String instrumentType) {
+        // Обработка размещений
+        if (figi.contains("ISSUANCE")) {
+            return "Размещение " + getInstrumentTypeDisplayName(instrumentType).toLowerCase();
+        }
+        
+        // Обработка облигаций по коду
+        if (figi.contains("PRLS") || figi.contains("PRL")) {
+            return "Облигация " + figi.substring(0, Math.min(8, figi.length()));
+        }
+        
+        // Обработка Тинькофф инструментов
+        if (figi.startsWith("TCS")) {
+            return "Тинькофф " + getInstrumentTypeDisplayName(instrumentType).toLowerCase() + " " + figi.substring(3, Math.min(8, figi.length()));
+        }
+        
+        // Обработка Bloomberg кодов
+        if (figi.startsWith("BBG")) {
+            String shortCode = figi.substring(3, Math.min(8, figi.length()));
+            return getInstrumentTypeDisplayName(instrumentType) + " " + shortCode;
+        }
+        
+        // По умолчанию
+        return getInstrumentTypeDisplayName(instrumentType) + " " + getFallbackTicker(figi);
     }
     
     private String getFallbackTicker(String figi) {
         // Резервные тикеры для известных инструментов
         switch (figi) {
+            case "ISSUANCEPRLS":
+                return "PRLS";
             case "TCS00A106YF0":
                 return "TCS";
             case "BBG004730N88":

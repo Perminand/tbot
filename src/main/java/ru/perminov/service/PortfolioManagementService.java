@@ -65,13 +65,81 @@ public class PortfolioManagementService {
                 return "Рубли РФ (RUB)";
             }
             
-            String name = instrumentNameService.getInstrumentName(figi, "share");
-            String ticker = instrumentNameService.getTicker(figi, "share");
-            if (name != null && ticker != null) return name + " (" + ticker + ")";
-            if (name != null) return name;
-            if (ticker != null) return ticker;
+            // 🚀 УЛУЧШЕННАЯ ЛОГИКА: Пробуем разные типы инструментов
+            String[] instrumentTypes = {"share", "bond", "etf", "currency"};
+            
+            for (String type : instrumentTypes) {
+                try {
+                    String name = instrumentNameService.getInstrumentName(figi, type);
+                    String ticker = instrumentNameService.getTicker(figi, type);
+                    
+                    if (name != null && ticker != null) {
+                        return name + " (" + ticker + ")";
+                    }
+                    if (name != null) {
+                        return name;
+                    }
+                    if (ticker != null) {
+                        return ticker + " [" + getInstrumentTypeDisplayName(type) + "]";
+                    }
+                } catch (Exception ignore) {
+                    // Пробуем следующий тип
+                }
+            }
+            
+            // 🎯 СПЕЦИАЛЬНАЯ ОБРАБОТКА неизвестных кодов
+            return getHumanReadableName(figi);
+            
         } catch (Exception ignore) {}
         return figi;
+    }
+    
+    /**
+     * 🚀 НОВЫЙ МЕТОД: Получение человекочитаемого названия для неизвестных инструментов
+     */
+    private String getHumanReadableName(String figi) {
+        // Специальные случаи
+        if ("ISSUANCEPRLS".equals(figi)) {
+            return "Размещение облигаций (ISSUANCEPRLS)";
+        }
+        
+        // Обработка по шаблонам
+        if (figi.startsWith("BBG")) {
+            return "Инструмент " + figi.substring(0, Math.min(12, figi.length()));
+        }
+        
+        if (figi.startsWith("TCS")) {
+            return "Тинькофф инструмент " + figi.substring(0, Math.min(12, figi.length()));
+        }
+        
+        if (figi.contains("ISSUANCE")) {
+            return "Размещение (" + figi + ")";
+        }
+        
+        if (figi.contains("PRLS") || figi.contains("PRL")) {
+            return "Облигация " + figi;
+        }
+        
+        // По умолчанию
+        return "Инструмент " + figi.substring(0, Math.min(12, figi.length()));
+    }
+    
+    /**
+     * Получение отображаемого названия типа инструмента
+     */
+    private String getInstrumentTypeDisplayName(String instrumentType) {
+        switch (instrumentType) {
+            case "share":
+                return "Акция";
+            case "bond":
+                return "Облигация";
+            case "etf":
+                return "ETF";
+            case "currency":
+                return "Валюта";
+            default:
+                return "Инструмент";
+        }
     }
 
     private String determineInstrumentType(String figi) {
