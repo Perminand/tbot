@@ -41,6 +41,9 @@ public class PortfolioManagementService {
     private final CommissionCalculatorService commissionCalculatorService;
     private final AdaptiveDiversificationService adaptiveDiversificationService;
     private final TradingCooldownService tradingCooldownService;
+
+    // Защита: одна торговая операция на FIGI в короткое окно (например, один цикл/60 сек)
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> recentOperationsWindow = new java.util.concurrent.ConcurrentHashMap<>();
     private final ru.perminov.repository.InstrumentRepository instrumentRepository;
     
     // Целевые доли активов в портфеле
@@ -395,6 +398,17 @@ public class PortfolioManagementService {
             String preliminaryAction = determineRecommendedAction(preliminaryTrend, 
                 preliminaryTrend.getCurrentPrice(), hasPreliminaryPosition, figi, accountId);
             if (preliminaryAction != null && !"HOLD".equals(preliminaryAction)) {
+                // Локальная защита: не более одной операции на FIGI за короткое окно (60 сек)
+                long nowMs = System.currentTimeMillis();
+                Long lastOp = recentOperationsWindow.get(figi);
+                if (lastOp != null && (nowMs - lastOp) < 60_000) {
+                    log.warn("🚫 Блок: уже была операция по {} менее чем минуту назад", displayOf(figi));
+                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "Ограничение частоты по FIGI", displayOf(figi) + " — операция пропущена (окно 60 сек)");
+                    return;
+                }
+                recentOperationsWindow.put(figi, nowMs);
+
                 TradingCooldownService.CooldownResult cooldownCheck = 
                     tradingCooldownService.canTrade(figi, preliminaryAction, accountId);
                 
