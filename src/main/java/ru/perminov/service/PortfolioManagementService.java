@@ -40,6 +40,7 @@ public class PortfolioManagementService {
     private final CapitalManagementService capitalManagementService;
     private final CommissionCalculatorService commissionCalculatorService;
     private final AdaptiveDiversificationService adaptiveDiversificationService;
+    private final TradingCooldownService tradingCooldownService;
     private final ru.perminov.repository.InstrumentRepository instrumentRepository;
     
     // Целевые доли активов в портфеле
@@ -373,6 +374,26 @@ public class PortfolioManagementService {
                 return;
             }
             
+            // 🚀 ПРЕДВАРИТЕЛЬНАЯ ПРОВЕРКА COOLDOWN: Защита от частых сделок
+            String preliminaryAction = determineRecommendedAction(figi, accountId);
+            if (preliminaryAction != null && !"HOLD".equals(preliminaryAction)) {
+                TradingCooldownService.CooldownResult cooldownCheck = 
+                    tradingCooldownService.canTrade(figi, preliminaryAction, accountId);
+                
+                if (cooldownCheck.isBlocked()) {
+                    log.warn("🚫 БЛОКИРОВКА OVERTRADING: {} для {}. Причина: {}", 
+                        preliminaryAction, displayOf(figi), cooldownCheck.getReason());
+                    
+                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "Блокировка частых сделок", String.format("%s, Account: %s, Действие: %s, Причина: %s", 
+                            displayOf(figi), accountId, preliminaryAction, cooldownCheck.getReason()));
+                    return;
+                }
+                
+                log.info("✅ Cooldown проверка пройдена: {} для {}. {}", 
+                    preliminaryAction, displayOf(figi), cooldownCheck.getReason());
+            }
+            
             // Анализ тренда + ATR
             MarketAnalysisService.TrendAnalysis trend = 
                 marketAnalysisService.analyzeTrend(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
@@ -437,8 +458,8 @@ public class PortfolioManagementService {
                                 "💰 Размещение ордера на закрытие шорта", String.format("%s, Лотов: %d, Цена: %.2f",
                                         displayOf(figi), lotsToClose, trend.getCurrentPrice()));
                         try {
-                            PostOrderResponse response = orderService.placeMarketOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId);
-                            log.info("✅ Ордер на закрытие шорта размещен успешно: orderId={}, status={}", 
+                            PostOrderResponse response = orderService.placeSmartLimitOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId, trend.getCurrentPrice());
+                            log.info("✅ Умный лимитный ордер на закрытие шорта размещен успешно: orderId={}, status={}", 
                                 response.getOrderId(), response.getExecutionReportStatus());
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                     "Шорт закрыт", String.format("%s, Лотов: %d, OrderId: %s", displayOf(figi), lotsToClose, response.getOrderId()));
@@ -472,9 +493,9 @@ public class PortfolioManagementService {
                                     "Закрытие шорта (приоритет)", String.format("%s, Лотов: %d, Цена: %.4f",
                                             displayOf(figi), lotsToClose, trend.getCurrentPrice()));
                             try {
-                                log.info("🎯 Размещаем ордер на закрытие шорта: {} лотов BUY по цене {}", lotsToClose, trend.getCurrentPrice());
-                                PostOrderResponse response = orderService.placeMarketOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId);
-                                log.info("✅ Ордер на закрытие шорта размещен успешно: orderId={}, status={}", 
+                                log.info("🎯 Размещаем умный лимитный ордер на закрытие шорта: {} лотов BUY по цене {}", lotsToClose, trend.getCurrentPrice());
+                                PostOrderResponse response = orderService.placeSmartLimitOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId, trend.getCurrentPrice());
+                                log.info("✅ Умный лимитный ордер на закрытие шорта размещен успешно: orderId={}, status={}", 
                                     response.getOrderId(), response.getExecutionReportStatus());
                                 botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                         "Шорт закрыт", String.format("%s, Лотов: %d, OrderId: %s", displayOf(figi), lotsToClose, response.getOrderId()));
@@ -1079,9 +1100,9 @@ public class PortfolioManagementService {
                         // ВАЖНО: При закрытии шортов НЕ проверяем отрицательные средства,
                         // так как это может привести к неконтролируемым убыткам
                         try {
-                            orderService.placeMarketOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                            orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId, trend.getCurrentPrice());
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                                "Шорт закрыт", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                                "Шорт закрыт умным лимитом", String.format("FIGI: %s, Лотов: %d", figi, lots));
                         } catch (Exception e) {
                             log.error("Ошибка закрытия шорта: {}", e.getMessage());
                             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 

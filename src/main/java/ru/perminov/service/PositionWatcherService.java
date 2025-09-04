@@ -102,11 +102,11 @@ public class PositionWatcherService {
                                 if (side == PositionRiskState.PositionSide.LONG) {
                                     log.warn("Срабатывание SL (лонг): price={} <= SL={} — продаем {} лотов", 
                                             currentPrice, riskState.getStopLossLevel(), lots);
-                                    orderService.placeMarketOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
+                                    orderService.placeSmartLimitOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId, currentPrice);
                                 } else {
                                     log.warn("Срабатывание SL (шорт): price={} >= SL={} — закрываем {} лотов покупкой", 
                                             currentPrice, riskState.getStopLossLevel(), lots);
-                                    orderService.placeMarketOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                                    orderService.placeSmartLimitOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId, currentPrice);
                                 }
                                 
                                 // Закрываем состояние рисков
@@ -132,20 +132,20 @@ public class PositionWatcherService {
                                     int qty = Math.max(1, lots / 2);
                                     if (side == PositionRiskState.PositionSide.LONG) {
                                         log.info("TP1 (лонг): продаем {} из {} лотов", qty, lots);
-                                        orderService.placeMarketOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
+                                        orderService.placeSmartLimitOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId, currentPrice);
                                     } else {
                                         log.info("TP1 (шорт): покупаем {} из {} лотов для частичного закрытия", qty, lots);
-                                    orderService.placeMarketOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                                    orderService.placeSmartLimitOrder(figi, qty, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId, currentPrice);
                                     }
                                     tradingSettingsService.upsert(key, "1", "TP1 hit (" + side.toString().toLowerCase() + ")");
                                     continue;
                                 } else {
                                     if (side == PositionRiskState.PositionSide.LONG) {
                                         log.info("TP2 (лонг): продаем остаток {} лотов", lots);
-                                        orderService.placeMarketOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId);
+                                        orderService.placeSmartLimitOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId, currentPrice);
                                     } else {
                                         log.info("TP2 (шорт): покупаем остаток {} лотов для полного закрытия", lots);
-                                        orderService.placeMarketOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId);
+                                        orderService.placeSmartLimitOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_BUY, accountId, currentPrice);
                                     }
                                     tradingSettingsService.upsert(key, "0", "TP cycle done (" + side.toString().toLowerCase() + ")");
                                     

@@ -141,8 +141,8 @@ public class VirtualStopMonitorService {
             log.info("🚨 ИСПОЛНЯЕМ {}: {} {} лотов по цене {}", 
                 triggerType, displayOf(figi), lots, currentPrice);
             
-            // Размещаем рыночный ордер для быстрого исполнения
-            orderService.placeMarketOrder(figi, lots, direction, accountId);
+            // Размещаем умный лимитный ордер для лучшей цены
+            orderService.placeSmartLimitOrder(figi, lots, direction, accountId, currentPrice);
             
             // Обновляем статус исполненного ордера
             virtualOrder.setStatus("EXECUTED");
