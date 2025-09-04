@@ -215,17 +215,21 @@ INSERT INTO trading_settings (setting_key, setting_value, description)
 VALUES ('margin-trading.min-buying-power-ratio', '0.1', 'Минимальное отношение покупательной способности к стоимости покупки')
 ON CONFLICT (setting_key) DO NOTHING;
 
--- Риск-лимиты и стоп-правила по умолчанию
+-- Риск-лимиты и стоп-правила по умолчанию (ОПТИМИЗИРОВАНЫ)
 INSERT INTO trading_settings (setting_key, setting_value, description)
-VALUES ('risk_default_sl_pct', '0.05', 'Стоп-лосс по умолчанию (доля, 0..1)')
+VALUES ('risk_default_sl_pct', '0.02', 'Стоп-лосс по умолчанию 2% (было 5%)')
 ON CONFLICT (setting_key) DO NOTHING;
 
 INSERT INTO trading_settings (setting_key, setting_value, description)
-VALUES ('risk_default_tp_pct', '0.10', 'Тейк-профит по умолчанию (доля, 0..1)')
+VALUES ('risk_default_tp_pct', '0.06', 'Тейк-профит по умолчанию 6% (было 10%)')
 ON CONFLICT (setting_key) DO NOTHING;
 
 INSERT INTO trading_settings (setting_key, setting_value, description)
-VALUES ('risk_per_trade_pct', '0.01', 'Риск на сделку (доля портфеля, 0..1)')
+VALUES ('risk_default_trailing_pct', '0.03', 'Трейлинг стоп по умолчанию 3%')
+ON CONFLICT (setting_key) DO NOTHING;
+
+INSERT INTO trading_settings (setting_key, setting_value, description)
+VALUES ('risk_per_trade_pct', '0.005', 'Риск на сделку 0.5% от портфеля (было 1%)')
 ON CONFLICT (setting_key) DO NOTHING;
 
 INSERT INTO trading_settings (setting_key, setting_value, description)
