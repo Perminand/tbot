@@ -225,6 +225,21 @@ public class MarketAnalysisService {
     }
 
     /**
+     * Объём последней дневной свечи (штуки/лоты по данным API)
+     */
+    public long getLastDailyVolume(String figi) {
+        try {
+            List<HistoricCandle> candles = getCandles(figi, CandleInterval.CANDLE_INTERVAL_DAY, 3);
+            if (candles == null || candles.isEmpty()) return 0L;
+            HistoricCandle last = candles.get(candles.size() - 1);
+            return last.getVolume();
+        } catch (Exception e) {
+            log.warn("Не удалось получить дневной объём для {}: {}", figi, e.getMessage());
+            return 0L;
+        }
+    }
+
+    /**
      * Анализ тренда
      */
     public TrendAnalysis analyzeTrend(String figi, CandleInterval interval) {

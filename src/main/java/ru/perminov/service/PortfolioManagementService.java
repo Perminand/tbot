@@ -1761,9 +1761,13 @@ public class PortfolioManagementService {
             // Рассчитываем минимальный процент движения
             BigDecimal minMovePct = minPriceMove.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
             
-            // Получаем настройки стоп-лосса и тейк-профита
-            double slPct = riskRuleService.getDefaultStopLossPct() * 100; // проценты
-            double tpPct = riskRuleService.getDefaultTakeProfitPct() * 100;
+            // Получаем настройки SL/TP: сначала per-FIGI, иначе дефолты
+            double slPct = riskRuleService.findByFigi(figi)
+                .map(rule -> rule.getStopLossPct() * 100)
+                .orElse(riskRuleService.getDefaultStopLossPct() * 100);
+            double tpPct = riskRuleService.findByFigi(figi)
+                .map(rule -> rule.getTakeProfitPct() * 100)
+                .orElse(riskRuleService.getDefaultTakeProfitPct() * 100);
 
             // Доп. издержки для критериев: используем те же оценки, что и в сервисе комиссий
             BigDecimal spreadPct = marketAnalysisService.getSpreadPct(figi).multiply(BigDecimal.valueOf(100));
