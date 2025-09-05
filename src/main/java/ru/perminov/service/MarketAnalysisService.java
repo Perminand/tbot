@@ -240,6 +240,46 @@ public class MarketAnalysisService {
     }
 
     /**
+     * Медианный дневной объём за N завершённых торговых дней.
+     * По умолчанию исключаем текущий незавершённый день.
+     */
+    public long getMedianDailyVolume(String figi, int days, boolean excludeCurrentDayIfIncomplete) {
+        try {
+            int fetch = Math.max(days + 2, days);
+            List<HistoricCandle> candles = getCandles(figi, CandleInterval.CANDLE_INTERVAL_DAY, fetch);
+            if (candles == null || candles.isEmpty()) return 0L;
+
+            // Собираем объёмы с конца, пропуская текущий незавершённый день при необходимости
+            java.util.List<Long> volumes = new java.util.ArrayList<>();
+            for (int i = candles.size() - 1; i >= 0 && volumes.size() < days; i--) {
+                HistoricCandle c = candles.get(i);
+                boolean isComplete = c.getIsComplete();
+                if (!isComplete && excludeCurrentDayIfIncomplete) {
+                    continue; // пропускаем текущий день, если свеча не завершена
+                }
+                volumes.add(c.getVolume());
+            }
+
+            if (volumes.isEmpty()) {
+                return candles.get(candles.size() - 1).getVolume();
+            }
+
+            java.util.Collections.sort(volumes);
+            int n = volumes.size();
+            if (n % 2 == 1) {
+                return volumes.get(n / 2);
+            } else {
+                long a = volumes.get(n / 2 - 1);
+                long b = volumes.get(n / 2);
+                return (a + b) / 2L;
+            }
+        } catch (Exception e) {
+            log.warn("Не удалось получить медианный дневной объём для {}: {}", figi, e.getMessage());
+            return 0L;
+        }
+    }
+
+    /**
      * Анализ тренда
      */
     public TrendAnalysis analyzeTrend(String figi, CandleInterval interval) {

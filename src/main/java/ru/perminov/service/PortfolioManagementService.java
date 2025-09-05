@@ -1773,7 +1773,14 @@ public class PortfolioManagementService {
     private boolean passesDynamicLiquidityFilters(String figi, String accountId) {
         try {
             BigDecimal spread = marketAnalysisService.getSpreadPct(figi); // 0..1
-            long volume = marketAnalysisService.getLastDailyVolume(figi);
+            // Используем медианный объём за N завершённых дней по уровню портфеля
+            int days;
+            switch (level) {
+                case SMALL: days = tradingSettingsService.getInt("liquidity.volume.lookback.small", 5); break;
+                case MEDIUM: days = tradingSettingsService.getInt("liquidity.volume.lookback.medium", 10); break;
+                default: days = tradingSettingsService.getInt("liquidity.volume.lookback.large", 20);
+            }
+            long volume = marketAnalysisService.getMedianDailyVolume(figi, days, true);
 
             PortfolioAnalysis pa = analyzePortfolio(accountId);
             BigDecimal total = pa.getTotalValue() != null ? pa.getTotalValue() : BigDecimal.ZERO;
