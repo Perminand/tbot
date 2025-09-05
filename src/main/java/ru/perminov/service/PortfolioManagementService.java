@@ -569,12 +569,10 @@ public class PortfolioManagementService {
                 } catch (Exception ignore) { }
 
                 // Проверяем, есть ли свободные средства
-                System.out.println("🚨🚨🚨 ПРОВЕРЯЕМ СРЕДСТВА для " + displayOf(figi));
-                log.info("🚨🚨🚨 ПРОВЕРЯЕМ СРЕДСТВА для {}", displayOf(figi));
+                log.debug("Проверяем доступные средства для {}", displayOf(figi));
                 BigDecimal availableCash = getAvailableCash(portfolioAnalysis);
                 BigDecimal buyingPower = marginService.getAvailableBuyingPower(accountId, portfolioAnalysis);
-                System.out.println("🚨🚨🚨 РЕЗУЛЬТАТ: availableCash=" + availableCash + ", buyingPower=" + buyingPower);
-                log.info("🚨🚨🚨 РЕЗУЛЬТАТ: availableCash={}, buyingPower={}", availableCash, buyingPower);
+                log.debug("Доступные средства: {}, Покупательная способность: {}", availableCash, buyingPower);
 
                 // Проверка средств: используем buyingPower вместо availableCash для маржинальных операций
                 boolean allowNegativeCash = tradingSettingsService.getBoolean("margin-trading.allow-negative-cash", false);
@@ -1214,29 +1212,23 @@ public class PortfolioManagementService {
     }
     
     private BigDecimal getAvailableCash(PortfolioAnalysis analysis) {
-        System.out.println("🚨🚨🚨 ВХОД В getAvailableCash");
-        log.info("🚨🚨🚨 ВХОД В getAvailableCash");
-        System.out.println("🚨🚨🚨 Всего позиций: " + analysis.getPositions().size());
-        log.info("🚨🚨🚨 Всего позиций: {}", analysis.getPositions().size());
+        log.debug("Вход в getAvailableCash, позиций: {}", analysis.getPositions().size());
         
         // Получаем реальные доступные средства из портфеля
         // Ищем позицию с валютой (обычно RUB)
         for (Position position : analysis.getPositions()) {
-            System.out.println("🚨🚨🚨 Проверяем позицию: figi=" + position.getFigi() + ", type=" + position.getInstrumentType() + ", quantity=" + position.getQuantity());
-            log.info("🚨🚨🚨 Проверяем позицию: figi={}, type={}, quantity={}", 
+            log.debug("Проверяем позицию: figi={}, type={}, quantity={}", 
                 position.getFigi(), position.getInstrumentType(), position.getQuantity());
             
             // Проверяем тип инструмента ИЛИ специальный FIGI для рубля
             if ("currency".equals(position.getInstrumentType()) || "RUB000UTSTOM".equals(position.getFigi())) {
-                System.out.println("🚨🚨🚨 НАЙДЕНА ВАЛЮТА: " + displayOf(position.getFigi()) + " - " + position.getQuantity());
-                log.info("🚨🚨🚨 НАЙДЕНА ВАЛЮТА: {} - {}", displayOf(position.getFigi()), position.getQuantity());
+                log.debug("Найдена валюта: {} - {}", displayOf(position.getFigi()), position.getQuantity());
                 return position.getQuantity();
             }
         }
         
         // Если не найдена валюта, возвращаем 0
-        System.out.println("🚨🚨🚨 НЕ НАЙДЕНЫ ДОСТУПНЫЕ СРЕДСТВА В ПОРТФЕЛЕ");
-        log.warn("🚨🚨🚨 НЕ НАЙДЕНЫ ДОСТУПНЫЕ СРЕДСТВА В ПОРТФЕЛЕ");
+        log.warn("Не найдены доступные средства в портфеле");
         return BigDecimal.ZERO;
     }
     
@@ -1763,8 +1755,8 @@ public class PortfolioManagementService {
             // Получаем тип инструмента
             String instrumentType = determineInstrumentType(figi);
             
-            // Рассчитываем минимальное движение цены для безубыточности
-            BigDecimal minPriceMove = commissionCalculatorService.calculateBreakevenPriceMove(currentPrice, estimatedLots, instrumentType);
+            // Рассчитываем минимальное движение цены для безубыточности (с учётом класса + поправка по реальному спрэду)
+            BigDecimal minPriceMove = commissionCalculatorService.calculateBreakevenPriceMove(currentPrice, estimatedLots, instrumentType, figi);
             
             // Рассчитываем минимальный процент движения
             BigDecimal minMovePct = minPriceMove.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
@@ -1773,7 +1765,7 @@ public class PortfolioManagementService {
             double slPct = riskRuleService.getDefaultStopLossPct() * 100; // проценты
             double tpPct = riskRuleService.getDefaultTakeProfitPct() * 100;
 
-            // Доп. издержки: спрэд и офсет лимитного
+            // Доп. издержки для критериев: используем те же оценки, что и в сервисе комиссий
             BigDecimal spreadPct = marketAnalysisService.getSpreadPct(figi).multiply(BigDecimal.valueOf(100));
             BigDecimal offsetPct = getEstimatedOffsetPct(instrumentType).multiply(BigDecimal.valueOf(100));
             double rrMin = tradingSettingsService.getDouble("risk.rr.min", 1.5);

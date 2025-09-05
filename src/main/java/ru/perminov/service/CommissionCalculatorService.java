@@ -13,6 +13,7 @@ import java.math.RoundingMode;
 public class CommissionCalculatorService {
     
     private final TradingSettingsService tradingSettingsService;
+    private final MarketAnalysisService marketAnalysisService;
     
     // Стандартные комиссии T-Bank (можно вынести в настройки)
     private static final BigDecimal STOCK_COMMISSION_PCT = new BigDecimal("0.06"); // 0.06%
@@ -83,6 +84,28 @@ public class CommissionCalculatorService {
             lots, currentPrice, minPriceMove.subtract(additional), spreadPct, offsetPct, minPriceMove);
         
         return minPriceMove.setScale(4, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Перегрузка: break-even с использованием фактического спрэда по FIGI (если доступен)
+     */
+    public BigDecimal calculateBreakevenPriceMove(BigDecimal currentPrice, int lots, String instrumentType, String figi) {
+        BigDecimal baseline = calculateBreakevenPriceMove(currentPrice, lots, instrumentType);
+        try {
+            if (figi != null) {
+                BigDecimal actualSpread = marketAnalysisService.getSpreadPct(figi); // доли 0..1
+                if (actualSpread != null && actualSpread.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal offsetPct = getEstimatedOffsetPct(instrumentType);
+                    BigDecimal additional = currentPrice.multiply(actualSpread.subtract(getDefaultSpreadPct(instrumentType)).max(BigDecimal.ZERO));
+                    // Скорректируем baseline, добавив «докрутку» от фактического спрэда сверх дефолтного
+                    baseline = baseline.add(additional).setScale(4, RoundingMode.HALF_UP);
+                    log.debug("Break-even скорректирован по реальному спрэду {}: +{} руб", actualSpread, additional);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Не удалось скорректировать break-even по FIGI {}: {}", figi, e.getMessage());
+        }
+        return baseline;
     }
     
     /**

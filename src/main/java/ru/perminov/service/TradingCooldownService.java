@@ -21,14 +21,15 @@ public class TradingCooldownService {
     
     private final OrderRepository orderRepository;
     private final BotLogService botLogService;
+    private final TradingSettingsService tradingSettingsService;
     
     // Кэш последних сделок по инструментам
     private final Map<String, LocalDateTime> lastTradeTime = new ConcurrentHashMap<>();
     
-    // Настройки cooldown (в минутах)
-    private static final int MIN_COOLDOWN_MINUTES = 15;    // Минимум 15 минут между сделками
-    private static final int SAME_DIRECTION_COOLDOWN = 30; // 30 минут между однотипными сделками
-    private static final int REVERSE_COOLDOWN = 45;        // 45 минут между разнонаправленными
+    // Настройки cooldown (в минутах) — читаем из конфига с дефолтами
+    private int getMinCooldown() { return tradingSettingsService.getInt("cooldown.min.minutes", 15); }
+    private int getSameDirectionCooldown() { return tradingSettingsService.getInt("cooldown.same.minutes", 30); }
+    private int getReverseCooldown() { return tradingSettingsService.getInt("cooldown.reverse.minutes", 45); }
     
     /**
      * 🎯 ОСНОВНОЙ МЕТОД: Проверка можно ли торговать данным инструментом
@@ -114,16 +115,16 @@ public class TradingCooldownService {
         
         // Если пытаемся сделать ту же операцию - увеличенный cooldown
         if (currentAction.equals(lastAction)) {
-            return SAME_DIRECTION_COOLDOWN;
+            return getSameDirectionCooldown();
         }
         
         // Если меняем направление (BUY→SELL или SELL→BUY) - максимальный cooldown
         if (isReverseAction(currentAction, lastAction)) {
-            return REVERSE_COOLDOWN;
+            return getReverseCooldown();
         }
         
         // По умолчанию минимальный cooldown
-        return MIN_COOLDOWN_MINUTES;
+        return getMinCooldown();
     }
     
     /**
