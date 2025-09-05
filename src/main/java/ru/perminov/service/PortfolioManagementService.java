@@ -377,6 +377,20 @@ public class PortfolioManagementService {
                 return;
             }
             
+            // 🚀 Быстрый отсев по типу инструмента (например, фонды)
+            try {
+                String type = determineInstrumentType(figi);
+                // Динамика: разрешаем ETF только начиная с среднего портфеля
+                java.math.BigDecimal portfolioValue = analyzePortfolio(accountId).getTotalValue();
+                AdaptiveDiversificationService.PortfolioLevel level = adaptiveDiversificationService.getPortfolioLevel(portfolioValue);
+                boolean etfAllowedAtLevel = (level != AdaptiveDiversificationService.PortfolioLevel.SMALL);
+                boolean overrideAllow = tradingSettingsService.getBoolean("allow.etf.trading.override", false);
+                if ("etf".equalsIgnoreCase(type) && !(etfAllowedAtLevel || overrideAllow)) {
+                    log.info("⛔ ETF отключены для уровня {} (баланс {}). Пропускаем {}", level, portfolioValue, displayOf(figi));
+                    return;
+                }
+            } catch (Exception ignore) { }
+
             // 🚀 ПРЕДВАРИТЕЛЬНАЯ ПРОВЕРКА COOLDOWN: Защита от частых сделок
             // Получаем предварительный тренд для проверки
             MarketAnalysisService.TrendAnalysis preliminaryTrend = 
