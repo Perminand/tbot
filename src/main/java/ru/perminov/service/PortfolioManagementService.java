@@ -1604,6 +1604,12 @@ public class PortfolioManagementService {
         
         log.debug("=== АНАЛИЗ ТОРГОВОГО СИГНАЛА ===");
         log.debug("Тренд: {}, RSI: {}, Есть позиция: {}", trendAnalysis.getTrend(), rsi, hasPosition);
+
+        // 🚀 НОВАЯ ПРОВЕРКА: Динамические фильтры ликвидности (спрэд/объём) по уровню портфеля
+        if (!passesDynamicLiquidityFilters(figi, accountId)) {
+            log.info("📉 БЛОКИРОВКА ПО ЛИКВИДНОСТИ: {} не проходит динамические пороги", displayOf(figi));
+            return "HOLD";
+        }
         
         // 🚀 НОВАЯ ПРОВЕРКА: Анализ прибыльности с учетом комиссий
         BigDecimal currentPrice = trendAnalysis.getCurrentPrice();
@@ -1738,6 +1744,56 @@ public class PortfolioManagementService {
         } catch (Exception e) {
             log.warn("Ошибка проверки волатильности для {}: {}", displayOf(figi), e.getMessage());
             return true; // При ошибке разрешаем торговлю
+        }
+    }
+
+    /**
+     * Динамические фильтры ликвидности: максимальный спрэд и минимальный дневной объём
+     */
+    private boolean passesDynamicLiquidityFilters(String figi, String accountId) {
+        try {
+            BigDecimal spread = marketAnalysisService.getSpreadPct(figi); // 0..1
+            long volume = marketAnalysisService.getLastDailyVolume(figi);
+
+            PortfolioAnalysis pa = analyzePortfolio(accountId);
+            BigDecimal total = pa.getTotalValue() != null ? pa.getTotalValue() : BigDecimal.ZERO;
+            AdaptiveDiversificationService.PortfolioLevel level = adaptiveDiversificationService.getPortfolioLevel(total);
+
+            double maxSpread;
+            int minVolume;
+            switch (level) {
+                case SMALL:
+                    maxSpread = tradingSettingsService.getDouble("liquidity.max.spread.small", 0.005); // 0.5%
+                    minVolume = tradingSettingsService.getInt("liquidity.min.volume.small", 50000);
+                    break;
+                case MEDIUM:
+                    maxSpread = tradingSettingsService.getDouble("liquidity.max.spread.medium", 0.008); // 0.8%
+                    minVolume = tradingSettingsService.getInt("liquidity.min.volume.medium", 100000);
+                    break;
+                default:
+                    maxSpread = tradingSettingsService.getDouble("liquidity.max.spread.large", 0.010); // 1.0%
+                    minVolume = tradingSettingsService.getInt("liquidity.min.volume.large", 150000);
+            }
+
+            boolean spreadOk = spread == null || spread.compareTo(BigDecimal.valueOf(maxSpread)) <= 0;
+            boolean volumeOk = volume <= 0 || volume >= minVolume; // если объём недоступен, не блокируем
+
+            if (!spreadOk || !volumeOk) {
+                String reason = String.format("spread=%.3f%% (max=%.2f%%), volume=%d (min=%d), level=%s",
+                        spread != null ? spread.multiply(BigDecimal.valueOf(100)).doubleValue() : -1,
+                        maxSpread * 100, volume, minVolume, level);
+                log.warn("🚫 Ликвидность недостаточна для {}: {}", displayOf(figi), reason);
+                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "Блокировка по ликвидности", displayOf(figi) + ": " + reason);
+                return false;
+            }
+
+            log.debug("✅ Ликвидность в норме для {}: spread={}%, volume={}, level={}",
+                    displayOf(figi), spread != null ? spread.multiply(BigDecimal.valueOf(100)) : null, volume, level);
+            return true;
+        } catch (Exception e) {
+            log.warn("Ошибка проверки ликвидности для {}: {} — пропускаем фильтр", displayOf(figi), e.getMessage());
+            return true;
         }
     }
 
