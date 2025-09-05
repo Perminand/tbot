@@ -1246,9 +1246,12 @@ public class PortfolioManagementService {
                     }
                 }
             } else {
-                log.info("Действие HOLD - никаких операций не выполняем");
+                String prettyName = instrumentNameService.getInstrumentName(figi, determineInstrumentType(figi).toUpperCase());
+                String prettyTicker = instrumentNameService.getTicker(figi, determineInstrumentType(figi).toUpperCase());
+                String msg = String.format("HOLD: %s (%s) — сделок нет", prettyName, prettyTicker);
+                log.info(msg);
                 botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                    "Действие HOLD", "FIGI: " + figi + " - никаких операций не выполняем");
+                    "Действие: HOLD", msg);
             }
             
         } catch (Exception e) {
