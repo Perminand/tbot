@@ -1009,7 +1009,8 @@ public class PortfolioManagementService {
                         .orElse(null);
                     
                     if (position != null && position.getQuantity().compareTo(BigDecimal.ZERO) != 0) {
-                        int lots = Math.abs(position.getQuantity().intValue()); // Берем абсолютное значение
+                        int lotSize = getLotSizeSafe(figi, position.getInstrumentType());
+                        int lots = toLots(position.getQuantity(), lotSize);
                         boolean isShortPosition = position.getQuantity().compareTo(BigDecimal.ZERO) < 0;
                         
                         String actionDescription = isShortPosition ? "закрытие шорта" : "продажа";
@@ -1058,7 +1059,9 @@ public class PortfolioManagementService {
                             "Лимит шорта рассчитан",
                             String.format("%s (%s), Account: %s, Target: %.2f, Price: %.4f", prettyName, prettyTicker, accountId, targetShortAmount, trend.getCurrentPrice()));
                         if (targetShortAmount.compareTo(trend.getCurrentPrice()) >= 0) {
-                            int lots = targetShortAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
+                            int lotSize = getLotSizeSafe(figi, "share");
+                            int shares = targetShortAmount.divide(trend.getCurrentPrice(), 0, RoundingMode.DOWN).intValue();
+                            int lots = Math.max(shares / Math.max(lotSize, 1), 1);
                             
                             // Проверяем рентабельность шорта с учетом комиссий
                             BigDecimal tradeAmount = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
@@ -1169,7 +1172,8 @@ public class PortfolioManagementService {
                         .orElse(null);
                     
                     if (position != null && position.getQuantity().compareTo(BigDecimal.ZERO) < 0) {
-                        int lots = Math.abs(position.getQuantity().intValue()); // Берем абсолютное значение
+                        int lotSize = getLotSizeSafe(figi, position.getInstrumentType());
+                        int lots = toLots(position.getQuantity(), lotSize);
                         log.info("Закрытие шорта: {} лотов по цене {}", lots, trend.getCurrentPrice());
                         
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
@@ -1811,6 +1815,39 @@ public class PortfolioManagementService {
         } catch (Exception e) {
             log.warn("Ошибка проверки прибыльности для {}: {}", displayOf(figi), e.getMessage());
             return true; // При ошибке разрешаем торговлю
+        }
+    }
+
+    /**
+     * Безопасное получение размера лота для FIGI
+     */
+    private int getLotSizeSafe(String figi, String instrumentType) {
+        try {
+            var api = investApiManager.getCurrentInvestApi();
+            if ("bond".equalsIgnoreCase(instrumentType)) {
+                var bond = api.getInstrumentsService().getBondByFigiSync(figi);
+                if (bond != null && bond.getLot() > 0) return bond.getLot();
+            } else if ("etf".equalsIgnoreCase(instrumentType)) {
+                var etf = api.getInstrumentsService().getEtfByFigiSync(figi);
+                if (etf != null && etf.getLot() > 0) return etf.getLot();
+            } else {
+                var share = api.getInstrumentsService().getShareByFigiSync(figi);
+                if (share != null && share.getLot() > 0) return share.getLot();
+            }
+        } catch (Exception ignore) { }
+        return 1; // дефолтная кратность
+    }
+
+    /**
+     * Перевод количества бумаг в лоты с учётом размера лота
+     */
+    private int toLots(BigDecimal quantity, int lotSize) {
+        if (quantity == null) return 0;
+        try {
+            int shares = Math.abs(quantity.intValue());
+            return Math.max(shares / Math.max(lotSize, 1), 0);
+        } catch (Exception e) {
+            return 0;
         }
     }
 
