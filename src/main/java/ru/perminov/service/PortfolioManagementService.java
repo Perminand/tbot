@@ -380,13 +380,23 @@ public class PortfolioManagementService {
             // 🚀 Быстрый отсев по типу инструмента (например, фонды)
             try {
                 String type = determineInstrumentType(figi);
-                // Динамика: разрешаем ETF только начиная с среднего портфеля
+                // Динамика: разрешения по классу актива на основе уровня портфеля
                 java.math.BigDecimal portfolioValue = analyzePortfolio(accountId).getTotalValue();
                 AdaptiveDiversificationService.PortfolioLevel level = adaptiveDiversificationService.getPortfolioLevel(portfolioValue);
+
+                // ETF доступны с уровня MEDIUM и выше (или явный override)
                 boolean etfAllowedAtLevel = (level != AdaptiveDiversificationService.PortfolioLevel.SMALL);
-                boolean overrideAllow = tradingSettingsService.getBoolean("allow.etf.trading.override", false);
-                if ("etf".equalsIgnoreCase(type) && !(etfAllowedAtLevel || overrideAllow)) {
+                boolean overrideEtf = tradingSettingsService.getBoolean("allow.etf.trading.override", false);
+                if ("etf".equalsIgnoreCase(type) && !(etfAllowedAtLevel || overrideEtf)) {
                     log.info("⛔ ETF отключены для уровня {} (баланс {}). Пропускаем {}", level, portfolioValue, displayOf(figi));
+                    return;
+                }
+
+                // Облигации также включаем динамически: для SMALL отключены (если цель не 'парковка кэша')
+                boolean bondsAllowedAtLevel = (level != AdaptiveDiversificationService.PortfolioLevel.SMALL);
+                boolean overrideBond = tradingSettingsService.getBoolean("allow.bond.trading.override", false);
+                if ("bond".equalsIgnoreCase(type) && !(bondsAllowedAtLevel || overrideBond)) {
+                    log.info("⛔ Облигации отключены для уровня {} (баланс {}). Пропускаем {}", level, portfolioValue, displayOf(figi));
                     return;
                 }
             } catch (Exception ignore) { }
