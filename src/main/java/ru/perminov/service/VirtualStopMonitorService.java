@@ -9,7 +9,11 @@ import ru.perminov.repository.OrderRepository;
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 🚀 НОВЫЙ СЕРВИС: Мониторинг виртуальных стоп-лоссов
@@ -25,6 +29,11 @@ public class VirtualStopMonitorService {
     private final OrderService orderService;
     private final BotLogService botLogService;
     private final InstrumentNameService instrumentNameService;
+    private final TradingSettingsService tradingSettingsService;
+
+    // Анти-ложные срабатывания: счетчики подтверждений
+    private final Map<String, Integer> touchCounters = new ConcurrentHashMap<>();
+    private final Map<String, LocalDateTime> lastTouch = new ConcurrentHashMap<>();
     
     /**
      * Мониторинг виртуальных стопов и OCO ордеров каждые 30 секунд
@@ -69,11 +78,36 @@ public class VirtualStopMonitorService {
             String orderType = virtualOrder.getOrderType();
             int lots = virtualOrder.getRequestedLots().intValue();
             String accountId = virtualOrder.getAccountId();
+            if (lots <= 0) return;
+
+            // Arm-delay: не активируем SL/TP первые N секунд
+            int armDelaySec =  tradingSettingsService.getInt("virtual.stop.arm.delay.sec", 60);
+            try {
+                LocalDateTime od = virtualOrder.getOrderDate();
+                if (od != null) {
+                    if (Duration.between(od, LocalDateTime.now()).getSeconds() < armDelaySec) {
+                        log.debug("⏳ Arm-delay для {}: стоп ещё не активен", virtualOrder.getOrderId());
+                        return;
+                    }
+                }
+            } catch (Exception ignore) { }
             
             // Получаем текущую цену
             MarketAnalysisService.TrendAnalysis trend = marketAnalysisService.analyzeTrend(
                 figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_1_MIN);
             BigDecimal currentPrice = trend.getCurrentPrice();
+            if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
+                log.debug("⚠️ Цена недоступна для {} — пропуск", displayOf(figi));
+                return;
+            }
+
+            // Учет спрэда: используем bid/ask оценку от mid
+            BigDecimal spreadPct = marketAnalysisService.getSpreadPct(figi);
+            if (spreadPct == null) spreadPct = BigDecimal.ZERO;
+            BigDecimal half = new BigDecimal("0.5");
+            BigDecimal halfSpread = spreadPct.multiply(half);
+            BigDecimal bidApprox = currentPrice.multiply(BigDecimal.ONE.subtract(halfSpread));
+            BigDecimal askApprox = currentPrice.multiply(BigDecimal.ONE.add(halfSpread));
             
             boolean shouldTrigger = false;
             OrderDirection triggerDirection = null;
@@ -81,22 +115,22 @@ public class VirtualStopMonitorService {
             
             // Логика для Stop-Loss
             if ("VIRTUAL_STOP_LONG".equals(operation)) {
-                // Лонг: стоп срабатывает если цена упала ниже уровня
-                if (currentPrice.compareTo(triggerPrice) <= 0) {
+                // Лонг: проверяем bid
+                if (bidApprox.compareTo(triggerPrice) <= 0) {
                     shouldTrigger = true;
                     triggerDirection = OrderDirection.ORDER_DIRECTION_SELL;
                     triggerType = "STOP-LOSS (ЛОНГ)";
-                    log.warn("🛑 СРАБАТЫВАНИЕ СТОП-ЛОССА (ЛОНГ): {} упал до {} (стоп: {})", 
-                        displayOf(figi), currentPrice, triggerPrice);
+                    log.warn("🛑 КАНДИДАТ SL (ЛОНГ): {} bid≈{} (mid={}) стоп {}", 
+                        displayOf(figi), bidApprox, currentPrice, triggerPrice);
                 }
             } else if ("VIRTUAL_STOP_SHORT".equals(operation)) {
-                // Шорт: стоп срабатывает если цена выросла выше уровня
-                if (currentPrice.compareTo(triggerPrice) >= 0) {
+                // Шорт: проверяем ask
+                if (askApprox.compareTo(triggerPrice) >= 0) {
                     shouldTrigger = true;
                     triggerDirection = OrderDirection.ORDER_DIRECTION_BUY;
                     triggerType = "STOP-LOSS (ШОРТ)";
-                    log.warn("🛑 СРАБАТЫВАНИЕ СТОП-ЛОССА (ШОРТ): {} вырос до {} (стоп: {})", 
-                        displayOf(figi), currentPrice, triggerPrice);
+                    log.warn("🛑 КАНДИДАТ SL (ШОРТ): {} ask≈{} (mid={}) стоп {}", 
+                        displayOf(figi), askApprox, currentPrice, triggerPrice);
                 }
             }
             // Логика для Take-Profit
@@ -121,7 +155,16 @@ public class VirtualStopMonitorService {
             }
             
             if (shouldTrigger) {
-                executeVirtualOrder(virtualOrder, triggerDirection, currentPrice, triggerType);
+                int need = tradingSettingsService.getInt("virtual.stop.confirmations", 2);
+                int touches = touchCounters.merge(virtualOrder.getOrderId(), 1, Integer::sum);
+                lastTouch.put(virtualOrder.getOrderId(), LocalDateTime.now());
+                if (touches >= need) {
+                    touchCounters.remove(virtualOrder.getOrderId());
+                    lastTouch.remove(virtualOrder.getOrderId());
+                    executeVirtualOrder(virtualOrder, triggerDirection, currentPrice, triggerType);
+                } else {
+                    log.debug("⏳ Подтверждение SL {}/{} для {}", touches, need, virtualOrder.getOrderId());
+                }
             }
             
         } catch (Exception e) {
