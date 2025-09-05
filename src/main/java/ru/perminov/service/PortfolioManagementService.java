@@ -1635,7 +1635,7 @@ public class PortfolioManagementService {
             // RSI выше 60 трактуем как риск продолжения снижения после перекупленности — инициируем шорт
             if (rsi.compareTo(BigDecimal.valueOf(60)) > 0) {
                 // Блокируем открытие шорта для запрещённых классов активов
-                if (!isShortAllowedInstrument(figi)) {
+                if (!isShortAllowedForAccount(figi, accountId)) {
                     log.warn("🚫 Шорт запрещён по классу актива для {} — сигнал игнорирован", displayOf(figi));
                     return "HOLD";
                 }
@@ -1664,7 +1664,7 @@ public class PortfolioManagementService {
             log.debug("BEARISH тренд - анализируем возможности");
             if (rsi.compareTo(BigDecimal.valueOf(70)) > 0) {
                 // При нисходящем тренде и перекупленности разрешаем шорт
-                if (!hasPosition && !isShortAllowedInstrument(figi)) {
+                if (!hasPosition && !isShortAllowedForAccount(figi, accountId)) {
                     log.warn("🚫 Шорт запрещён по классу актива для {} — сигнал игнорирован", displayOf(figi));
                     return "HOLD";
                 }
@@ -1673,7 +1673,7 @@ public class PortfolioManagementService {
                 return action; // Сильная продажа/шорт при перекупленности
             } else if (rsi.compareTo(BigDecimal.valueOf(50)) > 0) {
                 // При нисходящем тренде разрешаем шорт даже при умеренных условиях
-                if (!hasPosition && !isShortAllowedInstrument(figi)) {
+                if (!hasPosition && !isShortAllowedForAccount(figi, accountId)) {
                     log.warn("🚫 Шорт запрещён по классу актива для {} — сигнал игнорирован", displayOf(figi));
                     return "HOLD";
                 }
@@ -1692,7 +1692,7 @@ public class PortfolioManagementService {
             return "BUY"; // Докупаем при сильной перепроданности
         } else if (rsi.compareTo(BigDecimal.valueOf(65)) > 0) {
             // При боковом тренде и перекупленности разрешаем шорт даже без позиции
-            if (!hasPosition && !isShortAllowedInstrument(figi)) {
+            if (!hasPosition && !isShortAllowedForAccount(figi, accountId)) {
                 log.warn("🚫 Шорт запрещён по классу актива для {} — сигнал игнорирован", displayOf(figi));
                 return "HOLD";
             }
@@ -1824,12 +1824,19 @@ public class PortfolioManagementService {
     /**
      * Разрешён ли шорт по классу актива (простой фильтр)
      */
-    private boolean isShortAllowedInstrument(String figi) {
+    private boolean isShortAllowedForAccount(String figi, String accountId) {
         try {
             String type = determineInstrumentType(figi);
-            if (type == null) return true;
+            if (type == null) return false;
+            // Никогда не шортим облигации/ETF
             if ("bond".equalsIgnoreCase(type) || "etf".equalsIgnoreCase(type)) return false;
-            return true;
+            // Динамика по балансу: для SMALL шорты отключены
+            PortfolioAnalysis analysis = analyzePortfolio(accountId);
+            java.math.BigDecimal total = analysis.getTotalValue();
+            AdaptiveDiversificationService.PortfolioLevel level = adaptiveDiversificationService.getPortfolioLevel(total);
+            boolean overrideAllow = tradingSettingsService.getBoolean("allow.short.override", false);
+            if (overrideAllow) return true;
+            return level != AdaptiveDiversificationService.PortfolioLevel.SMALL;
         } catch (Exception e) {
             log.warn("Ошибка проверки класса актива для шорта {}: {}", displayOf(figi), e.getMessage());
             return true;
