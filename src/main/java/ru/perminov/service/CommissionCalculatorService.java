@@ -69,14 +69,20 @@ public class CommissionCalculatorService {
     public BigDecimal calculateBreakevenPriceMove(BigDecimal currentPrice, int lots, String instrumentType) {
         BigDecimal tradeAmount = currentPrice.multiply(BigDecimal.valueOf(lots));
         BigDecimal fullCommission = calculateFullCycleCommission(tradeAmount, instrumentType);
+
+        // Комиссии → цена за лот
+        BigDecimal minPriceMove = fullCommission.divide(BigDecimal.valueOf(lots), 6, RoundingMode.HALF_UP);
+
+        // Добавляем издержки спрэда и ожидаемого лимитного офсета (по умолчанию из настроек)
+        BigDecimal spreadPct = getDefaultSpreadPct(instrumentType);
+        BigDecimal offsetPct = getEstimatedOffsetPct(instrumentType);
+        BigDecimal additional = currentPrice.multiply(spreadPct.add(offsetPct));
+        minPriceMove = minPriceMove.add(additional);
         
-        // Минимальное движение цены = комиссии / количество лотов
-        BigDecimal minPriceMove = fullCommission.divide(BigDecimal.valueOf(lots), 4, RoundingMode.HALF_UP);
+        log.info("💰 Break-even для {} лотов по {}: комиссии/лот={}, spread%={}, offset%={}, итог={} руб", 
+            lots, currentPrice, minPriceMove.subtract(additional), spreadPct, offsetPct, minPriceMove);
         
-        log.info("💰 Для безубыточности {} лотов по {} нужно движение цены минимум на {} руб", 
-            lots, currentPrice, minPriceMove);
-        
-        return minPriceMove;
+        return minPriceMove.setScale(4, RoundingMode.HALF_UP);
     }
     
     /**
@@ -105,5 +111,35 @@ public class CommissionCalculatorService {
         BigDecimal shortMultiplier = new BigDecimal(tradingSettingsService.getString("commission.short.multiplier", "1.0"));
         
         return baseCommission.multiply(shortMultiplier);
+    }
+
+    // === Вспомогательные методы для учёта спрэда/офсета ===
+    private BigDecimal getEstimatedOffsetPct(String instrumentType) {
+        if (instrumentType == null) return new BigDecimal("0.001");
+        switch (instrumentType.toLowerCase()) {
+            case "share":
+                return new BigDecimal("0.002");
+            case "etf":
+                return new BigDecimal("0.001");
+            case "bond":
+                return new BigDecimal("0.0005");
+            default:
+                return new BigDecimal("0.002");
+        }
+    }
+
+    // Оценка спрэда в долях 0..1 по классу инструмента (можно переопределить в настройках)
+    private BigDecimal getDefaultSpreadPct(String instrumentType) {
+        if (instrumentType == null) return new BigDecimal(tradingSettingsService.getString("spread.default.pct", "0.001"));
+        switch (instrumentType.toLowerCase()) {
+            case "share":
+                return new BigDecimal(tradingSettingsService.getString("spread.stock.pct", "0.0015")); // 0.15%
+            case "etf":
+                return new BigDecimal(tradingSettingsService.getString("spread.etf.pct", "0.0008")); // 0.08%
+            case "bond":
+                return new BigDecimal(tradingSettingsService.getString("spread.bond.pct", "0.0005")); // 0.05%
+            default:
+                return new BigDecimal(tradingSettingsService.getString("spread.default.pct", "0.001"));
+        }
     }
 }

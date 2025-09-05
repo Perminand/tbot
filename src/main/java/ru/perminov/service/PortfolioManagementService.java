@@ -398,13 +398,13 @@ public class PortfolioManagementService {
             String preliminaryAction = determineRecommendedAction(preliminaryTrend, 
                 preliminaryTrend.getCurrentPrice(), hasPreliminaryPosition, figi, accountId);
             if (preliminaryAction != null && !"HOLD".equals(preliminaryAction)) {
-                // Локальная защита: не более одной операции на FIGI за короткое окно (60 сек)
+                // Локальная защита: не более одной операции на FIGI за короткое окно (120 сек)
                 long nowMs = System.currentTimeMillis();
                 Long lastOp = recentOperationsWindow.get(figi);
-                if (lastOp != null && (nowMs - lastOp) < 60_000) {
-                    log.warn("🚫 Блок: уже была операция по {} менее чем минуту назад", displayOf(figi));
+                if (lastOp != null && (nowMs - lastOp) < 120_000) {
+                    log.warn("🚫 Блок: уже была операция по {} менее чем 2 минуты назад", displayOf(figi));
                     botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
-                        "Ограничение частоты по FIGI", displayOf(figi) + " — операция пропущена (окно 60 сек)");
+                        "Ограничение частоты по FIGI", displayOf(figi) + " — операция пропущена (окно 120 сек)");
                     return;
                 }
                 recentOperationsWindow.put(figi, nowMs);
