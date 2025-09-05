@@ -932,6 +932,16 @@ public class PortfolioManagementService {
                             "Размещение ордера на " + fullActionType, String.format("%s, Лотов: %d, Цена: %.2f, Стоимость: %.2f, Средства: %.2f", 
                                 displayOf(figi), lots, trend.getCurrentPrice(), totalCost, availableCash));
                         
+                        // Финальная проверка ликвидности прямо перед размещением ордера
+                        if (!passesDynamicLiquidityFilters(figi, accountId)) {
+                            log.warn("⛔ Финальная блокировка по ликвидности перед размещением ордера на {} по {}",
+                                fullActionType, displayOf(figi));
+                            botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                "Финальная блокировка по ликвидности",
+                                String.format("%s, Перед размещением ордера: %s", displayOf(figi), fullActionType));
+                            return;
+                        }
+
                         // 🚀 ИСПОЛЬЗУЕМ УМНЫЙ ЛИМИТНЫЙ ОРДЕР вместо рыночного
                         try {
                             orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId, trend.getCurrentPrice());
@@ -1020,6 +1030,16 @@ public class PortfolioManagementService {
                             "Размещение ордера на " + actionDescription, String.format("%s, Лотов: %d, Цена: %.2f", 
                                 displayOf(figi), lots, trend.getCurrentPrice()));
                         
+                        // Финальная проверка ликвидности перед продажей/закрытием шорта
+                        if (!passesDynamicLiquidityFilters(figi, accountId)) {
+                            log.warn("⛔ Финальная блокировка по ликвидности перед размещением ордера на {} по {}",
+                                actionDescription, displayOf(figi));
+                            botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                "Финальная блокировка по ликвидности",
+                                String.format("%s, Перед размещением ордера: %s", displayOf(figi), actionDescription));
+                            return;
+                        }
+
                         // 🚀 ИСПОЛЬЗУЕМ УМНЫЙ ЛИМИТНЫЙ ОРДЕР вместо рыночного
                         try {
                             orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, trend.getCurrentPrice());
