@@ -200,6 +200,31 @@ public class MarketAnalysisService {
     }
 
     /**
+     * Расчёт относительного спрэда по лучшим котировкам: (ask - bid) / mid
+     */
+    public BigDecimal getSpreadPct(String figi) {
+        try {
+            apiRateLimiter.acquire();
+            var orderBook = investApiManager.getCurrentInvestApi().getMarketDataService()
+                .getOrderBookSync(figi, 1);
+            if (orderBook != null && !orderBook.getBidsList().isEmpty() && !orderBook.getAsksList().isEmpty()) {
+                var bestBid = orderBook.getBidsList().get(0);
+                var bestAsk = orderBook.getAsksList().get(0);
+                BigDecimal bid = quotationToBigDecimal(bestBid.getPrice());
+                BigDecimal ask = quotationToBigDecimal(bestAsk.getPrice());
+                if (bid != null && ask != null && bid.compareTo(BigDecimal.ZERO) > 0 && ask.compareTo(bid) >= 0) {
+                    BigDecimal mid = bid.add(ask).divide(BigDecimal.valueOf(2), 6, RoundingMode.HALF_UP);
+                    BigDecimal spreadAbs = ask.subtract(bid);
+                    return spreadAbs.divide(mid, 6, RoundingMode.HALF_UP);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Не удалось получить спрэд через OrderBook для {}: {}", figi, e.getMessage());
+        }
+        return BigDecimal.ZERO;
+    }
+
+    /**
      * Анализ тренда
      */
     public TrendAnalysis analyzeTrend(String figi, CandleInterval interval) {

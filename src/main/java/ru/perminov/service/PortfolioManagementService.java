@@ -464,13 +464,39 @@ public class PortfolioManagementService {
                 return;
             }
             
-            // Сведение решений: отдаём приоритет продвинутому сигналу при достаточной силе
+            // Сведение решений: по умолчанию берём базовый сигнал
             double minStrength = tradingSettingsService.getDouble("signal.min.strength", 50.0);
-            String action = actionByAdvanced != null && !"HOLD".equals(actionByAdvanced) &&
-                (advSignal.getStrength() != null && advSignal.getStrength().compareTo(java.math.BigDecimal.valueOf(minStrength)) > 0)
-                ? actionByAdvanced : opportunity.getRecommendedAction();
+            String baseAction = opportunity.getRecommendedAction();
+            String action = baseAction;
+            // Разрешаем продвинутому сигналу усиливать только то же направление, либо вытянуть из HOLD
+            if (actionByAdvanced != null && !"HOLD".equals(actionByAdvanced) &&
+                advSignal.getStrength() != null && advSignal.getStrength().compareTo(java.math.BigDecimal.valueOf(minStrength)) > 0) {
+                if ("HOLD".equals(baseAction) || isSameDirectionForDecision(actionByAdvanced, baseAction)) {
+                    action = actionByAdvanced;
+                } else {
+                    log.warn("⚠️ Продвинутый сигнал {} (strength={}) не переопределяет базовый {}: запрет смены направления", 
+                        actionByAdvanced, advSignal.getStrength(), baseAction);
+                }
+            }
             log.info("🎯 ФИНАЛЬНОЕ РЕШЕНИЕ для {}: {} (продвинутый: {}, базовый: {})", 
-                displayOf(figi), action, actionByAdvanced, opportunity.getRecommendedAction());
+                displayOf(figi), action, actionByAdvanced, baseAction);
+
+            // Повторная проверка cooldown по финальному действию (после сведения решений)
+            if (action != null && !"HOLD".equals(action)) {
+                String actionForCooldown = normalizeActionDirection(action);
+                TradingCooldownService.CooldownResult finalCooldown = 
+                    tradingCooldownService.canTrade(figi, actionForCooldown, accountId);
+                if (finalCooldown.isBlocked()) {
+                    log.warn("🚫 БЛОКИРОВКА OVERTRADING (финальное действие): {} для {}. Причина: {}", 
+                        actionForCooldown, displayOf(figi), finalCooldown.getReason());
+                    botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "Блокировка частых сделок (финальное решение)", String.format("%s, Account: %s, Действие: %s, Причина: %s", 
+                            displayOf(figi), accountId, actionForCooldown, finalCooldown.getReason()));
+                    return;
+                }
+                log.info("✅ Финальная cooldown‑проверка пройдена: {} для {}. {}", 
+                    actionForCooldown, displayOf(figi), finalCooldown.getReason());
+            }
             
             if ("CLOSE_SHORT".equals(action)) {
                 // Специальная обработка закрытия шорта
@@ -1602,6 +1628,11 @@ public class PortfolioManagementService {
             log.debug("BEARISH тренд + нет позиции - проверяем условия для шорта");
             // RSI выше 60 трактуем как риск продолжения снижения после перекупленности — инициируем шорт
             if (rsi.compareTo(BigDecimal.valueOf(60)) > 0) {
+                // Блокируем открытие шорта для запрещённых классов активов
+                if (!isShortAllowedInstrument(figi)) {
+                    log.warn("🚫 Шорт запрещён по классу актива для {} — сигнал игнорирован", displayOf(figi));
+                    return "HOLD";
+                }
                 log.info("🎯 СИГНАЛ НА ШОРТ: BEARISH тренд + RSI {} > 60 + нет позиции", rsi);
                 return "SELL"; // трактуем SELL как вход в шорт при отсутствии позиции
             } else {
@@ -1627,11 +1658,19 @@ public class PortfolioManagementService {
             log.debug("BEARISH тренд - анализируем возможности");
             if (rsi.compareTo(BigDecimal.valueOf(70)) > 0) {
                 // При нисходящем тренде и перекупленности разрешаем шорт
+                if (!hasPosition && !isShortAllowedInstrument(figi)) {
+                    log.warn("🚫 Шорт запрещён по классу актива для {} — сигнал игнорирован", displayOf(figi));
+                    return "HOLD";
+                }
                 String action = hasPosition ? "SELL" : "SELL"; // Разрешаем шорт при сильной перекупленности
                 log.info("🎯 СИГНАЛ НА ПРОДАЖУ/ШОРТ: BEARISH тренд + RSI {} > 70 (перекупленность) + есть позиция: {}", rsi, hasPosition);
                 return action; // Сильная продажа/шорт при перекупленности
             } else if (rsi.compareTo(BigDecimal.valueOf(50)) > 0) {
                 // При нисходящем тренде разрешаем шорт даже при умеренных условиях
+                if (!hasPosition && !isShortAllowedInstrument(figi)) {
+                    log.warn("🚫 Шорт запрещён по классу актива для {} — сигнал игнорирован", displayOf(figi));
+                    return "HOLD";
+                }
                 String action = hasPosition ? "SELL" : "SELL"; // Разрешаем шорт при нисходящем тренде
                 log.debug("BEARISH тренд + RSI {} > 50: {} (разрешен шорт)", rsi, action);
                 return action; // Умеренная продажа/шорт при нисходящем тренде
@@ -1647,6 +1686,10 @@ public class PortfolioManagementService {
             return "BUY"; // Докупаем при сильной перепроданности
         } else if (rsi.compareTo(BigDecimal.valueOf(65)) > 0) {
             // При боковом тренде и перекупленности разрешаем шорт даже без позиции
+            if (!hasPosition && !isShortAllowedInstrument(figi)) {
+                log.warn("🚫 Шорт запрещён по классу актива для {} — сигнал игнорирован", displayOf(figi));
+                return "HOLD";
+            }
             String action = hasPosition ? "SELL" : "SELL"; // Разрешаем шорт при перекупленности
             log.info("🎯 СИГНАЛ НА ПРОДАЖУ/ШОРТ: Боковой тренд + RSI {} > 65 (перекупленность) + есть позиция: {}", rsi, hasPosition);
             return action; // Продажа/шорт при перекупленности
@@ -1661,26 +1704,48 @@ public class PortfolioManagementService {
      */
     private boolean hasMinimumVolatility(MarketAnalysisService.TrendAnalysis trendAnalysis, String figi) {
         try {
-            // Пока метод getAtr() не реализован, используем простую проверку на основе цены
             BigDecimal currentPrice = trendAnalysis.getCurrentPrice();
-            
-            if (currentPrice != null && currentPrice.compareTo(BigDecimal.ZERO) > 0) {
-                // Простая проверка: цена должна быть больше 1 рубля для эффективной торговли
-                boolean hasVolatility = currentPrice.compareTo(BigDecimal.ONE) > 0;
-                
-                log.debug("📊 Проверка волатильности {}: цена={} → {}", 
-                    displayOf(figi), currentPrice, hasVolatility ? "ДОСТАТОЧНО" : "МАЛО");
-                
-                return hasVolatility;
-            }
-            
-            // Если цена недоступна, разрешаем торговлю
-            return true;
-            
+            if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) return true;
+            int atrPeriod = tradingSettingsService.getInt("atr.period", 14);
+            BigDecimal atr = marketAnalysisService.calculateATR(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY, atrPeriod);
+            if (atr == null) return true;
+            BigDecimal atrPct = atr.divide(currentPrice, 6, RoundingMode.HALF_UP);
+            double minAtrPct = tradingSettingsService.getDouble("atr.min.pct", 0.002);
+            double maxAtrPct = tradingSettingsService.getDouble("atr.max.pct", 0.08);
+            boolean ok = atrPct.compareTo(BigDecimal.valueOf(minAtrPct)) >= 0 && atrPct.compareTo(BigDecimal.valueOf(maxAtrPct)) <= 0;
+            log.debug("📊 Проверка волатильности (ATR) {}: ATR%={}, min={}, max={}, ok={}", displayOf(figi), atrPct, minAtrPct, maxAtrPct, ok);
+            return ok;
         } catch (Exception e) {
             log.warn("Ошибка проверки волатильности для {}: {}", displayOf(figi), e.getMessage());
             return true; // При ошибке разрешаем торговлю
         }
+    }
+
+    /**
+     * Нормализация действия к направлению для cooldown: CLOSE_SHORT трактуем как BUY (покупка для закрытия)
+     */
+    private String normalizeActionDirection(String action) {
+        if (action == null) return "HOLD";
+        switch (action) {
+            case "BUY":
+            case "SELL":
+                return action;
+            case "CLOSE_SHORT":
+                return "BUY";
+            default:
+                return "HOLD";
+        }
+    }
+
+    /**
+     * Совпадает ли направление решений (BUY/SELL). HOLD считается нейтральным и не совпадает.
+     */
+    private boolean isSameDirectionForDecision(String a, String b) {
+        if (a == null || b == null) return false;
+        String na = normalizeActionDirection(a);
+        String nb = normalizeActionDirection(b);
+        if ("HOLD".equals(na) || "HOLD".equals(nb)) return false;
+        return na.equals(nb);
     }
     
     /**
@@ -1705,14 +1770,20 @@ public class PortfolioManagementService {
             BigDecimal minMovePct = minPriceMove.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
             
             // Получаем настройки стоп-лосса и тейк-профита
-            double slPct = riskRuleService.getDefaultStopLossPct() * 100; // переводим в проценты
+            double slPct = riskRuleService.getDefaultStopLossPct() * 100; // проценты
             double tpPct = riskRuleService.getDefaultTakeProfitPct() * 100;
+
+            // Доп. издержки: спрэд и офсет лимитного
+            BigDecimal spreadPct = marketAnalysisService.getSpreadPct(figi).multiply(BigDecimal.valueOf(100));
+            BigDecimal offsetPct = getEstimatedOffsetPct(instrumentType).multiply(BigDecimal.valueOf(100));
+            double rrMin = tradingSettingsService.getDouble("risk.rr.min", 1.5);
+
+            double requiredEdgePct = slPct * rrMin + minMovePct.doubleValue() + spreadPct.doubleValue() + offsetPct.doubleValue();
+            boolean profitable = tpPct >= requiredEdgePct;
             
-            // Проверяем, достаточно ли тейк-профит для покрытия комиссий + риска
-            boolean profitable = tpPct > (minMovePct.doubleValue() + slPct);
-            
-            log.debug("💰 Анализ прибыльности {}: цена={}, лотов={}, мин.движение={}% ({}₽), SL={}%, TP={}% → {}", 
-                displayOf(figi), currentPrice, estimatedLots, minMovePct, minPriceMove, slPct, tpPct,
+            log.debug("💰 Анализ прибыльности {}: цена={}, лотов={}, break-even={}% ({}₽), spread={}%, offset={}%, SL={}%, RRmin={}, TP={}%, требование={} → {}",
+                displayOf(figi), currentPrice, estimatedLots, minMovePct, minPriceMove,
+                spreadPct, offsetPct, slPct, rrMin, tpPct, requiredEdgePct,
                 profitable ? "ПРИБЫЛЬНО" : "УБЫТОЧНО");
             
             return profitable;
@@ -1720,6 +1791,38 @@ public class PortfolioManagementService {
         } catch (Exception e) {
             log.warn("Ошибка проверки прибыльности для {}: {}", displayOf(figi), e.getMessage());
             return true; // При ошибке разрешаем торговлю
+        }
+    }
+
+    /**
+     * Оценка ожидаемого офсета лимитного (в долях 0..1) по классу инструмента
+     */
+    private BigDecimal getEstimatedOffsetPct(String instrumentType) {
+        if (instrumentType == null) return new BigDecimal("0.001");
+        switch (instrumentType) {
+            case "share":
+                return new BigDecimal("0.002"); // 0.2%
+            case "etf":
+                return new BigDecimal("0.001"); // 0.1%
+            case "bond":
+                return new BigDecimal("0.0005"); // 0.05%
+            default:
+                return new BigDecimal("0.002");
+        }
+    }
+
+    /**
+     * Разрешён ли шорт по классу актива (простой фильтр)
+     */
+    private boolean isShortAllowedInstrument(String figi) {
+        try {
+            String type = determineInstrumentType(figi);
+            if (type == null) return true;
+            if ("bond".equalsIgnoreCase(type) || "etf".equalsIgnoreCase(type)) return false;
+            return true;
+        } catch (Exception e) {
+            log.warn("Ошибка проверки класса актива для шорта {}: {}", displayOf(figi), e.getMessage());
+            return true;
         }
     }
     
