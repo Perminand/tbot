@@ -347,7 +347,7 @@ public class PortfolioManagementService {
             
             for (Position shortPos : shortPositions) {
                 String figi = shortPos.getFigi();
-                log.info("🔍 Анализ шорт позиции: FIGI={}, quantity={}", figi, shortPos.getQuantity());
+                log.info("🔍 Анализ шорт позиции: {}, quantity={}", displayOf(figi), shortPos.getQuantity());
                 
                 // Принудительно анализируем торговый сигнал для каждой шорт позиции
                 executeTradingStrategy(accountId, figi);
@@ -1123,7 +1123,7 @@ public class PortfolioManagementService {
                                 log.info("🎯 Ордер на открытие шорта размещен успешно: orderId={}, status={}", 
                                     response.getOrderId(), response.getExecutionReportStatus());
                                 botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING,
-                                    "Шорт открыт", String.format("FIGI: %s, Лотов: %d, OrderId: %s", figi, lots, response.getOrderId()));
+                                    "Шорт открыт", String.format("%s, Лотов: %d, OrderId: %s", displayOf(figi), lots, response.getOrderId()));
                                 
                                 // 🚀 НОВОЕ: Автоматический OCO для шорта
                                 try {
@@ -1197,8 +1197,8 @@ public class PortfolioManagementService {
                         log.info("Закрытие шорта: {} лотов по цене {}", lots, trend.getCurrentPrice());
                         
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                            "Закрытие шорта", String.format("FIGI: %s, Лотов: %d, Цена: %.2f", 
-                                figi, lots, trend.getCurrentPrice()));
+                            "Закрытие шорта", String.format("%s, Лотов: %d, Цена: %.2f", 
+                                displayOf(figi), lots, trend.getCurrentPrice()));
                         
                         // Размещаем реальный ордер на покупку для закрытия шорта
                         // ВАЖНО: При закрытии шортов НЕ проверяем отрицательные средства,
@@ -1206,7 +1206,7 @@ public class PortfolioManagementService {
                         try {
                             orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId, trend.getCurrentPrice());
                             botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                                "Шорт закрыт умным лимитом", String.format("FIGI: %s, Лотов: %d", figi, lots));
+                                "Шорт закрыт умным лимитом", String.format("%s, Лотов: %d", displayOf(figi), lots));
                         } catch (Exception e) {
                             log.error("Ошибка закрытия шорта: {}", e.getMessage());
                             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.AUTOMATIC_TRADING, 
@@ -1368,8 +1368,8 @@ public class PortfolioManagementService {
                     if (opportunity != null) {
                         opportunities.add(opportunity);
                         botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.TECHNICAL_INDICATORS, 
-                            "Анализ инструмента завершен", String.format("FIGI: %s, Score: %.1f, Действие: %s", 
-                                share.getFigi(), opportunity.getScore(), opportunity.getRecommendedAction()));
+                            "Анализ инструмента завершен", String.format("%s, Score: %.1f, Действие: %s", 
+                                displayOf(share.getFigi()), opportunity.getScore(), opportunity.getRecommendedAction()));
                     }
                     
                     // Добавляем задержку между запросами для избежания лимитов API
@@ -1458,8 +1458,8 @@ public class PortfolioManagementService {
                                 actionDescription, position.getFigi(), opportunity.getScore(), 
                                 isShortPosition ? "ШОРТ" : "ДЛИННАЯ");
                             botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.PORTFOLIO_MANAGEMENT, 
-                                "Найдена возможность " + actionDescription, String.format("FIGI: %s, Score: %.1f, Тип: %s", 
-                                    position.getFigi(), opportunity.getScore(), isShortPosition ? "ШОРТ" : "ДЛИННАЯ"));
+                                "Найдена возможность " + actionDescription, String.format("%s, Score: %.1f, Тип: %s", 
+                                    displayOf(position.getFigi()), opportunity.getScore(), isShortPosition ? "ШОРТ" : "ДЛИННАЯ"));
                         }
                         
                         // Добавляем задержку между запросами
@@ -2110,8 +2110,8 @@ public class PortfolioManagementService {
                     bestOpportunity.getFigi(), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore());
                 
                 botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                    "Выполнение торговой операции", String.format("FIGI: %s, Действие: %s, Score: %.1f, RSI: %.1f, Тренд: %s", 
-                        bestOpportunity.getFigi(), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore(), 
+                    "Выполнение торговой операции", String.format("%s, Действие: %s, Score: %.1f, RSI: %.1f, Тренд: %s", 
+                        displayOf(bestOpportunity.getFigi()), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore(), 
                         bestOpportunity.getRsi(), bestOpportunity.getTrend()));
                 
                 try {
@@ -2291,8 +2291,8 @@ public class PortfolioManagementService {
                         bestTradingOpportunity.getFigi(), bestTradingOpportunity.getRecommendedAction(), bestTradingOpportunity.getScore());
                     
                     botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
-                        "Выполнение торговой операции", String.format("FIGI: %s, Действие: %s, Score: %.1f", 
-                            bestTradingOpportunity.getFigi(), bestTradingOpportunity.getRecommendedAction(), bestTradingOpportunity.getScore()));
+                        "Выполнение торговой операции", String.format("%s, Действие: %s, Score: %.1f", 
+                            displayOf(bestTradingOpportunity.getFigi()), bestTradingOpportunity.getRecommendedAction(), bestTradingOpportunity.getScore()));
                     
                     executeTradingStrategy(monitoredAccountId, bestTradingOpportunity.getFigi());
                 } else {
