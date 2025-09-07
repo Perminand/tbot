@@ -28,6 +28,8 @@ public class OrderService {
     private final BotControlService botControlService;
     private final ApiRateLimiter apiRateLimiter;
     private final OrderRepository orderRepository;
+    private final PortfolioService portfolioService;
+    private final LotSizeService lotSizeService;
 
     public List<OrderState> getOrders(String accountId) {
         try {
@@ -56,6 +58,9 @@ public class OrderService {
                 throw new IllegalStateException("Превышен лимит ордеров в минуту");
             }
             
+            // Коррекция объема в зависимости от доступного количества лотов (не продавать больше, чем есть)
+            lots = clampLotsByHoldings(figi, accountId, direction, lots);
+
             // Дополнительная проверка: если лотов слишком много, уменьшаем до разумного лимита
             if (lots > 100) {
                 log.warn("Слишком много лотов для размещения: {} -> 100", lots);
@@ -155,6 +160,12 @@ public class OrderService {
      */
     public PostOrderResponse placeSmartLimitOrder(String figi, int lots, OrderDirection direction, String accountId, BigDecimal marketPrice) {
         try {
+            // Корректируем лоты до размещения лимитного ордера
+            int originalLots = lots;
+            lots = clampLotsByHoldings(figi, accountId, direction, lots);
+            if (lots <= 0) {
+                throw new IllegalStateException("После коррекции объема лотов не осталось: было=" + originalLots);
+            }
             // Рассчитываем отступ в зависимости от направления
             BigDecimal offsetPct = getOptimalOffset(figi, direction);
             BigDecimal limitPrice;
@@ -406,6 +417,8 @@ public class OrderService {
 
     public PostOrderResponse placeLimitOrder(String figi, int lots, OrderDirection direction, String accountId, String price) {
         try {
+            // Корректируем лоты до размещения лимитного ордера
+            lots = clampLotsByHoldings(figi, accountId, direction, lots);
             String orderId = UUID.randomUUID().toString();
             log.info("Размещение лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ID {}", 
                     lots, direction, accountId, price, orderId);
@@ -467,6 +480,60 @@ public class OrderService {
             log.error("Ошибка при размещении лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ошибка {}", 
                     lots, direction, accountId, price, e.getMessage(), e);
             throw new RuntimeException("Ошибка при размещении лимитного ордера: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Корректирует количество лотов с учётом доступного количества в портфеле.
+     * - Для SELL не позволяет продать больше, чем есть в лонге.
+     * - Для BUY не позволяет купить больше, чем нужно для полного закрытия шорта (если он есть).
+     * Возвращает скорректированное положительное число лотов (или 0, если торговать нельзя).
+     */
+    private int clampLotsByHoldings(String figi, String accountId, OrderDirection direction, int requestedLots) {
+        try {
+            int lots = Math.max(0, requestedLots);
+            if (lots == 0) return 0;
+
+            var portfolio = portfolioService.getPortfolio(accountId);
+            var positionOpt = portfolio.getPositions().stream()
+                .filter(p -> figi.equals(p.getFigi()))
+                .findFirst();
+
+            if (positionOpt.isEmpty()) {
+                log.info("Коррекция объема: позиции по {} нет, requestedLots={} → {} (без изменений)", figi, requestedLots, lots);
+                return lots; // нет позиции — не ограничиваем покупку
+            }
+
+            var position = positionOpt.get();
+            java.math.BigDecimal shares = position.getQuantity() == null ? java.math.BigDecimal.ZERO : position.getQuantity();
+            int lotSize = lotSizeService.getLotSize(figi, position.getInstrumentType() != null ? position.getInstrumentType() : "share");
+            int availableLots = shares.signum() >= 0
+                ? shares.divide(new java.math.BigDecimal(Math.max(lotSize, 1)), 0, java.math.RoundingMode.DOWN).intValue()
+                : shares.abs().divide(new java.math.BigDecimal(Math.max(lotSize, 1)), 0, java.math.RoundingMode.DOWN).intValue();
+
+            int finalLots = lots;
+            if (direction == OrderDirection.ORDER_DIRECTION_SELL) {
+                // Нельзя продать больше, чем есть лонговых лотов
+                if (shares.signum() > 0) {
+                    finalLots = Math.min(lots, availableLots);
+                } else {
+                    // нет лонга — запрещаем SELL
+                    finalLots = 0;
+                }
+            } else if (direction == OrderDirection.ORDER_DIRECTION_BUY) {
+                // Если есть шорт, не покупаем больше, чем для его закрытия
+                if (shares.signum() < 0) {
+                    finalLots = Math.min(lots, availableLots);
+                }
+            }
+
+            log.info("Коррекция лотов [{}]: shares={}, lotSize={}, requested={}, available={}, final={}",
+                figi, shares, lotSize, requestedLots, availableLots, finalLots);
+
+            return finalLots;
+        } catch (Exception e) {
+            log.warn("Не удалось скорректировать количество лотов по {}: {}. Используем requestedLots={}.", figi, e.getMessage(), requestedLots);
+            return requestedLots;
         }
     }
 

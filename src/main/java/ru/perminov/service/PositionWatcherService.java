@@ -29,6 +29,7 @@ public class PositionWatcherService {
     private final TradingSettingsService tradingSettingsService;
     private final BotLogService botLogService;
     private final PositionRiskStateService positionRiskStateService;
+    private final LotSizeService lotSizeService;
 
     // Периодический контроль позиций: SL/TP/трейлинг
     @Scheduled(fixedRate = 15000) // каждые 15 секунд
@@ -63,7 +64,9 @@ public class PositionWatcherService {
                         }
                         if (avgPrice == null || avgPrice.compareTo(BigDecimal.ZERO) <= 0) continue;
                         
-                        BigDecimal quantity = p.getQuantity().abs();
+                        BigDecimal quantityShares = p.getQuantity().abs();
+                        int lotSize = lotSizeService.getLotSize(figi, p.getInstrumentType());
+                        BigDecimal quantity = quantityShares.divide(new BigDecimal(Math.max(1, lotSize)), 0, RoundingMode.DOWN);
                         
                         // Получаем правила рисков
                         RiskRule rule = riskRuleService.findByFigi(figi).orElseGet(() -> {

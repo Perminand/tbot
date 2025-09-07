@@ -20,6 +20,7 @@ public class RiskMonitorService {
     private final AccountService accountService;
     private final PortfolioService portfolioService;
     private final OrderService orderService;
+    private final LotSizeService lotSizeService;
     private final RiskRuleService riskRuleService;
     private final BotControlService botControlService;
 
@@ -54,7 +55,9 @@ public class RiskMonitorService {
             if (p.getQuantity() == null || p.getQuantity().compareTo(BigDecimal.ZERO) <= 0) continue;
 
             String figi = p.getFigi();
-            BigDecimal qtyLots = p.getQuantity();
+            // Переводим количество акций в лоты
+            int lotSize = lotSizeService.getLotSize(figi, p.getInstrumentType());
+            BigDecimal qtyLots = p.getQuantity().divide(new BigDecimal(Math.max(1, lotSize)), 0, java.math.RoundingMode.DOWN);
 
             BigDecimal currentPrice = extractPrice(p.getCurrentPrice());
             BigDecimal avgPrice = BigDecimal.ZERO;
@@ -91,12 +94,12 @@ public class RiskMonitorService {
             if (lots <= 0) return;
 
             if (current.compareTo(slLevel) <= 0) {
-                                        log.warn("SL сработал: текущая={} ≤ SL={} (acc={}) — отправляем MARKET SELL {} лотов", current, slLevel, accountId, lots);
+                log.warn("SL сработал: текущая={} ≤ SL={} (acc={}) — отправляем MARKET SELL {} лотов", current, slLevel, accountId, lots);
                 orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, current);
                 return;
             }
             if (current.compareTo(tpLevel) >= 0) {
-                                        log.info("TP сработал: текущая={} ≥ TP={} (acc={}) — отправляем MARKET SELL {} лотов", current, tpLevel, accountId, lots);
+                log.info("TP сработал: текущая={} ≥ TP={} (acc={}) — отправляем MARKET SELL {} лотов", current, tpLevel, accountId, lots);
                 orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, current);
             }
         } catch (Exception e) {
