@@ -104,6 +104,16 @@ public class VirtualStopMonitorService {
             // Учет спрэда: используем bid/ask оценку от mid
             BigDecimal spreadPct = marketAnalysisService.getSpreadPct(figi);
             if (spreadPct == null) spreadPct = BigDecimal.ZERO;
+            // Fallback цены: если currentPrice невалидна/недоступна, берём midpoint из orderbook
+            if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
+                try {
+                    var trendDaily = marketAnalysisService.analyzeTrend(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
+                    if (trendDaily != null && trendDaily.getCurrentPrice() != null) {
+                        currentPrice = trendDaily.getCurrentPrice();
+                        log.debug("Fallback цена по {} из analyzeTrend(DAY): {}", figi, currentPrice);
+                    }
+                } catch (Exception ignore) {}
+            }
             BigDecimal half = new BigDecimal("0.5");
             BigDecimal halfSpread = spreadPct.multiply(half);
             BigDecimal bidApprox = currentPrice.multiply(BigDecimal.ONE.subtract(halfSpread));

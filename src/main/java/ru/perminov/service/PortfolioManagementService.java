@@ -1862,7 +1862,8 @@ public class PortfolioManagementService {
             // Используем минимальный размер позиции для расчета
             BigDecimal minPositionValue = new BigDecimal(tradingSettingsService.getString("capital-management.min-position-value", "1000"));
             int estimatedLots = minPositionValue.divide(currentPrice, 0, RoundingMode.UP).intValue();
-            if (estimatedLots < 1) estimatedLots = 1;
+            int minLots = tradingSettingsService.getInt("trade.min.lots", 5); // не торговать микро-объемами
+            if (estimatedLots < minLots) estimatedLots = minLots;
             
             BigDecimal tradeAmount = currentPrice.multiply(BigDecimal.valueOf(estimatedLots));
             
@@ -1888,7 +1889,10 @@ public class PortfolioManagementService {
             BigDecimal offsetPct = getEstimatedOffsetPct(instrumentType).multiply(BigDecimal.valueOf(100));
             double rrMin = tradingSettingsService.getDouble("risk.rr.min", 1.5);
 
-            double requiredEdgePct = slPct * rrMin + minMovePct.doubleValue() + spreadPct.doubleValue() + offsetPct.doubleValue();
+            // Добавляем дополнительный буфер 0.1% и двойную комиссию (уже учтена в minMovePct),
+            // но страхуемся на случай недооценки спреда
+            double safetyBufferPct = tradingSettingsService.getDouble("profit.safety.buffer.pct", 0.10);
+            double requiredEdgePct = slPct * rrMin + minMovePct.doubleValue() + spreadPct.doubleValue() + offsetPct.doubleValue() + safetyBufferPct;
             boolean profitable = tpPct >= requiredEdgePct;
             
             log.debug("💰 Анализ прибыльности {}: цена={}, лотов={}, break-even={}% ({}₽), spread={}%, offset={}%, SL={}%, RRmin={}, TP={}%, требование={} → {}",
