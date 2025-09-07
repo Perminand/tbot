@@ -1019,6 +1019,8 @@ public class PortfolioManagementService {
                         .orElse(null);
                     
                     if (position != null && position.getQuantity().compareTo(BigDecimal.ZERO) != 0) {
+                        log.info("🎯 ПРОДАЖА: Анализируем позицию {} - количество: {}, тип: {}", 
+                                displayOf(figi), position.getQuantity(), position.getInstrumentType());
                         int lotSize = getLotSizeSafe(figi, position.getInstrumentType());
                         int lots = toLots(position.getQuantity(), lotSize);
                         boolean isShortPosition = position.getQuantity().compareTo(BigDecimal.ZERO) < 0;
@@ -1912,15 +1914,27 @@ public class PortfolioManagementService {
             var api = investApiManager.getCurrentInvestApi();
             if ("bond".equalsIgnoreCase(instrumentType)) {
                 var bond = api.getInstrumentsService().getBondByFigiSync(figi);
-                if (bond != null && bond.getLot() > 0) return bond.getLot();
+                if (bond != null && bond.getLot() > 0) {
+                    log.debug("Размер лота для облигации {}: {}", displayOf(figi), bond.getLot());
+                    return bond.getLot();
+                }
             } else if ("etf".equalsIgnoreCase(instrumentType)) {
                 var etf = api.getInstrumentsService().getEtfByFigiSync(figi);
-                if (etf != null && etf.getLot() > 0) return etf.getLot();
+                if (etf != null && etf.getLot() > 0) {
+                    log.debug("Размер лота для ETF {}: {}", displayOf(figi), etf.getLot());
+                    return etf.getLot();
+                }
             } else {
                 var share = api.getInstrumentsService().getShareByFigiSync(figi);
-                if (share != null && share.getLot() > 0) return share.getLot();
+                if (share != null && share.getLot() > 0) {
+                    log.info("📊 Размер лота для акции {} ({}): {}", displayOf(figi), figi, share.getLot());
+                    return share.getLot();
+                }
             }
-        } catch (Exception ignore) { }
+        } catch (Exception e) { 
+            log.warn("Ошибка получения размера лота для {} ({}): {}", displayOf(figi), figi, e.getMessage());
+        }
+        log.warn("⚠️ Используется дефолтный размер лота 1 для {} ({})", displayOf(figi), figi);
         return 1; // дефолтная кратность
     }
 
@@ -1931,8 +1945,11 @@ public class PortfolioManagementService {
         if (quantity == null) return 0;
         try {
             int shares = Math.abs(quantity.intValue());
-            return Math.max(shares / Math.max(lotSize, 1), 0);
+            int lots = Math.max(shares / Math.max(lotSize, 1), 0);
+            log.info("🔢 Конвертация в лоты: {} акций ÷ {} (размер лота) = {} лотов", shares, lotSize, lots);
+            return lots;
         } catch (Exception e) {
+            log.error("Ошибка конвертации в лоты: quantity={}, lotSize={}, error={}", quantity, lotSize, e.getMessage());
             return 0;
         }
     }
