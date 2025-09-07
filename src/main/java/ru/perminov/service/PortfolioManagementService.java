@@ -1649,6 +1649,17 @@ public class PortfolioManagementService {
             return "HOLD";
         }
         
+        // 🚫 Запрет микросделок: если позиции нет и рассчитанные лоты меньше порога — пропускаем
+        if (!hasPosition) {
+            int minLots = tradingSettingsService.getInt("trading.min.lots", 5);
+            BigDecimal minPositionValue = new BigDecimal(tradingSettingsService.getString("capital-management.min-position-value", "1000"));
+            int estimatedLotsForOpen = minPositionValue.divide(currentPrice, 0, RoundingMode.UP).intValue();
+            if (estimatedLotsForOpen < Math.max(1, minLots)) {
+                log.info("📉 БЛОКИРОВКА: рассчитано {} лотов < минимального порога {} для {}", estimatedLotsForOpen, minLots, displayOf(figi));
+                return "HOLD";
+            }
+        }
+        
         // СПЕЦИАЛЬНАЯ ЛОГИКА ДЛЯ ЗАКРЫТИЯ ШОРТОВ - ТОЛЬКО ЕСЛИ ШОРТ ЕСТЬ!
         boolean hasShortPosition = hasShortPosition(figi, accountId);
         if (hasShortPosition) {
@@ -1862,8 +1873,7 @@ public class PortfolioManagementService {
             // Используем минимальный размер позиции для расчета
             BigDecimal minPositionValue = new BigDecimal(tradingSettingsService.getString("capital-management.min-position-value", "1000"));
             int estimatedLots = minPositionValue.divide(currentPrice, 0, RoundingMode.UP).intValue();
-            int minLots = tradingSettingsService.getInt("trade.min.lots", 5); // не торговать микро-объемами
-            if (estimatedLots < minLots) estimatedLots = minLots;
+            if (estimatedLots < 1) estimatedLots = 1;
             
             BigDecimal tradeAmount = currentPrice.multiply(BigDecimal.valueOf(estimatedLots));
             
@@ -1885,14 +1895,22 @@ public class PortfolioManagementService {
                 .orElse(riskRuleService.getDefaultTakeProfitPct() * 100);
 
             // Доп. издержки для критериев: используем те же оценки, что и в сервисе комиссий
-            BigDecimal spreadPct = marketAnalysisService.getSpreadPct(figi).multiply(BigDecimal.valueOf(100));
+            BigDecimal spreadFraction = marketAnalysisService.getSpreadPct(figi); // 0..1
+            BigDecimal spreadPct = spreadFraction.multiply(BigDecimal.valueOf(100));
             BigDecimal offsetPct = getEstimatedOffsetPct(instrumentType).multiply(BigDecimal.valueOf(100));
             double rrMin = tradingSettingsService.getDouble("risk.rr.min", 1.5);
 
-            // Добавляем дополнительный буфер 0.1% и двойную комиссию (уже учтена в minMovePct),
-            // но страхуемся на случай недооценки спреда
-            double safetyBufferPct = tradingSettingsService.getDouble("profit.safety.buffer.pct", 0.10);
-            double requiredEdgePct = slPct * rrMin + minMovePct.doubleValue() + spreadPct.doubleValue() + offsetPct.doubleValue() + safetyBufferPct;
+            // Жёсткий порог по спрэду: не торгуем при слишком широком спрэде
+            double maxSpreadStrict = tradingSettingsService.getDouble("trading.max.spread.strict.pct", 0.002); // 0.20%
+            if (spreadFraction != null && spreadFraction.compareTo(BigDecimal.valueOf(maxSpreadStrict)) > 0) {
+                log.info("💰 БЛОКИРОВКА: spread {}% превышает порог {}% для {}", spreadPct, BigDecimal.valueOf(maxSpreadStrict * 100), displayOf(figi));
+                return false;
+            }
+
+            // Минимальная подушка edge поверх издержек, чтобы покрыть шум/slippage
+            double minEdgeBufferPct = tradingSettingsService.getDouble("trading.min.edge.buffer.pct", 0.10); // 0.10%
+
+            double requiredEdgePct = slPct * rrMin + minMovePct.doubleValue() + spreadPct.doubleValue() + offsetPct.doubleValue() + minEdgeBufferPct;
             boolean profitable = tpPct >= requiredEdgePct;
             
             log.debug("💰 Анализ прибыльности {}: цена={}, лотов={}, break-even={}% ({}₽), spread={}%, offset={}%, SL={}%, RRmin={}, TP={}%, требование={} → {}",
