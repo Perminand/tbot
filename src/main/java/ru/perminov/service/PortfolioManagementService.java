@@ -41,6 +41,8 @@ public class PortfolioManagementService {
     private final CommissionCalculatorService commissionCalculatorService;
     private final AdaptiveDiversificationService adaptiveDiversificationService;
     private final TradingCooldownService tradingCooldownService;
+    private final PositionHoldTimeService positionHoldTimeService;
+    private final CommissionAwareTradingService commissionAwareTradingService;
 
     // Защита: одна торговая операция на FIGI в короткое окно (например, один цикл/60 сек)
     private final java.util.concurrent.ConcurrentHashMap<String, Long> recentOperationsWindow = new java.util.concurrent.ConcurrentHashMap<>();
@@ -932,15 +934,9 @@ public class PortfolioManagementService {
                             "Размещение ордера на " + fullActionType, String.format("%s, Лотов: %d, Цена: %.2f, Стоимость: %.2f, Средства: %.2f", 
                                 displayOf(figi), lots, trend.getCurrentPrice(), totalCost, availableCash));
                         
-                        // Финальная проверка ликвидности прямо перед размещением ордера
-                        if (!passesDynamicLiquidityFilters(figi, accountId)) {
-                            log.warn("⛔ Финальная блокировка по ликвидности перед размещением ордера на {} по {}",
-                                fullActionType, displayOf(figi));
-                            botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
-                                "Финальная блокировка по ликвидности",
-                                String.format("%s, Перед размещением ордера: %s", displayOf(figi), fullActionType));
-                            return;
-                        }
+                        // УБИРАЕМ дублирующую проверку ликвидности - она уже выполнена в analyzeTradingOpportunity()
+                        // Двойная проверка приводит к принятию решения BUY, а затем его блокировке
+                        log.debug("Пропускаем финальную проверку ликвидности - уже выполнена на этапе анализа для {}", displayOf(figi));
 
                         // 🚀 ИСПОЛЬЗУЕМ УМНЫЙ ЛИМИТНЫЙ ОРДЕР вместо рыночного
                         try {
@@ -1030,15 +1026,39 @@ public class PortfolioManagementService {
                             "Размещение ордера на " + actionDescription, String.format("%s, Лотов: %d, Цена: %.2f", 
                                 displayOf(figi), lots, trend.getCurrentPrice()));
                         
-                        // Финальная проверка ликвидности перед продажей/закрытием шорта
-                        if (!passesDynamicLiquidityFilters(figi, accountId)) {
-                            log.warn("⛔ Финальная блокировка по ликвидности перед размещением ордера на {} по {}",
-                                actionDescription, displayOf(figi));
+                        // УБИРАЕМ дублирующую проверку ликвидности для продажи - она уже выполнена в analyzeTradingOpportunity()
+                        log.debug("Пропускаем финальную проверку ликвидности для {} - уже выполнена на этапе анализа", displayOf(figi));
+                        
+                        // 🚀 НОВАЯ ПРОВЕРКА: Минимальное время удержания позиции
+                        PositionHoldTimeService.HoldTimeResult holdTimeCheck = positionHoldTimeService.canClosePosition(figi, accountId);
+                        if (holdTimeCheck.isBlocked()) {
+                            log.warn("⏰ Блокировка по минимальному времени удержания для {}: {}", displayOf(figi), holdTimeCheck.getReason());
                             botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
-                                "Финальная блокировка по ликвидности",
-                                String.format("%s, Перед размещением ордера: %s", displayOf(figi), actionDescription));
+                                "Блокировка по времени удержания", String.format("%s: %s", displayOf(figi), holdTimeCheck.getReason()));
                             return;
                         }
+                        log.info("✅ Проверка времени удержания пройдена для {}: {}", displayOf(figi), holdTimeCheck.getReason());
+                        
+                        // 🚀 НОВАЯ ПРОВЕРКА: Прибыльность с учётом комиссий
+                        BigDecimal entryPrice = trend.getCurrentPrice(); // временно используем текущую цену
+                        try {
+                            if (position.getAveragePositionPrice() != null) {
+                                entryPrice = extractMoneyValue(position.getAveragePositionPrice());
+                            } else if (position.getAveragePositionPriceFifo() != null) {
+                                entryPrice = extractMoneyValue(position.getAveragePositionPriceFifo());
+                            }
+                        } catch (Exception e) {
+                            log.warn("Ошибка получения цены входа для {}: {}, используем текущую цену", displayOf(figi), e.getMessage());
+                        }
+                        CommissionAwareTradingService.CommissionResult commissionCheck = 
+                            commissionAwareTradingService.shouldClosePosition(entryPrice, trend.getCurrentPrice(), positionValue.abs(), figi);
+                        if (commissionCheck.isBlocked()) {
+                            log.warn("💰 Блокировка закрытия по комиссиям для {}: {}", displayOf(figi), commissionCheck.getReason());
+                            botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                                "Блокировка по комиссиям", String.format("%s: %s", displayOf(figi), commissionCheck.getReason()));
+                            return;
+                        }
+                        log.info("✅ Проверка прибыльности пройдена для {}: {}", displayOf(figi), commissionCheck.getReason());
 
                         // 🚀 ИСПОЛЬЗУЕМ УМНЫЙ ЛИМИТНЫЙ ОРДЕР вместо рыночного
                         try {
@@ -2351,6 +2371,24 @@ public class PortfolioManagementService {
                 return "ETF";
             default:
                 return instrumentType;
+        }
+    }
+    
+    /**
+     * Извлекает BigDecimal из объекта Money (MoneyValue)
+     */
+    private BigDecimal extractMoneyValue(Object money) {
+        try {
+            if (money == null) return BigDecimal.ZERO;
+            // money может быть MoneyValue, пытаемся получить units/nano
+            java.lang.reflect.Method getUnits = money.getClass().getMethod("getUnits");
+            java.lang.reflect.Method getNano = money.getClass().getMethod("getNano");
+            long units = (long) getUnits.invoke(money);
+            int nano = (int) getNano.invoke(money);
+            return new BigDecimal(units + "." + String.format("%09d", nano));
+        } catch (Exception e) {
+            log.warn("Ошибка извлечения денежного значения: {}", e.getMessage());
+            return BigDecimal.ZERO;
         }
     }
 } 

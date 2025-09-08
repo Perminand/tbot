@@ -28,13 +28,13 @@ public class RiskRuleService {
     }
 
     public double getDefaultStopLossPct() {
-        // 🚀 ИСПРАВЛЕНО: Используем новые оптимизированные значения по умолчанию
-        return settingsRepository.findByKey("risk_default_sl_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.02);
+        // 🚀 ИСПРАВЛЕНО: Смягчаем SL с 2% до 5% чтобы избежать преждевременных закрытий
+        return settingsRepository.findByKey("risk_default_sl_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.05);
     }
 
     public double getDefaultTakeProfitPct() {
-        // 🚀 ИСПРАВЛЕНО: Используем новые оптимизированные значения по умолчанию
-        return settingsRepository.findByKey("risk_default_tp_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.06);
+        // 🚀 ИСПРАВЛЕНО: Увеличиваем TP с 6% до 12% для лучшего соотношения риск/доходность
+        return settingsRepository.findByKey("risk_default_tp_pct").map(s -> Double.parseDouble(s.getValue())).orElse(0.12);
     }
 
     public double getRiskPerTradePct() {
