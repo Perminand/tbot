@@ -200,6 +200,61 @@ public class MarketAnalysisService {
     }
 
     /**
+     * 🚀 НОВЫЙ МЕТОД: Получение лучших bid/ask цен для правильного размещения ордеров
+     */
+    public BidAskPrices getBidAskPrices(String figi) {
+        try {
+            apiRateLimiter.acquire();
+            var orderBook = investApiManager.getCurrentInvestApi().getMarketDataService()
+                .getOrderBookSync(figi, 1); // Глубина 1 для получения лучших цен
+            
+            if (orderBook != null && !orderBook.getBidsList().isEmpty() && !orderBook.getAsksList().isEmpty()) {
+                var bestBid = orderBook.getBidsList().get(0);
+                var bestAsk = orderBook.getAsksList().get(0);
+                
+                BigDecimal bidPrice = quotationToBigDecimal(bestBid.getPrice());
+                BigDecimal askPrice = quotationToBigDecimal(bestAsk.getPrice());
+                BigDecimal midPrice = bidPrice.add(askPrice).divide(BigDecimal.valueOf(2), 6, RoundingMode.HALF_UP);
+                BigDecimal spread = askPrice.subtract(bidPrice);
+                BigDecimal spreadPct = spread.divide(midPrice, 6, RoundingMode.HALF_UP);
+                
+                log.debug("💰 BID/ASK для {}: bid={}, ask={}, spread={} ({:.2%})", 
+                    figi, bidPrice, askPrice, spread, spreadPct);
+                
+                return new BidAskPrices(bidPrice, askPrice, midPrice, spread, spreadPct);
+            }
+        } catch (Exception e) {
+            log.warn("Не удалось получить bid/ask цены для {}: {}", figi, e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Класс для хранения bid/ask данных
+     */
+    public static class BidAskPrices {
+        private final BigDecimal bid;
+        private final BigDecimal ask;
+        private final BigDecimal mid;
+        private final BigDecimal spread;
+        private final BigDecimal spreadPct;
+        
+        public BidAskPrices(BigDecimal bid, BigDecimal ask, BigDecimal mid, BigDecimal spread, BigDecimal spreadPct) {
+            this.bid = bid;
+            this.ask = ask;
+            this.mid = mid;
+            this.spread = spread;
+            this.spreadPct = spreadPct;
+        }
+        
+        public BigDecimal getBid() { return bid; }
+        public BigDecimal getAsk() { return ask; }
+        public BigDecimal getMid() { return mid; }
+        public BigDecimal getSpread() { return spread; }
+        public BigDecimal getSpreadPct() { return spreadPct; }
+    }
+
+    /**
      * Расчёт относительного спрэда по лучшим котировкам: (ask - bid) / mid
      */
     public BigDecimal getSpreadPct(String figi) {

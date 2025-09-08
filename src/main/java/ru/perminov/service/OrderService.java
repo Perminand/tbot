@@ -30,6 +30,7 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final PortfolioService portfolioService;
     private final LotSizeService lotSizeService;
+    private final MarketAnalysisService marketAnalysisService;
 
     public List<OrderState> getOrders(String accountId) {
         try {
@@ -156,7 +157,7 @@ public class OrderService {
     }
 
     /**
-     * 🚀 НОВЫЙ МЕТОД: Умный лимитный ордер с отступом от рынка
+     * 🚀 ИСПРАВЛЕННЫЙ МЕТОД: Умный лимитный ордер с правильным использованием bid/ask цен
      */
     public PostOrderResponse placeSmartLimitOrder(String figi, int lots, OrderDirection direction, String accountId, BigDecimal marketPrice) {
         try {
@@ -166,18 +167,43 @@ public class OrderService {
             if (lots <= 0) {
                 throw new IllegalStateException("После коррекции объема лотов не осталось: было=" + originalLots);
             }
-            // Рассчитываем отступ в зависимости от направления
-            BigDecimal offsetPct = getOptimalOffset(figi, direction);
+            
+            // 🚀 ИСПРАВЛЕНИЕ: Получаем актуальные bid/ask цены вместо средней цены
+            MarketAnalysisService.BidAskPrices bidAsk = marketAnalysisService.getBidAskPrices(figi);
             BigDecimal limitPrice;
             
-            if (direction == OrderDirection.ORDER_DIRECTION_BUY) {
-                // Покупка: размещаем чуть ниже рынка
-                limitPrice = marketPrice.multiply(BigDecimal.ONE.subtract(offsetPct));
-                log.info("📈 ПОКУПКА: рынок {} → лимит {} (отступ -{}%)", marketPrice, limitPrice, offsetPct.multiply(BigDecimal.valueOf(100)));
+            if (bidAsk != null) {
+                // Используем реальные bid/ask цены
+                BigDecimal offsetPct = getOptimalOffset(figi, direction);
+                
+                if (direction == OrderDirection.ORDER_DIRECTION_BUY) {
+                    // 💰 ПОКУПКА: используем ASK цену + небольшой отступ ВВЕРХ для гарантированного исполнения
+                    limitPrice = bidAsk.getAsk().multiply(BigDecimal.ONE.add(offsetPct));
+                    log.info("📈 ПОКУПКА [ИСПРАВЛЕНО]: ask={} → лимит={} (отступ +{}%)", 
+                        bidAsk.getAsk(), limitPrice, offsetPct.multiply(BigDecimal.valueOf(100)));
+                } else {
+                    // 💰 ПРОДАЖА: используем BID цену - небольшой отступ ВНИЗ для гарантированного исполнения  
+                    limitPrice = bidAsk.getBid().multiply(BigDecimal.ONE.subtract(offsetPct));
+                    log.info("📉 ПРОДАЖА [ИСПРАВЛЕНО]: bid={} → лимит={} (отступ -{}%)", 
+                        bidAsk.getBid(), limitPrice, offsetPct.multiply(BigDecimal.valueOf(100)));
+                }
+                
+                log.info("💡 Спрэд для {}: {}% (bid={}, ask={}, mid={})", 
+                    figi, bidAsk.getSpreadPct().multiply(BigDecimal.valueOf(100)), 
+                    bidAsk.getBid(), bidAsk.getAsk(), bidAsk.getMid());
+                
             } else {
-                // Продажа: размещаем чуть выше рынка  
-                limitPrice = marketPrice.multiply(BigDecimal.ONE.add(offsetPct));
-                log.info("📉 ПРОДАЖА: рынок {} → лимит {} (отступ +{}%)", marketPrice, limitPrice, offsetPct.multiply(BigDecimal.valueOf(100)));
+                // Fallback: если не удалось получить bid/ask, используем старую логику с marketPrice
+                log.warn("⚠️ Не удалось получить bid/ask для {}, используем fallback с marketPrice={}", figi, marketPrice);
+                BigDecimal offsetPct = getOptimalOffset(figi, direction);
+                
+                if (direction == OrderDirection.ORDER_DIRECTION_BUY) {
+                    // Покупка: небольшой отступ вверх от средней цены
+                    limitPrice = marketPrice.multiply(BigDecimal.ONE.add(offsetPct.multiply(BigDecimal.valueOf(0.5))));
+                } else {
+                    // Продажа: небольшой отступ вниз от средней цены
+                    limitPrice = marketPrice.multiply(BigDecimal.ONE.subtract(offsetPct.multiply(BigDecimal.valueOf(0.5))));
+                }
             }
             
             return placeLimitOrder(figi, lots, direction, accountId, limitPrice.setScale(4, RoundingMode.HALF_UP).toPlainString());
@@ -189,31 +215,27 @@ public class OrderService {
     }
     
     /**
-     * 🚀 УЛУЧШЕННЫЙ РАСЧЕТ отступов для лучшего исполнения
+     * 🚀 ИСПРАВЛЕННЫЙ РАСЧЕТ отступов для гарантированного исполнения
      */
     private BigDecimal getOptimalOffset(String figi, OrderDirection direction) {
-        // Базовые отступы в зависимости от типа инструмента
+        // 💡 НОВАЯ ЛОГИКА: Минимальные отступы для гарантированного исполнения
         BigDecimal baseOffset;
         
         if (isBlueChip(figi)) {
             // Голубые фишки: минимальный отступ (высокая ликвидность)
-            baseOffset = new BigDecimal("0.0005"); // 0.05%
+            baseOffset = new BigDecimal("0.0002"); // 0.02% - очень маленький отступ
         } else if (isETF(figi)) {
-            // ETF: средний отступ
-            baseOffset = new BigDecimal("0.001"); // 0.1%
+            // ETF: небольшой отступ
+            baseOffset = new BigDecimal("0.0005"); // 0.05%
         } else {
-            // Остальные акции: больший отступ (меньше ликвидности)
-            baseOffset = new BigDecimal("0.002"); // 0.2%
+            // Остальные акции: умеренный отступ
+            baseOffset = new BigDecimal("0.001"); // 0.1%
         }
         
-        // 🎯 АДАПТИВНЫЙ ОТСТУП: Для покупки больше, для продажи меньше
-        if (direction == OrderDirection.ORDER_DIRECTION_BUY) {
-            // При покупке: увеличиваем отступ для лучшей цены
-            return baseOffset.multiply(new BigDecimal("1.5"));
-        } else {
-            // При продаже: уменьшаем отступ для быстрого исполнения
-            return baseOffset.multiply(new BigDecimal("0.8"));
-        }
+        // 🎯 ОДИНАКОВЫЕ ОТСТУПЫ для покупки и продажи (для гарантированного исполнения)
+        // При покупке: отступ ВВЕРХ от ask цены
+        // При продаже: отступ ВНИЗ от bid цены
+        return baseOffset;
     }
     
     /**
@@ -235,6 +257,42 @@ public class OrderService {
     private boolean isETF(String figi) {
         // Простая проверка по префиксу или известным ETF
         return figi.startsWith("BBG00") && figi.contains("ETF"); // Упрощенная логика
+    }
+    
+    /**
+     * 🚀 НОВЫЙ МЕТОД: Размещение ордера с автоматическим выбором стратегии исполнения
+     * Автоматически выбирает между рыночным и лимитным ордером в зависимости от спрэда
+     */
+    public PostOrderResponse placeOptimalOrder(String figi, int lots, OrderDirection direction, String accountId) {
+        try {
+            // Получаем информацию о спрэде
+            MarketAnalysisService.BidAskPrices bidAsk = marketAnalysisService.getBidAskPrices(figi);
+            
+            if (bidAsk != null) {
+                BigDecimal spreadPct = bidAsk.getSpreadPct();
+                
+                // Если спрэд очень маленький (< 0.1%), используем рыночный ордер
+                if (spreadPct.compareTo(new BigDecimal("0.001")) < 0) {
+                    log.info("🚀 ОПТИМАЛЬНЫЙ ВЫБОР для {}: РЫНОЧНЫЙ ордер (спрэд {}% < 0.1%)", 
+                        figi, spreadPct.multiply(BigDecimal.valueOf(100)));
+                    return placeMarketOrder(figi, lots, direction, accountId);
+                } else {
+                    // Иначе используем умный лимитный ордер
+                    log.info("🚀 ОПТИМАЛЬНЫЙ ВЫБОР для {}: ЛИМИТНЫЙ ордер (спрэд {}% >= 0.1%)", 
+                        figi, spreadPct.multiply(BigDecimal.valueOf(100)));
+                    return placeSmartLimitOrder(figi, lots, direction, accountId, bidAsk.getMid());
+                }
+            } else {
+                // Fallback: рыночный ордер, если не удалось получить данные о спрэде
+                log.warn("⚠️ Не удалось получить данные о спрэде для {}, используем рыночный ордер", figi);
+                return placeMarketOrder(figi, lots, direction, accountId);
+            }
+            
+        } catch (Exception e) {
+            log.error("Ошибка в placeOptimalOrder для {}: {}", figi, e.getMessage());
+            // Fallback: рыночный ордер при ошибке
+            return placeMarketOrder(figi, lots, direction, accountId);
+        }
     }
     
     /**
