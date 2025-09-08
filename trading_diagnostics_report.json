@@ -1,0 +1,45 @@
+{
+  "timestamp": "2025-09-08T08:17:11.489282",
+  "summary": {
+    "total_issues": 4,
+    "high_severity": 2,
+    "medium_severity": 2,
+    "low_severity": 0
+  },
+  "issues": [
+    {
+      "issue": "Бот работает в PRODUCTION режиме - высокий риск",
+      "severity": "HIGH",
+      "timestamp": "2025-09-08 08:17:11.461263"
+    },
+    {
+      "issue": "Высокий процент первой покупки (2%)",
+      "severity": "MEDIUM",
+      "timestamp": "2025-09-08 08:17:11.461543"
+    },
+    {
+      "issue": "Слишком короткий дефолтный cooldown: 15 минут",
+      "severity": "MEDIUM",
+      "timestamp": "2025-09-08 08:17:11.461815"
+    },
+    {
+      "issue": "Найдена логика немедленных операций - возможная причина проблемы",
+      "severity": "HIGH",
+      "timestamp": "2025-09-08 08:17:11.466786"
+    }
+  ],
+  "recommendations": [
+    {
+      "recommendation": "Переключите на sandbox режим для тестирования",
+      "priority": "HIGH"
+    },
+    {
+      "recommendation": "Уменьшите first-buy-pct до 0.005-0.01",
+      "priority": "MEDIUM"
+    },
+    {
+      "recommendation": "Проверьте логику немедленных операций и добавьте дополнительные проверки",
+      "priority": "HIGH"
+    }
+  ]
+}

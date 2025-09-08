@@ -26,10 +26,10 @@ public class TradingCooldownService {
     // Кэш последних сделок по инструментам
     private final Map<String, LocalDateTime> lastTradeTime = new ConcurrentHashMap<>();
     
-    // Настройки cooldown (в минутах) — читаем из конфига с дефолтами
-    private int getMinCooldown() { return tradingSettingsService.getInt("cooldown.min.minutes", 15); }
-    private int getSameDirectionCooldown() { return tradingSettingsService.getInt("cooldown.same.minutes", 30); }
-    private int getReverseCooldown() { return tradingSettingsService.getInt("cooldown.reverse.minutes", 45); }
+    // Настройки cooldown (в минутах) — читаем из конфига с дефолтами (УВЕЛИЧЕНЫ)
+    private int getMinCooldown() { return tradingSettingsService.getInt("cooldown.min.minutes", 45); }
+    private int getSameDirectionCooldown() { return tradingSettingsService.getInt("cooldown.same.minutes", 60); }
+    private int getReverseCooldown() { return tradingSettingsService.getInt("cooldown.reverse.minutes", 90); }
     
     /**
      * 🎯 ОСНОВНОЙ МЕТОД: Проверка можно ли торговать данным инструментом
