@@ -19,37 +19,32 @@ public class TradingService {
     private final MarketAnalysisService marketAnalysisService;
     
     /**
-     * Размещение рыночного ордера на покупку
+     * Размещение рыночного ордера на покупку (ИСПРАВЛЕНО)
      */
     public Mono<String> placeMarketBuyOrder(String figi, int lots, String accountId) {
         return Mono.fromCallable(() -> {
-            log.info("Попытка размещения рыночного ордера на покупку: {} лотов, аккаунт {}", lots, accountId);
-            // Получаем текущую цену для умного лимитного ордера
-            MarketAnalysisService.TrendAnalysis trend = marketAnalysisService.analyzeTrend(figi, 
-                ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
-            BigDecimal currentPrice = trend != null ? trend.getCurrentPrice() : BigDecimal.valueOf(100);
-            PostOrderResponse response = orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId, currentPrice);
-            log.info("Размещен рыночный ордер на покупку через OrderService: {} лотов", lots);
+            log.info("🚀 ИСПРАВЛЕННАЯ ПОКУПКА: {} лотов, аккаунт {}", lots, accountId);
+            // Используем новый оптимальный метод размещения ордеров
+            PostOrderResponse response = orderService.placeOptimalOrder(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, accountId);
+            log.info("✅ Размещен оптимальный ордер на покупку: {} лотов", lots);
             return response.toString();
         }).doOnError(error -> {
-            log.error("Ошибка при размещении ордера на покупку: {}", error.getMessage());
+            log.error("❌ Ошибка при размещении ордера на покупку: {}", error.getMessage());
             log.error("Полный стек ошибки:", error);
         });
     }
     
     /**
-     * Размещение рыночного ордера на продажу
+     * Размещение рыночного ордера на продажу (ИСПРАВЛЕНО)
      */
     public Mono<String> placeMarketSellOrder(String figi, int lots, String accountId) {
         return Mono.fromCallable(() -> {
-            // Получаем текущую цену для умного лимитного ордера
-            MarketAnalysisService.TrendAnalysis trend = marketAnalysisService.analyzeTrend(figi, 
-                ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
-            BigDecimal currentPrice = trend != null ? trend.getCurrentPrice() : BigDecimal.valueOf(100);
-            PostOrderResponse response = orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, currentPrice);
-            log.info("Размещен рыночный ордер на продажу через OrderService: {} лотов", lots);
+            log.info("🚀 ИСПРАВЛЕННАЯ ПРОДАЖА: {} лотов, аккаунт {}", lots, accountId);
+            // Используем новый оптимальный метод размещения ордеров
+            PostOrderResponse response = orderService.placeOptimalOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId);
+            log.info("✅ Размещен оптимальный ордер на продажу: {} лотов", lots);
             return response.toString();
-        }).doOnError(error -> log.error("Ошибка при размещении ордера на продажу: {}", error.getMessage()));
+        }).doOnError(error -> log.error("❌ Ошибка при размещении ордера на продажу: {}", error.getMessage()));
     }
     
     /**
