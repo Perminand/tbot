@@ -30,6 +30,8 @@ public class OrderService {
     private final OrderRepository orderRepository;
     private final PortfolioService portfolioService;
     private final LotSizeService lotSizeService;
+    private final TradingCooldownService tradingCooldownService;
+    private final InstrumentNameService instrumentNameService;
     private final MarketAnalysisService marketAnalysisService;
 
     public List<OrderState> getOrders(String accountId) {
@@ -57,6 +59,16 @@ public class OrderService {
             if (!botControlService.tryReserveOrderSlot()) {
                 log.warn("Превышен лимит ордеров в минуту");
                 throw new IllegalStateException("Превышен лимит ордеров в минуту");
+            }
+            
+            // 🚀 КРИТИЧЕСКАЯ ПРОВЕРКА: Кулдаун для всех ордеров (включая автоматические стопы)
+            String actionType = direction == OrderDirection.ORDER_DIRECTION_BUY ? "BUY" : "SELL";
+            TradingCooldownService.CooldownResult cooldownCheck = tradingCooldownService.canTrade(figi, actionType, accountId);
+            if (cooldownCheck.isBlocked()) {
+                String displayName = instrumentNameService.getInstrumentName(figi, "share");
+                log.warn("🚫 БЛОКИРОВКА КУЛДАУНА (OrderService): {} для {}. Причина: {}", 
+                    actionType, displayName, cooldownCheck.getReason());
+                throw new IllegalStateException("Кулдаун активен: " + cooldownCheck.getReason());
             }
             
             // Коррекция объема в зависимости от доступного количества лотов (не продавать больше, чем есть)
@@ -161,6 +173,16 @@ public class OrderService {
      */
     public PostOrderResponse placeSmartLimitOrder(String figi, int lots, OrderDirection direction, String accountId, BigDecimal marketPrice) {
         try {
+            // 🚀 КРИТИЧЕСКАЯ ПРОВЕРКА: Кулдаун для всех ордеров (включая автоматические стопы)
+            String actionType = direction == OrderDirection.ORDER_DIRECTION_BUY ? "BUY" : "SELL";
+            TradingCooldownService.CooldownResult cooldownCheck = tradingCooldownService.canTrade(figi, actionType, accountId);
+            if (cooldownCheck.isBlocked()) {
+                String displayName = instrumentNameService.getInstrumentName(figi, "share");
+                log.warn("🚫 БЛОКИРОВКА КУЛДАУНА (SmartLimit): {} для {}. Причина: {}", 
+                    actionType, displayName, cooldownCheck.getReason());
+                throw new IllegalStateException("Кулдаун активен: " + cooldownCheck.getReason());
+            }
+            
             // Корректируем лоты до размещения лимитного ордера
             int originalLots = lots;
             lots = clampLotsByHoldings(figi, accountId, direction, lots);

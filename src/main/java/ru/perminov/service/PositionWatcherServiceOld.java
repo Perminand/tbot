@@ -23,7 +23,7 @@ public class PositionWatcherService {
 
     private final PortfolioService portfolioService;
     private final AccountService accountService;
-    private final OrderService orderService;
+    private final OrderExecutionService orderExecutionService;
     private final RiskRuleService riskRuleService;
     private final MarketAnalysisService marketAnalysisService;
     private final TradingSettingsService tradingSettingsService;
@@ -32,15 +32,9 @@ public class PositionWatcherService {
     private final LotSizeService lotSizeService;
 
     // Периодический контроль позиций: SL/TP/трейлинг
-    @Scheduled(fixedRate = 15000) // каждые 15 секунд
+    @Scheduled(fixedRate = 60000) // 🚀 УВЕЛИЧЕНО с 15 сек до 60 сек для предотвращения флиппинга
     public void watchPositions() {
         try {
-            // 🚀 ЭКСТРЕННАЯ ПРОВЕРКА: Отключение сервиса для остановки флиппинга
-            boolean disabled = tradingSettingsService.getBoolean("position_watcher_disabled", false);
-            if (disabled) {
-                log.debug("PositionWatcher отключен настройкой position_watcher_disabled=true");
-                return;
-            }
             List<String> accountIds = accountService.getAccounts().stream().map(a -> a.getId()).toList();
             for (String accountId : accountIds) {
                 Portfolio portfolio = portfolioService.getPortfolio(accountId);
