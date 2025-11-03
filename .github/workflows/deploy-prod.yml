@@ -160,11 +160,11 @@ jobs:
             sleep 5
             done
   
-           if [ $i -eq 60 ]; then
-           echo "Ошибка: PostgreSQL не запустился за 5 минут"
-           exit 1
-           fi
+            if [ $i -eq 60 ]; then
+            echo "Ошибка: PostgreSQL не запустился за 5 минут"
+            exit 1
+            fi
   
 
-           docker image prune -f --filter "label=com.docker.compose.project=your-project-name"
+            docker image prune -f --filter "label=com.docker.compose.project=your-project-name"
           
