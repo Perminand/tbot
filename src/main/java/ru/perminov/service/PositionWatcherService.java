@@ -25,7 +25,6 @@ public class PositionWatcherService {
     private final RiskRuleService riskRuleService;
     private final MarketAnalysisService marketAnalysisService;
     private final TradingSettingsService tradingSettingsService;
-    private final BotLogService botLogService;
     private final PositionRiskStateService positionRiskStateService;
     private final LotSizeService lotSizeService;
 
