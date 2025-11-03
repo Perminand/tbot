@@ -154,6 +154,3 @@ jobs:
                 echo "База данных tbot_db успешно создана"
             fi
             
-            docker image prune -f
-
-
