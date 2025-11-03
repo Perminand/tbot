@@ -41,12 +41,6 @@ public class VirtualStopMonitorService {
     @Scheduled(fixedRate = 30000)
     public void monitorVirtualStops() {
         try {
-            // 🚀 ЭКСТРЕННАЯ ПРОВЕРКА: Отключение сервиса для остановки флиппинга
-            boolean disabled = tradingSettingsService.getBoolean("virtual_stop_disabled", false);
-            if (disabled) {
-                log.debug("VirtualStopMonitor отключен настройкой virtual_stop_disabled=true");
-                return;
-            }
             // Получаем все активные виртуальные ордера
                             List<Order> virtualStops = orderRepository.findByStatus("MONITORING").stream()
                     .filter(order -> "VIRTUAL_STOP_LOSS".equals(order.getOrderType()) || 

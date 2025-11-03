@@ -32,12 +32,6 @@ public class PositionWatcherService {
     @Scheduled(fixedRate = 15000) // каждые 15 секунд
     public void watchPositions() {
         try {
-            // 🚀 ЭКСТРЕННАЯ ПРОВЕРКА: Отключение сервиса для остановки флиппинга
-            boolean disabled = tradingSettingsService.getBoolean("position_watcher_disabled", false);
-            if (disabled) {
-                log.debug("PositionWatcher отключен настройкой position_watcher_disabled=true");
-                return;
-            }
             List<String> accountIds = accountService.getAccounts().stream().map(a -> a.getId()).toList();
             for (String accountId : accountIds) {
                 Portfolio portfolio = portfolioService.getPortfolio(accountId);
