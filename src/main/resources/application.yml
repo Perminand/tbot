@@ -16,9 +16,9 @@ spring:
 tinkoff:
   api:
     # Токен для песочницы (тестовый)
-    sandbox-token: ${TINKOFF_SANDBOX_TOKEN:t.CRkcaE_K19MSklxNKVqJ2rcohwl5CGpwN6Hxp58mdase_kEotm5eXbt2PAlURvHZ6UkhGEPueod2VM7Op4jChg}
+    sandbox-token: t.CRkcaE_K19MSklxNKVqJ2rcohwl5CGpwN6Hxp58mdase_kEotm5eXbt2PAlURvHZ6UkhGEPueod2VM7Op4jChg
     # Токен для реальной торговли (продакшн)
-    production-token: ${TINKOFF_PRODUCTION_TOKEN:t.0CTznpaRfqz_r6xbq0XY_sDcgYQVVMJ9ZAsEy4_i91P8IL2QIN5Jf0E8XDbx0gJcjpnNxXcuKuYWHxSEsl2zMw}
+    production-token: t.0CTznpaRfqz_r6xbq0XY_sDcgYQVVMJ9ZAsEy4_i91P8IL2QIN5Jf0E8XDbx0gJcjpnNxXcuKuYWHxSEsl2zMw
     # Режим по умолчанию (ВАЖНО: измените на sandbox для тестирования!)
     default-mode: production  # sandbox или production
 
