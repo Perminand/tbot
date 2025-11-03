@@ -114,7 +114,14 @@ jobs:
             echo "Debug: Current directory: $(pwd)"
             
             mkdir -p ${{ secrets.PRODUCTION_PATH }}
-            cd ${{ secrets.PRODUCTION_PATH }}
+            
+            if [ ! -d "${{ secrets.PRODUCTION_PATH }}" ]; then
+            echo "Error: Directory ${{ secrets.PRODUCTION_PATH }} does not exist"
+            exit 1
+            fi
+            cd "${{ secrets.PRODUCTION_PATH }}"
+
+
             echo "Debug: Changed to directory: $(pwd)"
 
             # Fix wrong file types if directories were created by mistake
@@ -137,20 +144,27 @@ jobs:
             echo "Debug: Created .env file:"
             cat .env
 
-            docker login ${{ env.REGISTRY }} -u "${{ github.actor }}" -p "$GHCR_PAT"
+            echo "$GHCR_PAT" | docker login ${{ env.REGISTRY }} -u "${{ github.actor }}" --password-stdin
             docker compose -f docker-compose.production.yml pull
             docker compose -f docker-compose.production.yml up -d --remove-orphans
             
-            # Ждем запуска PostgreSQL и проверяем базу данных
             echo "Ожидаем запуска PostgreSQL..."
-            sleep 30
+            for i in {1..60}; do
             
-            # Проверяем, что база данных создана
-            if ! docker exec tbot_postgres psql -U postgres -d tbot_db -c "SELECT 1;" >/dev/null 2>&1; then
-                echo "База данных не создана, выполняем принудительную инициализацию..."
-                chmod +x fix-now.sh
-                ./fix-now.sh
-            else
-                echo "База данных tbot_db успешно создана"
+            if docker exec tbot_postgres psql -U postgres -d tbot_db -c "SELECT 1;" >/dev/null 2>&1; then
+            echo "PostgreSQL готов"
+            break
             fi
             
+            echo "Попробуем ещё раз через 5 секунд... ($i/60)"
+            sleep 5
+            done
+  
+           if [ $i -eq 60 ]; then
+           echo "Ошибка: PostgreSQL не запустился за 5 минут"
+           exit 1
+           fi
+  
+
+           docker image prune -f --filter "label=com.docker.compose.project=your-project-name"
+          
