@@ -27,8 +27,8 @@ app:
   name: Tinkoff Trading Bot
   version: 1.0.0
   security:
-    username: ${APP_USERNAME}
-    password: ${APP_PASSWORD}
+    username: perminand
+    password: Ftoren8686
 
 # Dynamic Instruments Configuration
 dynamic-instruments:
