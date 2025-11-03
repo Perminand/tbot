@@ -9,12 +9,10 @@ import ru.tinkoff.piapi.core.models.Position;
 import ru.tinkoff.piapi.core.models.Money;
 import ru.perminov.model.RiskRule;
 import ru.perminov.model.PositionRiskState;
-import ru.perminov.service.PositionRiskStateService;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
-import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
