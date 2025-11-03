@@ -145,8 +145,8 @@ jobs:
             cat .env
 
             echo "$GHCR_PAT" | docker login ${{ env.REGISTRY }} -u "${{ github.actor }}" --password-stdin
-            docker compose -f docker-compose.production.yml pull
-            docker compose -f docker-compose.production.yml up -d --remove-orphans
+            docker-compose -f docker-compose.production.yml pull
+            docker-compose -f docker-compose.production.yml up -d --remove-orphans
             
             echo "Ожидаем запуска PostgreSQL..."
             for i in {1..60}; do
