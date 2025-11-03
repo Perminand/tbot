@@ -9,7 +9,7 @@ COPY pom.xml .
 COPY src ./src
 
 # Сборка приложения
-RUN mvn clean package -DskipTests
+RUN mvn clean package
 
 # Этап выполнения
 FROM amazoncorretto:21-alpine
