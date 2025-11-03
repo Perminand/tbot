@@ -1,5 +1,5 @@
 # Многоэтапная сборка для оптимизации размера образа
-FROM maven:latest AS build
+FROM maven:3.9.9-eclipse-temurin-21 AS build
 
 # Установка рабочей директории
 WORKDIR /app
