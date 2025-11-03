@@ -10,6 +10,7 @@ import ru.perminov.repository.PositionRiskStateRepository;
 import ru.perminov.repository.RiskEventRepository;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -152,14 +153,13 @@ public class PositionRiskStateService {
             
             if (riskState.getSide() == PositionRiskState.PositionSide.LONG) {
                 // Для лонга: SL ниже цены входа
-                // ВНИМАНИЕ: stopLossPct уже в виде доли (0.05 = 5%), не делим на 100!
-                BigDecimal baseStopLoss = avgPrice.multiply(BigDecimal.ONE.subtract(stopLossPct));
+                BigDecimal baseStopLoss = avgPrice.multiply(BigDecimal.ONE.subtract(stopLossPct.divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP)));
                 
                 // Trailing stop: если цена выше watermark, подтягиваем SL
                 if (trailingPct != null && riskState.getHighWatermark() != null && 
                     currentPrice.compareTo(riskState.getHighWatermark()) >= 0) {
                     BigDecimal trailingLevel = riskState.getHighWatermark()
-                        .multiply(BigDecimal.ONE.subtract(trailingPct));
+                        .multiply(BigDecimal.ONE.subtract(trailingPct.divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP)));
                     
                     // Берем лучший из двух SL
                     if (trailingLevel.compareTo(baseStopLoss) > 0) {
@@ -172,14 +172,13 @@ public class PositionRiskStateService {
                 }
             } else { // SHORT
                 // Для шорта: SL выше цены входа
-                // ВНИМАНИЕ: stopLossPct уже в виде доли (0.05 = 5%), не делим на 100!
-                BigDecimal baseStopLoss = avgPrice.multiply(BigDecimal.ONE.add(stopLossPct));
+                BigDecimal baseStopLoss = avgPrice.multiply(BigDecimal.ONE.add(stopLossPct.divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP)));
                 
                 // Trailing stop: если цена ниже watermark, подтягиваем SL
                 if (trailingPct != null && riskState.getLowWatermark() != null && 
                     currentPrice.compareTo(riskState.getLowWatermark()) <= 0) {
                     BigDecimal trailingLevel = riskState.getLowWatermark()
-                        .multiply(BigDecimal.ONE.add(trailingPct));
+                        .multiply(BigDecimal.ONE.add(trailingPct.divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP)));
                     
                     // Берем лучший из двух SL
                     if (trailingLevel.compareTo(baseStopLoss) < 0) {
@@ -198,11 +197,9 @@ public class PositionRiskStateService {
             BigDecimal takeProfitPct = riskState.getTakeProfitPct();
             
             if (riskState.getSide() == PositionRiskState.PositionSide.LONG) {
-                // ВНИМАНИЕ: takeProfitPct уже в виде доли (0.05 = 5%), не делим на 100!
-                riskState.setTakeProfitLevel(avgPrice.multiply(BigDecimal.ONE.add(takeProfitPct)));
+                riskState.setTakeProfitLevel(avgPrice.multiply(BigDecimal.ONE.add(takeProfitPct.divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP))));
             } else { // SHORT
-                // ВНИМАНИЕ: takeProfitPct уже в виде доли (0.05 = 5%), не делим на 100!
-                riskState.setTakeProfitLevel(avgPrice.multiply(BigDecimal.ONE.subtract(takeProfitPct)));
+                riskState.setTakeProfitLevel(avgPrice.multiply(BigDecimal.ONE.subtract(takeProfitPct.divide(BigDecimal.valueOf(100), 4, RoundingMode.HALF_UP))));
             }
         }
     }
