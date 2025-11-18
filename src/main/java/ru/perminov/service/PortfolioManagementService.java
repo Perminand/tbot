@@ -543,7 +543,8 @@ public class PortfolioManagementService {
                     .orElse(null);
                     
                 if (shortPosition != null && shortPosition.getQuantity() != null && shortPosition.getQuantity().compareTo(BigDecimal.ZERO) < 0) {
-                    int lotsToClose = Math.abs(shortPosition.getQuantity().intValue());
+                    int lotSize = getLotSizeSafe(figi, shortPosition.getInstrumentType());
+                    int lotsToClose = toLots(shortPosition, lotSize);
                     if (lotsToClose > 0) {
                         log.info("🎯 ЗАКРЫТИЕ ШОРТА [{}]: {} лотов по цене {} (специальное действие)",
                             displayOf(figi), lotsToClose, trend.getCurrentPrice());
@@ -576,7 +577,8 @@ public class PortfolioManagementService {
                         .findFirst()
                         .orElse(null);
                     if (shortPosition != null && shortPosition.getQuantity() != null && shortPosition.getQuantity().compareTo(BigDecimal.ZERO) < 0) {
-                        int lotsToClose = Math.abs(shortPosition.getQuantity().intValue());
+                        int lotSize = getLotSizeSafe(figi, shortPosition.getInstrumentType());
+                        int lotsToClose = toLots(shortPosition, lotSize);
                         if (lotsToClose > 0) {
                             String prettyName = instrumentNameService != null ? instrumentNameService.getInstrumentName(figi, "share") : figi;
                             String prettyTicker = instrumentNameService != null ? instrumentNameService.getTicker(figi, "share") : figi;
@@ -1025,7 +1027,7 @@ public class PortfolioManagementService {
                     
                     if (position != null && position.getQuantity().compareTo(BigDecimal.ZERO) != 0) {
                         int lotSize = getLotSizeSafe(figi, position.getInstrumentType());
-                        int lots = toLots(position.getQuantity(), lotSize);
+                        int lots = toLots(position, lotSize);
                         boolean isShortPosition = position.getQuantity().compareTo(BigDecimal.ZERO) < 0;
                         
                         String actionDescription = isShortPosition ? "закрытие шорта" : "продажа";
@@ -1222,7 +1224,7 @@ public class PortfolioManagementService {
                     
                     if (position != null && position.getQuantity().compareTo(BigDecimal.ZERO) < 0) {
                         int lotSize = getLotSizeSafe(figi, position.getInstrumentType());
-                        int lots = toLots(position.getQuantity(), lotSize);
+                        int lots = toLots(position, lotSize);
                         log.info("Закрытие шорта: {} лотов по цене {}", lots, trend.getCurrentPrice());
                         
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING, 
@@ -1978,14 +1980,30 @@ public class PortfolioManagementService {
     /**
      * Перевод количества бумаг в лоты с учётом размера лота
      */
-    private int toLots(BigDecimal quantity, int lotSize) {
-        if (quantity == null) return 0;
+    private int toLots(Position position, int lotSize) {
+        if (position == null) return 0;
+        java.math.BigDecimal lotsValue = null;
         try {
-            int shares = Math.abs(quantity.intValue());
-            return Math.max(shares / Math.max(lotSize, 1), 0);
-        } catch (Exception e) {
-            return 0;
+            lotsValue = position.getQuantityLots();
+        } catch (Exception ignore) { }
+
+        if (lotsValue == null) {
+            java.math.BigDecimal quantity = position.getQuantity();
+            if (quantity == null) {
+                return 0;
+            }
+            if (lotSize > 1) {
+                try {
+                    lotsValue = quantity.divide(new java.math.BigDecimal(lotSize), 6, java.math.RoundingMode.DOWN);
+                } catch (Exception e) {
+                    lotsValue = quantity;
+                }
+            } else {
+                lotsValue = quantity;
+            }
         }
+
+        return lotsValue.abs().setScale(0, java.math.RoundingMode.DOWN).intValue();
     }
 
     /**

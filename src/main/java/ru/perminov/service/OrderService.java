@@ -9,6 +9,7 @@ import ru.tinkoff.piapi.contract.v1.PostOrderResponse;
 import ru.tinkoff.piapi.contract.v1.OrderDirection;
 import ru.tinkoff.piapi.contract.v1.OrderType;
 import ru.tinkoff.piapi.contract.v1.Quotation;
+import ru.tinkoff.piapi.core.models.Position;
 import ru.perminov.repository.OrderRepository;
 import ru.perminov.model.Order;
 
@@ -563,16 +564,15 @@ public class OrderService {
             }
 
             var position = positionOpt.get();
-            java.math.BigDecimal shares = position.getQuantity() == null ? java.math.BigDecimal.ZERO : position.getQuantity();
-            int lotSize = lotSizeService.getLotSize(figi, position.getInstrumentType() != null ? position.getInstrumentType() : "share");
-            int availableLots = shares.signum() >= 0
-                ? shares.divide(new java.math.BigDecimal(Math.max(lotSize, 1)), 0, java.math.RoundingMode.DOWN).intValue()
-                : shares.abs().divide(new java.math.BigDecimal(Math.max(lotSize, 1)), 0, java.math.RoundingMode.DOWN).intValue();
+            String instrumentType = position.getInstrumentType() != null ? position.getInstrumentType() : "share";
+            int lotSize = lotSizeService.getLotSize(figi, instrumentType);
+            java.math.BigDecimal positionLots = resolvePositionLots(position, lotSize);
+            int availableLots = positionLots.abs().setScale(0, java.math.RoundingMode.DOWN).intValue();
 
             int finalLots = lots;
             if (direction == OrderDirection.ORDER_DIRECTION_SELL) {
                 // Нельзя продать больше, чем есть лонговых лотов
-                if (shares.signum() > 0) {
+                if (positionLots.signum() > 0) {
                     finalLots = Math.min(lots, availableLots);
                 } else {
                     // нет лонга — запрещаем SELL
@@ -580,13 +580,13 @@ public class OrderService {
                 }
             } else if (direction == OrderDirection.ORDER_DIRECTION_BUY) {
                 // Если есть шорт, не покупаем больше, чем для его закрытия
-                if (shares.signum() < 0) {
+                if (positionLots.signum() < 0) {
                     finalLots = Math.min(lots, availableLots);
                 }
             }
 
-            log.info("Коррекция лотов [{}]: shares={}, lotSize={}, requested={}, available={}, final={}",
-                figi, shares, lotSize, requestedLots, availableLots, finalLots);
+            log.info("Коррекция лотов [{}]: positionLots={}, lotSize={}, requested={}, available={}, final={}",
+                figi, positionLots, lotSize, requestedLots, availableLots, finalLots);
 
             return finalLots;
         } catch (Exception e) {
@@ -676,6 +676,36 @@ public class OrderService {
             return new java.math.BigDecimal(units + "." + String.format("%09d", nano));
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /**
+     * Определяет фактическое количество лотов в портфеле.
+     * Приоритетно используем поле quantityLots, при его отсутствии делим quantity на размер лота.
+     */
+    private java.math.BigDecimal resolvePositionLots(Position position, int lotSize) {
+        java.math.BigDecimal lots = null;
+        try {
+            lots = position.getQuantityLots();
+        } catch (Exception ignore) { }
+
+        if (lots != null) {
+            return lots;
+        }
+
+        java.math.BigDecimal quantity = position.getQuantity();
+        if (quantity == null) {
+            return java.math.BigDecimal.ZERO;
+        }
+
+        if (lotSize <= 1) {
+            return quantity;
+        }
+
+        try {
+            return quantity.divide(new java.math.BigDecimal(lotSize), 6, java.math.RoundingMode.DOWN);
+        } catch (Exception e) {
+            return quantity;
         }
     }
 } 
