@@ -300,6 +300,13 @@ public class OrderService {
      * 🚀 НОВЫЙ МЕТОД: Размещение стоп-ордера
      */
     public PostOrderResponse placeStopOrder(String figi, int lots, OrderDirection direction, String accountId, BigDecimal stopPrice) {
+        return placeStopOrder(figi, lots, direction, accountId, stopPrice, "Stop-Loss order");
+    }
+
+    /**
+     * Размещение стоп-ордера с произвольным сообщением (используется для HARD OCO)
+     */
+    public PostOrderResponse placeStopOrder(String figi, int lots, OrderDirection direction, String accountId, BigDecimal stopPrice, String message) {
         try {
             String orderId = UUID.randomUUID().toString();
             log.info("🛑 Размещение стоп-ордера: {} лотов, направление {}, стоп-цена {}, аккаунт {}, ID {}", 
@@ -343,7 +350,7 @@ public class OrderService {
                 entity.setOrderDate(java.time.LocalDateTime.now());
                 entity.setOrderType("STOP_LOSS");
                 entity.setAccountId(accountId);
-                entity.setMessage("Stop-Loss order");
+                entity.setMessage(message);
                 orderRepository.save(entity);
             } catch (Exception persistEx) {
                 log.warn("Не удалось сохранить стоп-ордер {} в БД: {}", response.getOrderId(), persistEx.getMessage());
@@ -471,6 +478,50 @@ public class OrderService {
             
         } catch (Exception e) {
             log.error("Ошибка создания виртуального OCO для {}: {}", figi, e.getMessage());
+        }
+    }
+
+    /**
+     * HARD OCO для продакшена: реальные заявки у брокера (TP лимит + SL стоп).
+     * Используется, когда hard_stops.enabled=true и режим = production.
+     */
+    public void placeHardOCO(String figi, int lots, OrderDirection originalDirection, String accountId,
+                             BigDecimal entryPrice, double takeProfitPct, double stopLossPct) {
+        try {
+            BigDecimal takeProfitPrice;
+            BigDecimal stopLossPrice;
+            OrderDirection exitDirection;
+            String positionType;
+
+            if (originalDirection == OrderDirection.ORDER_DIRECTION_BUY) {
+                // Лонг: выходим SELL
+                takeProfitPrice = entryPrice.multiply(BigDecimal.ONE.add(BigDecimal.valueOf(takeProfitPct)));
+                stopLossPrice   = entryPrice.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(stopLossPct)));
+                exitDirection   = OrderDirection.ORDER_DIRECTION_SELL;
+                positionType    = "LONG";
+                log.info("📈 HARD OCO ЛОНГ: TP={} (+{}%), SL={} (-{}%)", takeProfitPrice, takeProfitPct * 100, stopLossPrice, stopLossPct * 100);
+            } else {
+                // Шорт: выходим BUY
+                takeProfitPrice = entryPrice.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(takeProfitPct)));
+                stopLossPrice   = entryPrice.multiply(BigDecimal.ONE.add(BigDecimal.valueOf(stopLossPct)));
+                exitDirection   = OrderDirection.ORDER_DIRECTION_BUY;
+                positionType    = "SHORT";
+                log.info("📉 HARD OCO ШОРТ: TP={} (-{}%), SL={} (+{}%)", takeProfitPrice, takeProfitPct * 100, stopLossPrice, stopLossPct * 100);
+            }
+
+            String ocoGroupId = "HARD_OCO_" + System.currentTimeMillis();
+
+            // Размещаем тейк-профит как лимитный ордер
+            PostOrderResponse tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString());
+            log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
+
+            // Размещаем стоп как стоп-ордер (пока лимит из-за ограничений API)
+            PostOrderResponse slResp = placeStopOrder(figi, lots, exitDirection, accountId, stopLossPrice, "HARD_OCO:" + ocoGroupId + " | SL " + positionType);
+            log.info("🛑 HARD OCO: SL ордер создан, orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
+
+        } catch (Exception e) {
+            log.error("Ошибка создания HARD OCO для {}: {}", figi, e.getMessage(), e);
+            throw new RuntimeException("Не удалось создать HARD OCO: " + e.getMessage(), e);
         }
     }
 

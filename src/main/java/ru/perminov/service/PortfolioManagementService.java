@@ -99,6 +99,23 @@ public class PortfolioManagementService {
         } catch (Exception ignore) {}
         return figi;
     }
+
+    /**
+     * Включены ли "жёсткие" стопы (реальные заявки) в продакшн-режиме.
+     */
+    private boolean isHardStopsEnabledForProduction() {
+        try {
+            boolean enabled = tradingSettingsService.getBoolean("hard_stops.enabled", true);
+            String mode = investApiManager.getCurrentMode();
+            if (!"production".equalsIgnoreCase(mode)) {
+                return false;
+            }
+            return enabled;
+        } catch (Exception e) {
+            log.warn("Не удалось прочитать настройку hard_stops.enabled: {}", e.getMessage());
+            return false;
+        }
+    }
     
     /**
      * 🚀 НОВЫЙ МЕТОД: Получение человекочитаемого названия для неизвестных инструментов
@@ -964,11 +981,21 @@ public class PortfolioManagementService {
                                     .map(rule -> rule.getTakeProfitPct())
                                     .orElse(riskRuleService.getDefaultTakeProfitPct());
                                 
-                                orderService.placeVirtualOCO(figi, lots, OrderDirection.ORDER_DIRECTION_BUY, 
-                                    accountId, trend.getCurrentPrice(), tp, sl);
-                                
-                                log.info("🎯 Запланирован OCO для ЛОНГА {}: TP={}%, SL={}% от цены {}", 
-                                    displayOf(figi), tp * 100, sl * 100, trend.getCurrentPrice());
+                                if (isHardStopsEnabledForProduction()) {
+                                    orderService.placeHardOCO(figi, lots, OrderDirection.ORDER_DIRECTION_BUY,
+                                            accountId, trend.getCurrentPrice(), tp, sl);
+                                    boolean trailing = tradingSettingsService.getBoolean("hard_stops.trailing.enabled", true);
+                                    if (trailing) {
+                                        log.warn("Trailing для HARD OCO пока не реализован, работает базовый OCO без переустановки");
+                                    }
+                                    log.info("🎯 Запланирован HARD OCO (prod) для ЛОНГА {}: TP={}%, SL={}% от цены {}", 
+                                            displayOf(figi), tp * 100, sl * 100, trend.getCurrentPrice());
+                                } else {
+                                    orderService.placeVirtualOCO(figi, lots, OrderDirection.ORDER_DIRECTION_BUY,
+                                        accountId, trend.getCurrentPrice(), tp, sl);
+                                    log.info("🎯 Запланирован виртуальный OCO для ЛОНГА {}: TP={}%, SL={}% от цены {}",
+                                            displayOf(figi), tp * 100, sl * 100, trend.getCurrentPrice());
+                                }
                                 
                             } catch (Exception e) {
                                 log.warn("❌ Не удалось запланировать OCO для {}: {}", displayOf(figi), e.getMessage());
@@ -1165,11 +1192,22 @@ public class PortfolioManagementService {
                                         .map(rule -> rule.getTakeProfitPct())
                                         .orElse(riskRuleService.getDefaultTakeProfitPct());
                                     
-                                    orderService.placeVirtualOCO(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, 
-                                        accountId, trend.getCurrentPrice(), tp, sl);
-                                    
-                                    log.info("🎯 Запланирован OCO для ШОРТА {}: TP={}%, SL={}% от цены {}", 
-                                        displayOf(figi), tp * 100, sl * 100, trend.getCurrentPrice());
+                                    if (isHardStopsEnabledForProduction()) {
+                                        orderService.placeHardOCO(figi, lots, OrderDirection.ORDER_DIRECTION_SELL,
+                                                accountId, trend.getCurrentPrice(), tp, sl);
+                                        boolean trailing = tradingSettingsService.getBoolean("hard_stops.trailing.enabled", true);
+                                        if (trailing) {
+                                            log.warn("Trailing для HARD OCO пока не реализован, работает базовый OCO без переустановки");
+                                        }
+                                        log.info("🎯 Запланирован HARD OCO (prod) для ШОРТА {}: TP={}%, SL={}% от цены {}", 
+                                                displayOf(figi), tp * 100, sl * 100, trend.getCurrentPrice());
+                                    } else {
+                                        orderService.placeVirtualOCO(figi, lots, OrderDirection.ORDER_DIRECTION_SELL,
+                                            accountId, trend.getCurrentPrice(), tp, sl);
+                                        
+                                        log.info("🎯 Запланирован виртуальный OCO для ШОРТА {}: TP={}%, SL={}% от цены {}", 
+                                            displayOf(figi), tp * 100, sl * 100, trend.getCurrentPrice());
+                                    }
                                     
                                 } catch (Exception e) {
                                     log.warn("❌ Не удалось запланировать OCO для шорта {}: {}", displayOf(figi), e.getMessage());
