@@ -212,11 +212,16 @@ public class PortfolioManagementService {
      * Длительность блокировки по ликвидности (ms), настраивается через tradingSettingsService.
      * Ключ: liquidity.block.duration, варианты: day|week|month. По умолчанию day (24ч).
      */
-    private long getLiquidityBlockDurationMs() {
+    private long getLiquidityBlockDurationMs(Double healthPercent, boolean forceMonth) {
+        if (forceMonth) {
+            return 30L * 24 * 60 * 60 * 1000L;
+        }
         try {
-            String v = tradingSettingsService.getString("liquidity.block.duration", "day");
+            String v = tradingSettingsService.getString("liquidity.block.duration", "auto");
             if (v == null) return DEFAULT_LIQUIDITY_BLOCK_DURATION_MS;
             switch (v.trim().toLowerCase()) {
+                case "auto":
+                    return chooseDurationAutomatically(healthPercent);
                 case "week":
                     return 7L * 24 * 60 * 60 * 1000L;
                 case "month":
@@ -228,6 +233,22 @@ public class PortfolioManagementService {
         } catch (Exception e) {
             log.warn("Не удалось прочитать liquidity.block.duration: {} — используем значение по умолчанию (day)", e.getMessage());
             return DEFAULT_LIQUIDITY_BLOCK_DURATION_MS;
+        }
+    }
+
+    /**
+     * Автовыбор длительности блокировки:
+     * healthPercent < 30% -> месяц, < 60% -> неделя, иначе день
+     */
+    private long chooseDurationAutomatically(Double healthPercent) {
+        if (healthPercent == null) return DEFAULT_LIQUIDITY_BLOCK_DURATION_MS;
+        double hp = Math.max(0.0, Math.min(100.0, healthPercent));
+        if (hp < 30.0) {
+            return 30L * 24 * 60 * 60 * 1000L; // месяц
+        } else if (hp < 60.0) {
+            return 7L * 24 * 60 * 60 * 1000L; // неделя
+        } else {
+            return 24L * 60 * 60 * 1000L; // день
         }
     }
 
@@ -245,8 +266,8 @@ public class PortfolioManagementService {
     /**
      * Установить блокировку инструмента на сутки после провала ликвидности
      */
-    private void registerLiquidityBlock(String figi, String reason) {
-        long durationMs = getLiquidityBlockDurationMs();
+    private void registerLiquidityBlock(String figi, String reason, Double healthPercent, boolean forceMonth) {
+        long durationMs = getLiquidityBlockDurationMs(healthPercent, forceMonth);
         long until = System.currentTimeMillis() + durationMs;
         liquidityBlockUntil.put(figi, until);
         LocalDateTime untilDateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(until), ZoneId.systemDefault());
@@ -1978,7 +1999,21 @@ public class PortfolioManagementService {
                         spread != null ? spread.multiply(BigDecimal.valueOf(100)).doubleValue() : -1,
                         maxSpread * 100, volume, minVolume, level);
                 log.warn("🚫 Ликвидность недостаточна для {}: {}", displayOf(figi), reason);
-                registerLiquidityBlock(figi, reason);
+                boolean spreadTooWide = !spreadOk;
+                double volumePercent = 100.0;
+                if (volume > 0 && minVolume > 0) {
+                    volumePercent = Math.min(100.0, (volume * 100.0) / minVolume);
+                }
+                double spreadPercent = 100.0;
+                if (spread != null && BigDecimal.valueOf(maxSpread).compareTo(BigDecimal.ZERO) > 0 && spread.compareTo(BigDecimal.ZERO) > 0) {
+                    // чем больше спрэд к лимиту, тем ниже "здоровье"; ограничиваем 100%
+                    double ratio = maxSpread / spread.doubleValue();
+                    spreadPercent = Math.max(0.0, Math.min(100.0, ratio * 100.0));
+                }
+                double healthPercent = Math.min(volumePercent, spreadPercent);
+
+                // Если блокировка по спреду — сразу месяц
+                registerLiquidityBlock(figi, reason, healthPercent, spreadTooWide);
                 return false;
             }
 

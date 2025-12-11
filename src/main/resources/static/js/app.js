@@ -1485,7 +1485,7 @@ async function loadLiquiditySettings() {
         if (durResp.ok) {
             const v = await durResp.text();
             const el = document.getElementById('liquidityBlockDuration');
-            if (el && v) el.value = v || 'day';
+            if (el && v) el.value = v || 'auto';
         }
     } catch (e) { console.warn('Liquidity settings load error', e); }
 }
