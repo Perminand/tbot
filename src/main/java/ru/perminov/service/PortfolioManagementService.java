@@ -13,6 +13,10 @@ import ru.perminov.dto.ShareDto;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -46,6 +50,9 @@ public class PortfolioManagementService {
 
     // Защита: одна торговая операция на FIGI в короткое окно (например, один цикл/60 сек)
     private final java.util.concurrent.ConcurrentHashMap<String, Long> recentOperationsWindow = new java.util.concurrent.ConcurrentHashMap<>();
+    // Суточная блокировка инструментов после провала ликвидности
+    private static final long LIQUIDITY_BLOCK_DURATION_MS = 24 * 60 * 60 * 1000L;
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> liquidityBlockUntil = new java.util.concurrent.ConcurrentHashMap<>();
     private final ru.perminov.repository.InstrumentRepository instrumentRepository;
     
     // Целевые доли активов в портфеле
@@ -179,6 +186,42 @@ public class PortfolioManagementService {
             try { if (api.getInstrumentsService().getEtfByFigiSync(figi) != null) return "etf"; } catch (Exception ignore) {}
         } catch (Exception ignore) {}
         return "share";
+    }
+    
+    /**
+     * Проверка активна ли суточная блокировка по ликвидности
+     */
+    private boolean isLiquidityBlocked(String figi) {
+        Long until = liquidityBlockUntil.get(figi);
+        if (until == null) return false;
+        long now = System.currentTimeMillis();
+        if (now <= until) return true;
+        // Срок истёк — очищаем запись
+        liquidityBlockUntil.remove(figi);
+        return false;
+    }
+
+    /**
+     * Остаток блокировки по ликвидности в минутах
+     */
+    private long getLiquidityBlockRemainingMinutes(String figi) {
+        Long until = liquidityBlockUntil.get(figi);
+        if (until == null) return 0;
+        long diff = until - System.currentTimeMillis();
+        if (diff <= 0) return 0;
+        return Duration.ofMillis(diff).toMinutes();
+    }
+
+    /**
+     * Установить блокировку инструмента на сутки после провала ликвидности
+     */
+    private void registerLiquidityBlock(String figi, String reason) {
+        long until = System.currentTimeMillis() + LIQUIDITY_BLOCK_DURATION_MS;
+        liquidityBlockUntil.put(figi, until);
+        LocalDateTime untilDateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(until), ZoneId.systemDefault());
+        log.warn("⛔ Добавлена суточная блокировка ликвидности для {} до {}", displayOf(figi), untilDateTime);
+        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                "Блокировка по ликвидности", String.format("%s заблокирован до %s: %s", displayOf(figi), untilDateTime, reason));
     }
     
     /**
@@ -393,6 +436,13 @@ public class PortfolioManagementService {
                 log.warn("Инструмент {} недоступен для торговли, пропускаем", displayOf(figi));
                 botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT, 
                     "Инструмент недоступен", displayOf(figi) + " — недоступен для торговли");
+                return;
+            }
+
+            // Суточная блокировка после провала ликвидности
+            if (isLiquidityBlocked(figi)) {
+                long minutesLeft = getLiquidityBlockRemainingMinutes(figi);
+                log.info("⏳ Суточная блокировка по ликвидности активна для {}. Осталось ~{} мин", displayOf(figi), minutesLeft);
                 return;
             }
             
@@ -1893,8 +1943,7 @@ public class PortfolioManagementService {
                         spread != null ? spread.multiply(BigDecimal.valueOf(100)).doubleValue() : -1,
                         maxSpread * 100, volume, minVolume, level);
                 log.warn("🚫 Ликвидность недостаточна для {}: {}", displayOf(figi), reason);
-                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
-                        "Блокировка по ликвидности", displayOf(figi) + ": " + reason);
+                registerLiquidityBlock(figi, reason);
                 return false;
             }
 
