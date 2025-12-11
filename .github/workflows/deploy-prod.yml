@@ -81,7 +81,7 @@ jobs:
           echo "IMAGE=$IMAGE_VALUE" >> $GITHUB_OUTPUT
           echo "Resolved image: $IMAGE_VALUE"
 
-      - name: Preflight: ensure target dir exists and writable
+      - name: "Preflight: ensure target dir exists and writable"
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.PRODUCTION_HOST }}
