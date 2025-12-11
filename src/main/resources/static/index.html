@@ -1000,6 +1000,43 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Liquidity Block Settings -->
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-water me-2"></i>Ликвидность: блокировки и логи</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row g-3 align-items-center">
+                                <div class="col-md-6">
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="liquidityLogEnabled" checked>
+                                        <label class="form-check-label" for="liquidityLogEnabled">
+                                            Показывать блокировки по ликвидности в логах
+                                        </label>
+                                    </div>
+                                    <small class="text-muted">Отключите, чтобы не захламлять BotLog предупреждениями о ликвидности.</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Период блокировки</label>
+                                    <select class="form-select form-select-sm" id="liquidityBlockDuration" style="max-width:220px;">
+                                        <option value="day" selected>День</option>
+                                        <option value="week">Неделя</option>
+                                        <option value="month">Месяц</option>
+                                    </select>
+                                    <small class="text-muted">По умолчанию — День.</small>
+                                </div>
+                            </div>
+                            <div class="mt-3">
+                                <button class="btn btn-primary" onclick="saveLiquiditySettings()">
+                                    <i class="fas fa-save me-1"></i>Сохранить настройки
+                                </button>
+                                <button class="btn btn-outline-secondary ms-2" onclick="loadLiquiditySettings()">
+                                    <i class="fas fa-sync-alt me-1"></i>Обновить
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                     
                     <!-- Sandbox Account Management -->
                     <div class="card mt-4">

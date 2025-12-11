@@ -50,8 +50,8 @@ public class PortfolioManagementService {
 
     // Защита: одна торговая операция на FIGI в короткое окно (например, один цикл/60 сек)
     private final java.util.concurrent.ConcurrentHashMap<String, Long> recentOperationsWindow = new java.util.concurrent.ConcurrentHashMap<>();
-    // Суточная блокировка инструментов после провала ликвидности
-    private static final long LIQUIDITY_BLOCK_DURATION_MS = 24 * 60 * 60 * 1000L;
+    // Блокировка инструментов после провала ликвидности (управляется настройкой)
+    private static final long DEFAULT_LIQUIDITY_BLOCK_DURATION_MS = 24 * 60 * 60 * 1000L;
     private final java.util.concurrent.ConcurrentHashMap<String, Long> liquidityBlockUntil = new java.util.concurrent.ConcurrentHashMap<>();
     private final ru.perminov.repository.InstrumentRepository instrumentRepository;
     
@@ -202,6 +202,36 @@ public class PortfolioManagementService {
     }
 
     /**
+     * Включено ли логирование блокировок по ликвидности в BotLog
+     */
+    private boolean shouldLogLiquidityBlocks() {
+        return tradingSettingsService.getBoolean("liquidity.log.blocks.enabled", true);
+    }
+
+    /**
+     * Длительность блокировки по ликвидности (ms), настраивается через tradingSettingsService.
+     * Ключ: liquidity.block.duration, варианты: day|week|month. По умолчанию day (24ч).
+     */
+    private long getLiquidityBlockDurationMs() {
+        try {
+            String v = tradingSettingsService.getString("liquidity.block.duration", "day");
+            if (v == null) return DEFAULT_LIQUIDITY_BLOCK_DURATION_MS;
+            switch (v.trim().toLowerCase()) {
+                case "week":
+                    return 7L * 24 * 60 * 60 * 1000L;
+                case "month":
+                    return 30L * 24 * 60 * 60 * 1000L;
+                case "day":
+                default:
+                    return 24L * 60 * 60 * 1000L;
+            }
+        } catch (Exception e) {
+            log.warn("Не удалось прочитать liquidity.block.duration: {} — используем значение по умолчанию (day)", e.getMessage());
+            return DEFAULT_LIQUIDITY_BLOCK_DURATION_MS;
+        }
+    }
+
+    /**
      * Остаток блокировки по ликвидности в минутах
      */
     private long getLiquidityBlockRemainingMinutes(String figi) {
@@ -216,12 +246,17 @@ public class PortfolioManagementService {
      * Установить блокировку инструмента на сутки после провала ликвидности
      */
     private void registerLiquidityBlock(String figi, String reason) {
-        long until = System.currentTimeMillis() + LIQUIDITY_BLOCK_DURATION_MS;
+        long durationMs = getLiquidityBlockDurationMs();
+        long until = System.currentTimeMillis() + durationMs;
         liquidityBlockUntil.put(figi, until);
         LocalDateTime untilDateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(until), ZoneId.systemDefault());
         log.warn("⛔ Добавлена суточная блокировка ликвидности для {} до {}", displayOf(figi), untilDateTime);
-        botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
-                "Блокировка по ликвидности", String.format("%s заблокирован до %s: %s", displayOf(figi), untilDateTime, reason));
+        if (shouldLogLiquidityBlocks()) {
+            botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "Блокировка по ликвидности", String.format("%s заблокирован до %s: %s", displayOf(figi), untilDateTime, reason));
+        } else {
+            log.debug("Логирование блокировки по ликвидности отключено настройкой, запись в BotLog пропущена");
+        }
     }
     
     /**

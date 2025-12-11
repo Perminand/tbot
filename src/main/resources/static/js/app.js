@@ -167,6 +167,7 @@ function showSection(sectionName) {
             loadTradingModeStatus();
             loadMarginSettings();
             loadHardStopsSettings();
+            loadLiquiditySettings();
             break;
     }
 }
@@ -1469,6 +1470,37 @@ async function saveHardStopsSettings() {
         if (r1.ok && r2.ok) showSuccess('Настройки жёстких стопов сохранены');
         else showError('Не удалось сохранить настройки жёстких стопов');
     } catch (e) { showError('Ошибка сохранения настроек жёстких стопов'); }
+}
+
+// ==================== LIQUIDITY BLOCK SETTINGS ====================
+async function loadLiquiditySettings() {
+    try {
+        const logResp = await fetch('/api/settings/get?key=liquidity.log.blocks.enabled');
+        const durResp = await fetch('/api/settings/get?key=liquidity.block.duration');
+        if (logResp.ok) {
+            const v = await logResp.text();
+            const el = document.getElementById('liquidityLogEnabled');
+            if (el) el.checked = (v === 'true');
+        }
+        if (durResp.ok) {
+            const v = await durResp.text();
+            const el = document.getElementById('liquidityBlockDuration');
+            if (el && v) el.value = v || 'day';
+        }
+    } catch (e) { console.warn('Liquidity settings load error', e); }
+}
+
+async function saveLiquiditySettings() {
+    try {
+        const logEnabled = document.getElementById('liquidityLogEnabled')?.checked ? 'true' : 'false';
+        const duration = document.getElementById('liquidityBlockDuration')?.value || 'day';
+        const b1 = new URLSearchParams({ key: 'liquidity.log.blocks.enabled', value: logEnabled, description: 'Log liquidity blocks to BotLog' });
+        const b2 = new URLSearchParams({ key: 'liquidity.block.duration', value: duration, description: 'Liquidity block duration (day|week|month)' });
+        const r1 = await fetch('/api/settings/set', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: b1 });
+        const r2 = await fetch('/api/settings/set', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: b2 });
+        if (r1.ok && r2.ok) showSuccess('Настройки ликвидности сохранены');
+        else showError('Не удалось сохранить настройки ликвидности');
+    } catch (e) { showError('Ошибка сохранения настроек ликвидности'); }
 }
 async function panicOff() {
     try {
