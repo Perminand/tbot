@@ -188,5 +188,6 @@ jobs:
             fi
   
 
-            docker image prune -f --filter "label=com.docker.compose.project=your-project-name"
+            # Очищаем старые образы/контейнеры старше суток, чтобы не забивать диск
+            docker system prune -af --filter "until=24h"
           

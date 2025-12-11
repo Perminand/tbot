@@ -5,6 +5,11 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: tbot_postgres
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     environment:
       POSTGRES_DB: tbot_db
       POSTGRES_USER: postgres
@@ -26,6 +31,11 @@ services:
   tbot-app:
     image: ${IMAGE:-tbot-app:latest}
     container_name: tbot_app
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     environment:
       # Database Configuration
       DB_URL: jdbc:postgresql://postgres:5432/tbot_db
@@ -72,6 +82,11 @@ services:
   nginx:
     image: nginx:alpine
     container_name: tbot_nginx
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
     profiles:
       - nginx
     ports:
