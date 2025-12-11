@@ -81,6 +81,24 @@ jobs:
           echo "IMAGE=$IMAGE_VALUE" >> $GITHUB_OUTPUT
           echo "Resolved image: $IMAGE_VALUE"
 
+      - name: Preflight: ensure target dir exists and writable
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          port: ${{ secrets.PRODUCTION_SSH_PORT }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            echo "whoami: $(whoami)"
+            echo "target: ${{ secrets.PRODUCTION_PATH }}"
+            mkdir -p "${{ secrets.PRODUCTION_PATH }}"
+            ls -ld "${{ secrets.PRODUCTION_PATH }}"
+            df -h "${{ secrets.PRODUCTION_PATH }}" || df -h
+            touch "${{ secrets.PRODUCTION_PATH }}/.deploy_touch"
+            ls -lah "${{ secrets.PRODUCTION_PATH }}"
+
       - name: Copy docker-compose.production.yml to server
         uses: appleboy/scp-action@v0.1.7
         with:
