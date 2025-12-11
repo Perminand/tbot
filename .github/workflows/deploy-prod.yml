@@ -90,6 +90,7 @@ jobs:
           port: ${{ secrets.PRODUCTION_SSH_PORT }}
           source: "docker-compose.production.yml,init.sql,init_trading_settings.sql,create-database.sql,nginx.conf,fix-database.sh,fix-now.sh,quick-start.sh"
           target: ${{ secrets.PRODUCTION_PATH }}
+          debug: true
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
