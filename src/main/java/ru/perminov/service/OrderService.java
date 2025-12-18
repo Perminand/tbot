@@ -591,9 +591,26 @@ public class OrderService {
             log.info("Размещение лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ID {}", 
                     lots, direction, accountId, price, orderId);
             
-            Quotation priceObj = Quotation.newBuilder()
-                .setUnits(Long.parseLong(price.split("\\.")[0]))
-                .setNano(Integer.parseInt(price.split("\\.")[1] + "000000000".substring(price.split("\\.")[1].length())))
+            // Исправленная логика преобразования цены в Quotation
+            Quotation priceObj;
+            String[] priceParts = price.split("\\.");
+            long units = Long.parseLong(priceParts[0]);
+            int nano = 0;
+            
+            if (priceParts.length > 1 && !priceParts[1].isEmpty()) {
+                String fractionalPart = priceParts[1];
+                // Ограничиваем дробную часть до 9 символов (максимум для nano)
+                if (fractionalPart.length() > 9) {
+                    fractionalPart = fractionalPart.substring(0, 9);
+                }
+                // Дополняем нулями справа до 9 символов
+                String nanoStr = fractionalPart + "000000000";
+                nano = Integer.parseInt(nanoStr.substring(0, 9));
+            }
+            
+            priceObj = Quotation.newBuilder()
+                .setUnits(units)
+                .setNano(nano)
                 .build();
             
             apiRateLimiter.acquire();
