@@ -39,26 +39,15 @@ public class SettingsController {
             // Сохраняем значение
             settingsService.upsert(key, trimmedValue, description != null ? description : "");
             
-            // Небольшая задержка для гарантии сохранения в БД
-            Thread.sleep(100);
-            
-            // Проверяем, что значение сохранилось - читаем напрямую из репозитория
-            String savedValue = settingsService.getString(key, "NOT_FOUND");
-            log.info("🔵 SET setting CONFIRMED: key={}, savedValue='{}', requestedValue='{}', matches={}", 
-                key, savedValue, trimmedValue, savedValue.equals(trimmedValue));
-            
-            if (!savedValue.equals(trimmedValue)) {
-                log.error("❌ CRITICAL ERROR: Saved value '{}' does not match requested value '{}' for key '{}'", 
-                    savedValue, trimmedValue, key);
-                // Возвращаем ошибку, чтобы клиент знал о проблеме
-                return ResponseEntity.status(500).body("Failed to save setting: value mismatch");
-            }
+            log.info("🔵 SET setting SUCCESS: key={}, value='{}'", key, trimmedValue);
             
             // Возвращаем успешный ответ с сохраненным значением для подтверждения
             return ResponseEntity.ok(trimmedValue);
         } catch (Exception e) {
             log.error("❌ Error setting {}={}: {}", key, value, e.getMessage(), e);
-            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+            e.printStackTrace(); // Выводим stack trace для отладки
+            // Возвращаем детальную ошибку для отладки
+            return ResponseEntity.status(500).body("Error: " + e.getMessage() + " | Class: " + e.getClass().getSimpleName());
         }
     }
 

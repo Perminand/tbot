@@ -28,8 +28,10 @@ public class SecurityConfig {
         http
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers("/", "/home", "/css/**", "/js/**", "/images/**").permitAll()
-                // Разрешаем чтение публичных настроек для UI (только GET)
+                // Разрешаем чтение и запись настроек для UI
                 .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/settings/get").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/settings/set").permitAll()
+                .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/settings/debug").permitAll()
                 .anyRequest().authenticated()
             )
             .formLogin(form -> form

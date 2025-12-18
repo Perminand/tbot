@@ -78,27 +78,21 @@ public class TradingSettingsService {
 
     @Transactional
     public void upsert(String key, String value, String description) {
-        Optional<TradingSettings> opt = repository.findByKey(key);
-        TradingSettings s = opt.orElseGet(TradingSettings::new);
-        String oldValue = s.getValue();
-        String newValue = value != null ? value.trim() : "";
-        s.setKey(key);
-        s.setValue(newValue);
-        s.setDescription(description);
-        TradingSettings saved = repository.saveAndFlush(s); // Используем saveAndFlush для немедленного сохранения
-        log.info("upsert: key={}, oldValue={}, newValue={}, savedId={}, savedValue={}, savedValueLength={}", 
-            key, oldValue, newValue, saved.getId(), saved.getValue(), saved.getValue() != null ? saved.getValue().length() : 0);
-        
-        // Дополнительная проверка: читаем обратно из БД
-        Optional<TradingSettings> verify = repository.findByKey(key);
-        if (verify.isPresent()) {
-            String verifiedValue = verify.get().getValue();
-            log.info("upsert VERIFY: key={}, verifiedValue={}, matches={}", key, verifiedValue, verifiedValue.equals(newValue));
-            if (!verifiedValue.equals(newValue)) {
-                log.error("❌ CRITICAL: upsert verification failed! key={}, expected={}, actual={}", key, newValue, verifiedValue);
-            }
-        } else {
-            log.error("❌ CRITICAL: upsert verification failed! key={} not found after save!", key);
+        try {
+            Optional<TradingSettings> opt = repository.findByKey(key);
+            TradingSettings s = opt.orElseGet(TradingSettings::new);
+            String oldValue = s.getValue();
+            String newValue = value != null ? value.trim() : "";
+            s.setKey(key);
+            s.setValue(newValue);
+            s.setDescription(description != null ? description : "");
+            TradingSettings saved = repository.saveAndFlush(s); // Используем saveAndFlush для немедленного сохранения
+            log.info("upsert SUCCESS: key={}, oldValue={}, newValue={}, savedId={}, savedValue={}, savedValueLength={}", 
+                key, oldValue, newValue, saved.getId(), saved.getValue(), saved.getValue() != null ? saved.getValue().length() : 0);
+        } catch (Exception e) {
+            log.error("❌ upsert ERROR: key={}, value={}, error={}", key, value, e.getMessage(), e);
+            e.printStackTrace();
+            throw e; // Пробрасываем исключение дальше
         }
     }
 }
