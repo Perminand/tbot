@@ -545,26 +545,45 @@ public class OrderService {
                     log.info("📊 HARD OCO для {}: текущая цена={}, TP цена={}, отклонение={} ({:.2f}%)", 
                             figi, currentPrice, takeProfitPrice, tpDiff, tpDiffPct.doubleValue());
                     
-                    // Если цена take-profit слишком далеко от текущей (более 15%), корректируем
-                    if (tpDiffPct.compareTo(BigDecimal.valueOf(15)) > 0) {
+                    // Если цена take-profit слишком далеко от текущей (более 10%), корректируем
+                    // Используем более консервативный порог 10% вместо 15%
+                    if (tpDiffPct.compareTo(BigDecimal.valueOf(10)) > 0) {
                         if (exitDirection == OrderDirection.ORDER_DIRECTION_SELL) {
-                            // Для SELL: используем текущую ask цену + небольшой отступ (1-2%)
-                            BigDecimal offset = BigDecimal.valueOf(0.02); // 2% отступ
-                            adjustedTakeProfitPrice = bidAsk.getAsk().multiply(BigDecimal.ONE.add(offset));
-                            log.warn("⚠️ HARD OCO: цена take-profit {} слишком далеко от текущей {} (отклонение {:.2f}%). " +
-                                    "Используем скорректированную цену {} (ask + 2%)", 
-                                    takeProfitPrice, currentPrice, tpDiffPct.doubleValue(), adjustedTakeProfitPrice);
+                            // Для SELL (take-profit для LONG): используем более консервативную цену
+                            // Берем текущую ask цену + разумный отступ (3-5%), но не выше исходной take-profit цены
+                            BigDecimal conservativeOffset = BigDecimal.valueOf(0.05); // 5% отступ от ask
+                            adjustedTakeProfitPrice = bidAsk.getAsk().multiply(BigDecimal.ONE.add(conservativeOffset));
+                            
+                            // Если исходная take-profit цена ниже скорректированной, используем исходную
+                            // (это означает, что цена входа была ниже текущей цены)
+                            if (takeProfitPrice.compareTo(adjustedTakeProfitPrice) < 0 && takeProfitPrice.compareTo(currentPrice) > 0) {
+                                // Исходная цена разумна и выше текущей - используем её
+                                adjustedTakeProfitPrice = takeProfitPrice;
+                                log.info("ℹ️ HARD OCO: используем исходную take-profit цену {} (выше текущей {})", 
+                                        takeProfitPrice, currentPrice);
+                            } else {
+                                log.warn("⚠️ HARD OCO: цена take-profit {} слишком далеко от текущей {} (отклонение {:.2f}%). " +
+                                        "Используем скорректированную цену {} (ask + 5%)", 
+                                        takeProfitPrice, currentPrice, tpDiffPct.doubleValue(), adjustedTakeProfitPrice);
+                            }
                         } else {
-                            // Для BUY: используем текущую bid цену - небольшой отступ (1-2%)
-                            BigDecimal offset = BigDecimal.valueOf(0.02); // 2% отступ
-                            adjustedTakeProfitPrice = bidAsk.getBid().multiply(BigDecimal.ONE.subtract(offset));
-                            log.warn("⚠️ HARD OCO: цена take-profit {} слишком далеко от текущей {} (отклонение {:.2f}%). " +
-                                    "Используем скорректированную цену {} (bid - 2%)", 
-                                    takeProfitPrice, currentPrice, tpDiffPct.doubleValue(), adjustedTakeProfitPrice);
+                            // Для BUY (take-profit для SHORT): используем текущую bid цену - отступ
+                            BigDecimal conservativeOffset = BigDecimal.valueOf(0.05); // 5% отступ от bid
+                            adjustedTakeProfitPrice = bidAsk.getBid().multiply(BigDecimal.ONE.subtract(conservativeOffset));
+                            
+                            // Если исходная take-profit цена выше скорректированной, используем исходную
+                            if (takeProfitPrice.compareTo(adjustedTakeProfitPrice) > 0 && takeProfitPrice.compareTo(currentPrice) < 0) {
+                                adjustedTakeProfitPrice = takeProfitPrice;
+                                log.info("ℹ️ HARD OCO: используем исходную take-profit цену {} (ниже текущей {})", 
+                                        takeProfitPrice, currentPrice);
+                            } else {
+                                log.warn("⚠️ HARD OCO: цена take-profit {} слишком далеко от текущей {} (отклонение {:.2f}%). " +
+                                        "Используем скорректированную цену {} (bid - 5%)", 
+                                        takeProfitPrice, currentPrice, tpDiffPct.doubleValue(), adjustedTakeProfitPrice);
+                            }
                         }
-                    } else if (tpDiffPct.compareTo(BigDecimal.valueOf(10)) > 0) {
-                        log.warn("⚠️ HARD OCO: цена take-profit {} далеко от текущей {} (отклонение {:.2f}%). " +
-                                "API может отклонить ордер.", 
+                    } else if (tpDiffPct.compareTo(BigDecimal.valueOf(5)) > 0) {
+                        log.info("ℹ️ HARD OCO: цена take-profit {} умеренно далеко от текущей {} (отклонение {:.2f}%)", 
                                 takeProfitPrice, currentPrice, tpDiffPct.doubleValue());
                     }
                 }
