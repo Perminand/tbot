@@ -1449,14 +1449,17 @@ async function loadHardStopsSettings() {
         const el1 = document.getElementById('hardStopsEnabled');
         if (el1) {
             if (resp1.ok) {
-                const v = await resp1.text();
-                el1.checked = (v === 'true');
-                console.log('Hard stops enabled loaded:', v, '-> checked:', el1.checked);
+                const v = (await resp1.text()).trim();
+                const isChecked = v === 'true';
+                el1.checked = isChecked;
+                console.log('Hard stops enabled loaded: value="' + v + '", checked=' + isChecked, 'response status:', resp1.status);
             } else {
                 // Если ответ не OK, устанавливаем false
                 el1.checked = false;
-                console.warn('Hard stops enabled: response not OK, setting to false');
+                console.warn('Hard stops enabled: response not OK, status:', resp1.status, 'setting to false');
             }
+        } else {
+            console.warn('Hard stops enabled: element not found');
         }
         
         // Загружаем настройку hard_stops.trailing.enabled
@@ -1464,14 +1467,17 @@ async function loadHardStopsSettings() {
         const el2 = document.getElementById('hardStopsTrailingEnabled');
         if (el2) {
             if (resp2.ok) {
-                const v = await resp2.text();
-                el2.checked = (v === 'true');
-                console.log('Hard stops trailing enabled loaded:', v, '-> checked:', el2.checked);
+                const v = (await resp2.text()).trim();
+                const isChecked = v === 'true';
+                el2.checked = isChecked;
+                console.log('Hard stops trailing enabled loaded: value="' + v + '", checked=' + isChecked, 'response status:', resp2.status);
             } else {
                 // Если ответ не OK, устанавливаем false
                 el2.checked = false;
-                console.warn('Hard stops trailing enabled: response not OK, setting to false');
+                console.warn('Hard stops trailing enabled: response not OK, status:', resp2.status, 'setting to false');
             }
+        } else {
+            console.warn('Hard stops trailing enabled: element not found');
         }
     } catch (e) { 
         console.error('Hard stops settings load error', e);
@@ -1485,10 +1491,23 @@ async function loadHardStopsSettings() {
 
 async function saveHardStopsSettings() {
     try {
-        const enabled = document.getElementById('hardStopsEnabled')?.checked ? 'true' : 'false';
-        const trailing = document.getElementById('hardStopsTrailingEnabled')?.checked ? 'true' : 'false';
+        const el1 = document.getElementById('hardStopsEnabled');
+        const el2 = document.getElementById('hardStopsTrailingEnabled');
         
-        console.log('Saving hard stops settings:', { enabled, trailing });
+        if (!el1 || !el2) {
+            showError('Элементы настроек не найдены');
+            return;
+        }
+        
+        const enabled = el1.checked ? 'true' : 'false';
+        const trailing = el2.checked ? 'true' : 'false';
+        
+        console.log('Saving hard stops settings:', { 
+            enabledCheckbox: el1.checked, 
+            enabledValue: enabled,
+            trailingCheckbox: el2.checked,
+            trailingValue: trailing 
+        });
         
         const b1 = new URLSearchParams({ key: 'hard_stops.enabled', value: enabled, description: 'Enable hard OCO stops in production' });
         const b2 = new URLSearchParams({ key: 'hard_stops.trailing.enabled', value: trailing, description: 'Enable trailing with OCO re-posting' });
@@ -1496,12 +1515,32 @@ async function saveHardStopsSettings() {
         const r1 = await fetch('/api/settings/set', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: b1 });
         const r2 = await fetch('/api/settings/set', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: b2 });
         
-        console.log('Save responses:', { r1: r1.status, r2: r2.status, r1ok: r1.ok, r2ok: r2.ok });
+        console.log('Save responses:', { 
+            r1Status: r1.status, 
+            r2Status: r2.status, 
+            r1Ok: r1.ok, 
+            r2Ok: r2.ok,
+            r1StatusText: r1.statusText,
+            r2StatusText: r2.statusText
+        });
         
         if (r1.ok && r2.ok) {
             showSuccess('Настройки жёстких стопов сохранены');
-            // Перезагружаем настройки для подтверждения
-            setTimeout(() => loadHardStopsSettings(), 500);
+            // Перезагружаем настройки для подтверждения через небольшую задержку
+            setTimeout(async () => {
+                console.log('Reloading settings after save...');
+                await loadHardStopsSettings();
+                // Проверяем, что значения установились правильно
+                const el1After = document.getElementById('hardStopsEnabled');
+                const el2After = document.getElementById('hardStopsTrailingEnabled');
+                console.log('After reload - enabled:', el1After?.checked, 'trailing:', el2After?.checked);
+                if (el1After && el1After.checked !== el1.checked) {
+                    console.error('MISMATCH: enabled checkbox changed from', el1.checked, 'to', el1After.checked);
+                }
+                if (el2After && el2After.checked !== el2.checked) {
+                    console.error('MISMATCH: trailing checkbox changed from', el2.checked, 'to', el2After.checked);
+                }
+            }, 1000);
         } else {
             showError('Не удалось сохранить настройки жёстких стопов. Статус: ' + r1.status + '/' + r2.status);
         }

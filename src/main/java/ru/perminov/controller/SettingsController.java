@@ -17,9 +17,11 @@ public class SettingsController {
     @GetMapping(value = "/get", produces = "text/plain; charset=UTF-8")
     public ResponseEntity<String> get(@RequestParam String key) {
         try {
-            String v = settingsService.getString(key, "");
-            log.debug("GET setting: key={}, value={}", key, v);
-            return ResponseEntity.ok(v == null ? "" : v);
+            String defaultValue = "";
+            String v = settingsService.getString(key, defaultValue);
+            String result = v == null ? "" : v.trim();
+            log.info("GET setting: key={}, value={}, result={}, isEmpty={}", key, v, result, result.isEmpty());
+            return ResponseEntity.ok(result);
         } catch (Exception e) {
             log.error("Error getting setting {}: {}", key, e.getMessage(), e);
             // Никогда не падаем 500 для UI настроек
@@ -31,11 +33,15 @@ public class SettingsController {
     public ResponseEntity<?> set(@RequestParam String key, @RequestParam String value,
                                  @RequestParam(required = false) String description) {
         try {
-            log.info("SET setting: key={}, value={}, description={}", key, value, description);
-            settingsService.upsert(key, value, description != null ? description : "");
+            String trimmedValue = value != null ? value.trim() : "";
+            log.info("SET setting: key={}, value={} (trimmed: {}), description={}", key, value, trimmedValue, description);
+            settingsService.upsert(key, trimmedValue, description != null ? description : "");
             // Проверяем, что значение сохранилось
             String savedValue = settingsService.getString(key, "");
-            log.info("SET setting confirmed: key={}, savedValue={}", key, savedValue);
+            log.info("SET setting confirmed: key={}, savedValue={}, matches={}", key, savedValue, savedValue.equals(trimmedValue));
+            if (!savedValue.equals(trimmedValue)) {
+                log.warn("⚠️ WARNING: Saved value '{}' does not match requested value '{}' for key '{}'", savedValue, trimmedValue, key);
+            }
             return ResponseEntity.noContent().build();
         } catch (Exception e) {
             log.error("Error setting {}={}: {}", key, value, e.getMessage(), e);
