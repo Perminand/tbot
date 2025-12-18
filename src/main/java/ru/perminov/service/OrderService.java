@@ -63,6 +63,13 @@ public class OrderService {
             // Коррекция объема в зависимости от доступного количества лотов (не продавать больше, чем есть)
             lots = clampLotsByHoldings(figi, accountId, direction, lots);
 
+            // 🚀 ИСПРАВЛЕНИЕ: Проверка количества лотов после коррекции
+            if (lots <= 0) {
+                String errorMsg = String.format("Невозможно разместить рыночный ордер: после коррекции количество лотов = %d (должно быть > 0)", lots);
+                log.error("❌ {}", errorMsg);
+                throw new IllegalStateException(errorMsg);
+            }
+
             // Дополнительная проверка: если лотов слишком много, уменьшаем до разумного лимита
             if (lots > 100) {
                 log.warn("Слишком много лотов для размещения: {} -> 100", lots);
@@ -161,9 +168,9 @@ public class OrderService {
      * 🚀 ИСПРАВЛЕННЫЙ МЕТОД: Умный лимитный ордер с правильным использованием bid/ask цен
      */
     public PostOrderResponse placeSmartLimitOrder(String figi, int lots, OrderDirection direction, String accountId, BigDecimal marketPrice) {
+        int originalLots = lots; // Сохраняем оригинальное значение для fallback
         try {
             // Корректируем лоты до размещения лимитного ордера
-            int originalLots = lots;
             lots = clampLotsByHoldings(figi, accountId, direction, lots);
             if (lots <= 0) {
                 throw new IllegalStateException("После коррекции объема лотов не осталось: было=" + originalLots);
@@ -211,7 +218,14 @@ public class OrderService {
             
         } catch (Exception e) {
             log.warn("⚠️ Ошибка умного лимита для {}, переходим на рыночный: {}", figi, e.getMessage());
-            return placeMarketOrder(figi, lots, direction, accountId);
+            // 🚀 ИСПРАВЛЕНИЕ: Используем оригинальное значение lots, если скорректированное равно 0
+            int lotsToUse = (lots > 0) ? lots : originalLots;
+            if (lotsToUse <= 0) {
+                log.error("❌ Невозможно разместить ордер: lots={}, originalLots={}, direction={}", lots, originalLots, direction);
+                throw new IllegalStateException("Невозможно разместить ордер: количество лотов равно 0 (было=" + originalLots + ")");
+            }
+            log.info("🔄 Fallback на рыночный ордер: lots={} (было скорректировано до {})", lotsToUse, lots);
+            return placeMarketOrder(figi, lotsToUse, direction, accountId);
         }
     }
     

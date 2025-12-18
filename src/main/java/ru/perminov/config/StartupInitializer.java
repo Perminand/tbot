@@ -32,10 +32,10 @@ public class StartupInitializer {
             setDefaultIfMissing("risk_per_trade_pct", "0.005", "Risk per trade percent of portfolio (0.5% instead of 1%)");
             setDefaultIfMissing("hard_stops.enabled", "true", "Enable hard OCO stops in production");
             setDefaultIfMissing("hard_stops.trailing.enabled", "true", "Enable trailing with OCO re-posting");
-
-            // Auto monitoring control
             setDefaultIfMissing("auto_monitor.enable", "true", "Enable auto monitoring at startup");
+
             String enableStr = tradingSettingsService.getString("auto_monitor.enable", "false");
+
             boolean enable = Boolean.parseBoolean(enableStr);
             log.info("🔍 Автоматический мониторинг: enable={}, значение из настроек: {}", enable, enableStr);
             if (enable) {
