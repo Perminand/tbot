@@ -92,12 +92,13 @@ public class SettingsController {
         }
     }
 
-    @org.springframework.web.bind.annotation.ExceptionHandler(Exception.class)
-    public ResponseEntity<String> handleAny(Exception e) {
-        log.error("Settings controller error: {}", e.getMessage(), e);
-        // Возвращаем пустой ответ, чтобы UI не падал на настройках
-        return ResponseEntity.ok("");
-    }
+    // Убираем глобальный ExceptionHandler - пусть ошибки обрабатываются Spring'ом
+    // @org.springframework.web.bind.annotation.ExceptionHandler(Exception.class)
+    // public ResponseEntity<String> handleAny(Exception e) {
+    //     log.error("Settings controller error: {}", e.getMessage(), e);
+    //     // Возвращаем пустой ответ, чтобы UI не падал на настройках
+    //     return ResponseEntity.ok("");
+    // }
 }
 
 

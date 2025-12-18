@@ -22,17 +22,18 @@ public class TradingSettingsService {
             if (opt.isPresent()) {
                 TradingSettings setting = opt.get();
                 String value = setting.getValue();
-                log.info("getString: key={}, found in DB: id={}, value='{}', valueLength={}, valueIsEmpty={}, defaultValue='{}'", 
+                log.info("getString: key={}, found in DB: id={}, value='{}', valueLength={}, valueIsNull={}, valueIsEmpty={}, defaultValue='{}'", 
                     key, setting.getId(), value, value != null ? value.length() : 0, 
-                    value == null || value.trim().isEmpty(), defaultValue);
+                    value == null, value != null && value.trim().isEmpty(), defaultValue);
                 
-                // Если значение null или пустое, возвращаем defaultValue
-                if (value == null || value.trim().isEmpty()) {
-                    log.warn("⚠️ getString: key={} has null or empty value in DB, returning defaultValue='{}'", key, defaultValue);
+                // Возвращаем значение как есть, даже если оно пустое (это может быть валидное значение "false")
+                // Только если значение null, возвращаем defaultValue
+                if (value == null) {
+                    log.warn("⚠️ getString: key={} has NULL value in DB, returning defaultValue='{}'", key, defaultValue);
                     return defaultValue;
                 }
                 
-                // Возвращаем значение как есть (без trim, чтобы сохранить оригинал)
+                // Возвращаем значение как есть (даже пустую строку - это валидное значение)
                 return value;
             } else {
                 log.info("getString: key={}, NOT FOUND in DB, using defaultValue='{}'", key, defaultValue);

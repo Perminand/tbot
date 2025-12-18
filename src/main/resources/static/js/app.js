@@ -1515,17 +1515,29 @@ async function saveHardStopsSettings() {
         const r1 = await fetch('/api/settings/set', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: b1 });
         const r2 = await fetch('/api/settings/set', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: b2 });
         
+        // Читаем ответы как текст для проверки
+        const r1Text = await r1.text();
+        const r2Text = await r2.text();
+        
         console.log('Save responses:', { 
             r1Status: r1.status, 
             r2Status: r2.status, 
             r1Ok: r1.ok, 
             r2Ok: r2.ok,
-            r1StatusText: r1.statusText,
-            r2StatusText: r2.statusText
+            r1Body: r1Text,
+            r2Body: r2Text
         });
         
         if (r1.ok && r2.ok) {
-            showSuccess('Настройки жёстких стопов сохранены');
+            // Проверяем, что сервер вернул сохраненное значение
+            if (r1Text === enabled && r2Text === trailing) {
+                console.log('✅ Save confirmed: values match');
+                showSuccess('Настройки жёстких стопов сохранены');
+            } else {
+                console.warn('⚠️ Save response mismatch: r1Text=' + r1Text + ' (expected ' + enabled + '), r2Text=' + r2Text + ' (expected ' + trailing + ')');
+                showError('Настройки сохранены, но значения не совпадают. Проверьте логи сервера.');
+            }
+            
             // Перезагружаем настройки для подтверждения через небольшую задержку
             setTimeout(async () => {
                 console.log('Reloading settings after save...');
@@ -1535,14 +1547,16 @@ async function saveHardStopsSettings() {
                 const el2After = document.getElementById('hardStopsTrailingEnabled');
                 console.log('After reload - enabled:', el1After?.checked, 'trailing:', el2After?.checked);
                 if (el1After && el1After.checked !== el1.checked) {
-                    console.error('MISMATCH: enabled checkbox changed from', el1.checked, 'to', el1After.checked);
+                    console.error('❌ MISMATCH: enabled checkbox changed from', el1.checked, 'to', el1After.checked);
+                    showError('Настройка enabled не сохранилась! Проверьте логи сервера.');
                 }
                 if (el2After && el2After.checked !== el2.checked) {
-                    console.error('MISMATCH: trailing checkbox changed from', el2.checked, 'to', el2After.checked);
+                    console.error('❌ MISMATCH: trailing checkbox changed from', el2.checked, 'to', el2After.checked);
                 }
             }, 1000);
         } else {
-            showError('Не удалось сохранить настройки жёстких стопов. Статус: ' + r1.status + '/' + r2.status);
+            const errorMsg = r1.status >= 500 ? r1Text : (r2.status >= 500 ? r2Text : '');
+            showError('Не удалось сохранить настройки жёстких стопов. Статус: ' + r1.status + '/' + r2.status + (errorMsg ? '. Ошибка: ' + errorMsg : ''));
         }
     } catch (e) { 
         console.error('Error saving hard stops settings:', e);
