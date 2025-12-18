@@ -533,7 +533,8 @@ public class OrderService {
             String ocoGroupId = "HARD_OCO_" + System.currentTimeMillis();
             String ocoMessage = "OCO_GROUP:" + ocoGroupId + " | Entry: " + entryPrice + " | " + positionType;
 
-            // Проверяем текущую рыночную цену перед размещением take-profit ордера
+            // Проверяем текущую рыночную цену и корректируем take-profit цену при необходимости
+            BigDecimal adjustedTakeProfitPrice = takeProfitPrice;
             try {
                 MarketAnalysisService.BidAskPrices bidAsk = marketAnalysisService.getBidAskPrices(figi);
                 if (bidAsk != null) {
@@ -544,10 +545,26 @@ public class OrderService {
                     log.info("📊 HARD OCO для {}: текущая цена={}, TP цена={}, отклонение={} ({:.2f}%)", 
                             figi, currentPrice, takeProfitPrice, tpDiff, tpDiffPct.doubleValue());
                     
-                    // Если цена take-profit слишком далеко от текущей (более 20%), предупреждаем
-                    if (tpDiffPct.compareTo(BigDecimal.valueOf(20)) > 0) {
-                        log.warn("⚠️ HARD OCO: цена take-profit {} слишком далеко от текущей {} (отклонение {:.2f}%). " +
-                                "API может отклонить ордер. Рекомендуется использовать более близкую цену.", 
+                    // Если цена take-profit слишком далеко от текущей (более 15%), корректируем
+                    if (tpDiffPct.compareTo(BigDecimal.valueOf(15)) > 0) {
+                        if (exitDirection == OrderDirection.ORDER_DIRECTION_SELL) {
+                            // Для SELL: используем текущую ask цену + небольшой отступ (1-2%)
+                            BigDecimal offset = BigDecimal.valueOf(0.02); // 2% отступ
+                            adjustedTakeProfitPrice = bidAsk.getAsk().multiply(BigDecimal.ONE.add(offset));
+                            log.warn("⚠️ HARD OCO: цена take-profit {} слишком далеко от текущей {} (отклонение {:.2f}%). " +
+                                    "Используем скорректированную цену {} (ask + 2%)", 
+                                    takeProfitPrice, currentPrice, tpDiffPct.doubleValue(), adjustedTakeProfitPrice);
+                        } else {
+                            // Для BUY: используем текущую bid цену - небольшой отступ (1-2%)
+                            BigDecimal offset = BigDecimal.valueOf(0.02); // 2% отступ
+                            adjustedTakeProfitPrice = bidAsk.getBid().multiply(BigDecimal.ONE.subtract(offset));
+                            log.warn("⚠️ HARD OCO: цена take-profit {} слишком далеко от текущей {} (отклонение {:.2f}%). " +
+                                    "Используем скорректированную цену {} (bid - 2%)", 
+                                    takeProfitPrice, currentPrice, tpDiffPct.doubleValue(), adjustedTakeProfitPrice);
+                        }
+                    } else if (tpDiffPct.compareTo(BigDecimal.valueOf(10)) > 0) {
+                        log.warn("⚠️ HARD OCO: цена take-profit {} далеко от текущей {} (отклонение {:.2f}%). " +
+                                "API может отклонить ордер.", 
                                 takeProfitPrice, currentPrice, tpDiffPct.doubleValue());
                     }
                 }
@@ -556,7 +573,12 @@ public class OrderService {
             }
 
             // Размещаем тейк-профит как лимитный ордер с информацией об OCO группе
-            PostOrderResponse tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString(), ocoMessage);
+            // Используем скорректированную цену, если она была изменена
+            String tpMessage = ocoMessage;
+            if (!adjustedTakeProfitPrice.equals(takeProfitPrice)) {
+                tpMessage = ocoMessage + " | Adjusted TP: " + adjustedTakeProfitPrice + " (original: " + takeProfitPrice + ")";
+            }
+            PostOrderResponse tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, adjustedTakeProfitPrice.toPlainString(), tpMessage);
             log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
 
             // Обновляем сохраненный ордер в БД с информацией об OCO группе
