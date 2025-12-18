@@ -502,6 +502,13 @@ public class OrderService {
     public void placeHardOCO(String figi, int lots, OrderDirection originalDirection, String accountId,
                              BigDecimal entryPrice, double takeProfitPct, double stopLossPct) {
         try {
+            // 🚀 ПРОВЕРКА РЕЖИМА: только production
+            String currentMode = investApiManager.getCurrentMode();
+            if (!"production".equalsIgnoreCase(currentMode)) {
+                log.warn("⚠️ HARD OCO доступен только в production режиме. Текущий режим: {}", currentMode);
+                throw new IllegalStateException("HARD OCO доступен только в production режиме. Текущий режим: " + currentMode);
+            }
+
             BigDecimal takeProfitPrice;
             BigDecimal stopLossPrice;
             OrderDirection exitDirection;
@@ -524,14 +531,44 @@ public class OrderService {
             }
 
             String ocoGroupId = "HARD_OCO_" + System.currentTimeMillis();
+            String ocoMessage = "OCO_GROUP:" + ocoGroupId + " | Entry: " + entryPrice + " | " + positionType;
 
-            // Размещаем тейк-профит как лимитный ордер
-            PostOrderResponse tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString());
+            // Размещаем тейк-профит как лимитный ордер с информацией об OCO группе
+            PostOrderResponse tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString(), ocoMessage);
             log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
 
-            // Размещаем стоп как стоп-ордер (пока лимит из-за ограничений API)
-            PostOrderResponse slResp = placeStopOrder(figi, lots, exitDirection, accountId, stopLossPrice, "HARD_OCO:" + ocoGroupId + " | SL " + positionType);
+            // Обновляем сохраненный ордер в БД с информацией об OCO группе
+            try {
+                Order tpOrder = orderRepository.findById(tpResp.getOrderId()).orElse(null);
+                if (tpOrder != null) {
+                    tpOrder.setMessage(ocoMessage + " | TP: " + takeProfitPct * 100 + "%");
+                    tpOrder.setOrderType("HARD_OCO_TAKE_PROFIT");
+                    orderRepository.save(tpOrder);
+                    log.info("💾 HARD OCO TP ордер обновлен в БД: orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
+                }
+            } catch (Exception e) {
+                log.warn("Не удалось обновить TP ордер в БД: {}", e.getMessage());
+            }
+
+            // Размещаем стоп как стоп-ордер с информацией об OCO группе
+            PostOrderResponse slResp = placeStopOrder(figi, lots, exitDirection, accountId, stopLossPrice, ocoMessage + " | SL: " + stopLossPct * 100 + "%");
             log.info("🛑 HARD OCO: SL ордер создан, orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
+
+            // Обновляем сохраненный ордер в БД с информацией об OCO группе
+            try {
+                Order slOrder = orderRepository.findById(slResp.getOrderId()).orElse(null);
+                if (slOrder != null) {
+                    slOrder.setMessage(ocoMessage + " | SL: " + stopLossPct * 100 + "%");
+                    slOrder.setOrderType("HARD_OCO_STOP_LOSS");
+                    orderRepository.save(slOrder);
+                    log.info("💾 HARD OCO SL ордер обновлен в БД: orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
+                }
+            } catch (Exception e) {
+                log.warn("Не удалось обновить SL ордер в БД: {}", e.getMessage());
+            }
+
+            log.info("✅ HARD OCO группа создана: {} | TP orderId={}, SL orderId={}, group={}", 
+                figi, tpResp.getOrderId(), slResp.getOrderId(), ocoGroupId);
 
         } catch (Exception e) {
             log.error("Ошибка создания HARD OCO для {}: {}", figi, e.getMessage(), e);
@@ -539,7 +576,14 @@ public class OrderService {
         }
     }
 
+    /**
+     * Размещение лимитного ордера с опциональным сообщением для OCO групп
+     */
     public PostOrderResponse placeLimitOrder(String figi, int lots, OrderDirection direction, String accountId, String price) {
+        return placeLimitOrder(figi, lots, direction, accountId, price, null);
+    }
+
+    public PostOrderResponse placeLimitOrder(String figi, int lots, OrderDirection direction, String accountId, String price, String message) {
         try {
             // Корректируем лоты до размещения лимитного ордера
             lots = clampLotsByHoldings(figi, accountId, direction, lots);
@@ -593,7 +637,7 @@ public class OrderService {
                 entity.setOrderDate(java.time.LocalDateTime.now());
                 entity.setOrderType(OrderType.ORDER_TYPE_LIMIT.name());
                 try { entity.setCommission(moneyToBigDecimal(response.getExecutedCommission())); } catch (Exception ignore) {}
-                entity.setMessage(null);
+                entity.setMessage(message); // Сохраняем сообщение (может содержать информацию об OCO группе)
                 entity.setAccountId(accountId);
                 orderRepository.save(entity);
             } catch (Exception persistEx) {
