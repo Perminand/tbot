@@ -2856,7 +2856,11 @@ function showSection(sectionName) {
             stopDashboardAutoRefresh();
             break;
         case 'settings':
-            loadSettings();
+            // При открытии настроек обновим статус и маржинальные настройки
+            loadTradingModeStatus();
+            loadMarginSettings();
+            loadHardStopsSettings();
+            loadLiquiditySettings();
             stopDashboardAutoRefresh();
             break;
     }

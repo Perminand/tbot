@@ -15,7 +15,7 @@ public class SettingsController {
     private final TradingSettingsService settingsService;
 
     @GetMapping(value = "/get", produces = "text/plain; charset=UTF-8")
-    public ResponseEntity<String> get(@RequestParam String key) {
+    public ResponseEntity<String> get(@RequestParam("key") String key) {
         try {
             String defaultValue = "";
             String v = settingsService.getString(key, defaultValue);
@@ -30,8 +30,9 @@ public class SettingsController {
     }
 
     @PostMapping(value = "/set")
-    public ResponseEntity<?> set(@RequestParam String key, @RequestParam String value,
-                                 @RequestParam(required = false) String description) {
+    public ResponseEntity<?> set(@RequestParam("key") String key, 
+                                 @RequestParam("value") String value,
+                                 @RequestParam(value = "description", required = false) String description) {
         try {
             String trimmedValue = value != null ? value.trim() : "";
             log.info("🔵 SET setting START: key={}, value={} (trimmed: '{}'), description={}", key, value, trimmedValue, description);
@@ -55,7 +56,7 @@ public class SettingsController {
      * Тестовый endpoint для проверки значения напрямую из БД
      */
     @GetMapping(value = "/debug", produces = "application/json")
-    public ResponseEntity<?> debug(@RequestParam String key) {
+    public ResponseEntity<?> debug(@RequestParam("key") String key) {
         try {
             // Читаем напрямую из репозитория через сервис
             var opt = settingsService.getSetting(key);
