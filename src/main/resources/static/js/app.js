@@ -1444,32 +1444,71 @@ async function panicOn() {
 // ==================== HARD STOPS (OCO) ====================
 async function loadHardStopsSettings() {
     try {
+        // Загружаем настройку hard_stops.enabled
         const resp1 = await fetch('/api/settings/get?key=hard_stops.enabled');
+        const el1 = document.getElementById('hardStopsEnabled');
+        if (el1) {
+            if (resp1.ok) {
+                const v = await resp1.text();
+                el1.checked = (v === 'true');
+                console.log('Hard stops enabled loaded:', v, '-> checked:', el1.checked);
+            } else {
+                // Если ответ не OK, устанавливаем false
+                el1.checked = false;
+                console.warn('Hard stops enabled: response not OK, setting to false');
+            }
+        }
+        
+        // Загружаем настройку hard_stops.trailing.enabled
         const resp2 = await fetch('/api/settings/get?key=hard_stops.trailing.enabled');
-        if (resp1.ok) {
-            const v = await resp1.text();
-            const el = document.getElementById('hardStopsEnabled');
-            if (el) el.checked = (v === 'true');
+        const el2 = document.getElementById('hardStopsTrailingEnabled');
+        if (el2) {
+            if (resp2.ok) {
+                const v = await resp2.text();
+                el2.checked = (v === 'true');
+                console.log('Hard stops trailing enabled loaded:', v, '-> checked:', el2.checked);
+            } else {
+                // Если ответ не OK, устанавливаем false
+                el2.checked = false;
+                console.warn('Hard stops trailing enabled: response not OK, setting to false');
+            }
         }
-        if (resp2.ok) {
-            const v = await resp2.text();
-            const el = document.getElementById('hardStopsTrailingEnabled');
-            if (el) el.checked = (v === 'true');
-        }
-    } catch (e) { console.warn('Hard stops settings load error', e); }
+    } catch (e) { 
+        console.error('Hard stops settings load error', e);
+        // При ошибке также устанавливаем false
+        const el1 = document.getElementById('hardStopsEnabled');
+        const el2 = document.getElementById('hardStopsTrailingEnabled');
+        if (el1) el1.checked = false;
+        if (el2) el2.checked = false;
+    }
 }
 
 async function saveHardStopsSettings() {
     try {
         const enabled = document.getElementById('hardStopsEnabled')?.checked ? 'true' : 'false';
         const trailing = document.getElementById('hardStopsTrailingEnabled')?.checked ? 'true' : 'false';
+        
+        console.log('Saving hard stops settings:', { enabled, trailing });
+        
         const b1 = new URLSearchParams({ key: 'hard_stops.enabled', value: enabled, description: 'Enable hard OCO stops in production' });
         const b2 = new URLSearchParams({ key: 'hard_stops.trailing.enabled', value: trailing, description: 'Enable trailing with OCO re-posting' });
+        
         const r1 = await fetch('/api/settings/set', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: b1 });
         const r2 = await fetch('/api/settings/set', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: b2 });
-        if (r1.ok && r2.ok) showSuccess('Настройки жёстких стопов сохранены');
-        else showError('Не удалось сохранить настройки жёстких стопов');
-    } catch (e) { showError('Ошибка сохранения настроек жёстких стопов'); }
+        
+        console.log('Save responses:', { r1: r1.status, r2: r2.status, r1ok: r1.ok, r2ok: r2.ok });
+        
+        if (r1.ok && r2.ok) {
+            showSuccess('Настройки жёстких стопов сохранены');
+            // Перезагружаем настройки для подтверждения
+            setTimeout(() => loadHardStopsSettings(), 500);
+        } else {
+            showError('Не удалось сохранить настройки жёстких стопов. Статус: ' + r1.status + '/' + r2.status);
+        }
+    } catch (e) { 
+        console.error('Error saving hard stops settings:', e);
+        showError('Ошибка сохранения настроек жёстких стопов: ' + e.message); 
+    }
 }
 
 // ==================== LIQUIDITY BLOCK SETTINGS ====================
