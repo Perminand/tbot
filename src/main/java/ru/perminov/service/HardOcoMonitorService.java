@@ -6,8 +6,14 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import ru.perminov.model.Order;
 import ru.perminov.repository.OrderRepository;
+import ru.tinkoff.piapi.contract.v1.OrderDirection;
 import ru.tinkoff.piapi.contract.v1.OrderState;
+import ru.tinkoff.piapi.core.models.Money;
+import ru.tinkoff.piapi.core.models.Portfolio;
+import ru.tinkoff.piapi.core.models.Position;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -21,6 +27,12 @@ public class HardOcoMonitorService {
 
     private final OrderRepository orderRepository;
     private final OrderService orderService;
+    private final PortfolioService portfolioService;
+    private final AccountService accountService;
+    private final TradingSettingsService tradingSettingsService;
+    private final InvestApiManager investApiManager;
+    private final RiskRuleService riskRuleService;
+    private final LotSizeService lotSizeService;
 
     /**
      * Мониторинг HARD OCO ордеров каждые 30 секунд
@@ -193,6 +205,225 @@ public class HardOcoMonitorService {
         if (s.contains("CANCEL")) return "CANCELLED";
         if (s.contains("PENDING") || s.endsWith("_NEW") || s.equals("NEW")) return "NEW";
         return s;
+    }
+
+    /**
+     * Проверка и установка жестких стоп-ордеров для существующих позиций без них
+     * Выполняется каждые 5 минут, только если включена функция жестких ордеров
+     */
+    @Scheduled(fixedRate = 300000) // каждые 5 минут
+    public void checkAndSetupHardStopsForPositions() {
+        try {
+            // Проверяем, включена ли функция жестких ордеров
+            if (!isHardStopsEnabled()) {
+                log.debug("Жесткие стоп-ордера отключены, пропускаем проверку позиций");
+                return;
+            }
+
+            log.info("🔍 Проверка позиций на наличие жестких стоп-ордеров...");
+
+            List<String> accountIds = accountService.getAccounts().stream()
+                    .map(acc -> acc.getId())
+                    .collect(Collectors.toList());
+
+            for (String accountId : accountIds) {
+                try {
+                    checkAndSetupHardStopsForAccount(accountId);
+                    Thread.sleep(200); // Небольшая задержка между аккаунтами
+                } catch (Exception e) {
+                    log.error("Ошибка проверки жестких стоп-ордеров для аккаунта {}: {}", accountId, e.getMessage());
+                }
+            }
+
+        } catch (Exception e) {
+            log.error("Ошибка проверки и установки жестких стоп-ордеров для позиций: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Проверка и установка жестких стоп-ордеров для позиций конкретного аккаунта
+     */
+    private void checkAndSetupHardStopsForAccount(String accountId) {
+        try {
+            Portfolio portfolio = portfolioService.getPortfolio(accountId);
+            
+            for (Position position : portfolio.getPositions()) {
+                // Пропускаем валюту и нулевые позиции
+                if ("currency".equals(position.getInstrumentType())) continue;
+                if (position.getQuantity() == null || position.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+
+                String figi = position.getFigi();
+                
+                // Проверяем наличие активных жестких стоп-ордеров для этой позиции
+                if (hasActiveHardOcoOrders(figi, accountId)) {
+                    log.debug("Позиция {} уже имеет активные жесткие стоп-ордера, пропускаем", figi);
+                    continue;
+                }
+
+                // Устанавливаем жесткие стоп-ордера для позиции
+                setupHardStopsForPosition(position, accountId);
+                Thread.sleep(500); // Задержка между установкой ордеров для разных позиций
+            }
+
+        } catch (Exception e) {
+            log.error("Ошибка проверки жестких стоп-ордеров для аккаунта {}: {}", accountId, e.getMessage());
+        }
+    }
+
+    /**
+     * Проверка наличия активных жестких OCO ордеров для позиции
+     */
+    private boolean hasActiveHardOcoOrders(String figi, String accountId) {
+        List<Order> activeHardOcoOrders = orderRepository.findByFigiAndAccountIdOrderByOrderDateDesc(figi, accountId)
+                .stream()
+                .filter(order -> {
+                    // Проверяем тип ордера - должен быть HARD_OCO_STOP_LOSS или HARD_OCO_TAKE_PROFIT
+                    String orderType = order.getOrderType();
+                    if (orderType == null) return false;
+                    return orderType.equals("HARD_OCO_STOP_LOSS") || orderType.equals("HARD_OCO_TAKE_PROFIT");
+                })
+                .filter(order -> {
+                    // Проверяем статус - должен быть активным
+                    String status = order.getStatus();
+                    return status != null && 
+                           !status.equals("FILLED") && 
+                           !status.equals("EXECUTED") && 
+                           !status.equals("CANCELLED") && 
+                           !status.equals("CANCELLED_BY_OCO") &&
+                           !status.equals("REJECTED");
+                })
+                .collect(Collectors.toList());
+
+        // Проверяем, что есть и SL и TP ордера
+        boolean hasStopLoss = activeHardOcoOrders.stream()
+                .anyMatch(order -> "HARD_OCO_STOP_LOSS".equals(order.getOrderType()));
+        boolean hasTakeProfit = activeHardOcoOrders.stream()
+                .anyMatch(order -> "HARD_OCO_TAKE_PROFIT".equals(order.getOrderType()));
+
+        return hasStopLoss && hasTakeProfit;
+    }
+
+    /**
+     * Установка жестких стоп-ордеров для позиции
+     */
+    private void setupHardStopsForPosition(Position position, String accountId) {
+        try {
+            String figi = position.getFigi();
+            String instrumentType = position.getInstrumentType();
+
+            // Получаем количество лотов (используем абсолютное значение для SHORT позиций)
+            int lotSize = lotSizeService.getLotSize(figi, instrumentType);
+            BigDecimal quantity = position.getQuantity();
+            BigDecimal absQuantity = quantity.abs();
+            int lots = absQuantity.divide(new BigDecimal(Math.max(1, lotSize)), 0, RoundingMode.DOWN).intValue();
+            
+            if (lots <= 0) {
+                log.warn("Позиция {} имеет некорректное количество лотов: {}", figi, lots);
+                return;
+            }
+
+            // Определяем направление позиции и цену входа
+            BigDecimal avgPrice = extractAveragePrice(position);
+            if (avgPrice.compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("Не удалось определить среднюю цену для позиции {}", figi);
+                return;
+            }
+
+            // Определяем направление позиции (LONG или SHORT)
+            // Для LONG позиции (quantity > 0) используем ORDER_DIRECTION_BUY (мы покупали)
+            // Для SHORT позиции (quantity < 0) используем ORDER_DIRECTION_SELL (мы продавали)
+            OrderDirection positionDirection = quantity.compareTo(BigDecimal.ZERO) > 0 
+                    ? OrderDirection.ORDER_DIRECTION_BUY  // LONG позиция
+                    : OrderDirection.ORDER_DIRECTION_SELL; // SHORT позиция
+
+            // Получаем проценты SL и TP из правил риска
+            double stopLossPct = riskRuleService.findByFigi(figi)
+                    .map(rule -> rule.getStopLossPct())
+                    .orElse(riskRuleService.getDefaultStopLossPct());
+            double takeProfitPct = riskRuleService.findByFigi(figi)
+                    .map(rule -> rule.getTakeProfitPct())
+                    .orElse(riskRuleService.getDefaultTakeProfitPct());
+
+            log.info("📊 Установка жестких стоп-ордеров для позиции {}: lots={}, avgPrice={}, SL={}%, TP={}%", 
+                    figi, lots, avgPrice, stopLossPct * 100, takeProfitPct * 100);
+
+            // Устанавливаем жесткие OCO ордера
+            orderService.placeHardOCO(figi, lots, positionDirection, accountId, 
+                    avgPrice, takeProfitPct, stopLossPct);
+
+            log.info("✅ Жесткие стоп-ордера успешно установлены для позиции {}", figi);
+
+        } catch (Exception e) {
+            log.error("Ошибка установки жестких стоп-ордеров для позиции {}: {}", position.getFigi(), e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Извлечение средней цены позиции
+     */
+    private BigDecimal extractAveragePrice(Position position) {
+        BigDecimal avgPrice = BigDecimal.ZERO;
+        
+        // Пробуем взять среднюю цену из разных полей
+        Money avgPriceMoney = position.getAveragePositionPrice();
+        if (avgPriceMoney != null) {
+            BigDecimal price = moneyToBigDecimal(avgPriceMoney);
+            if (price.compareTo(BigDecimal.ZERO) > 0) {
+                avgPrice = price;
+            }
+        }
+
+        if (avgPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            Money avgPriceFifo = position.getAveragePositionPriceFifo();
+            if (avgPriceFifo != null) {
+                BigDecimal price = moneyToBigDecimal(avgPriceFifo);
+                if (price.compareTo(BigDecimal.ZERO) > 0) {
+                    avgPrice = price;
+                }
+            }
+        }
+
+        return avgPrice;
+    }
+
+    /**
+     * Конвертация Money в BigDecimal
+     */
+    private BigDecimal moneyToBigDecimal(Money money) {
+        if (money == null) return BigDecimal.ZERO;
+        try {
+            // Используем getValue() для получения BigDecimal напрямую
+            Object value = money.getValue();
+            if (value instanceof BigDecimal) {
+                return (BigDecimal) value;
+            } else if (value instanceof String) {
+                return new BigDecimal((String) value);
+            } else {
+                return new BigDecimal(value.toString());
+            }
+        } catch (Exception e) {
+            log.warn("Ошибка конвертации Money в BigDecimal: {}", e.getMessage());
+            return BigDecimal.ZERO;
+        }
+    }
+
+    /**
+     * Проверка, включена ли функция жестких стоп-ордеров
+     */
+    private boolean isHardStopsEnabled() {
+        try {
+            boolean enabled = tradingSettingsService.getBoolean("hard_stops.enabled", false);
+            String mode = investApiManager.getCurrentMode();
+            if (!"production".equalsIgnoreCase(mode)) {
+                return false;
+            }
+            return enabled;
+        } catch (Exception e) {
+            log.warn("Не удалось прочитать настройку hard_stops.enabled: {}", e.getMessage());
+            return false;
+        }
     }
 }
 
