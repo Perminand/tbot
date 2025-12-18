@@ -29,19 +29,24 @@ public class HardOcoMonitorService {
     public void monitorHardOcoOrders() {
         try {
             // Получаем все активные HARD OCO ордера из БД
+            // Фильтруем по типу HARD_OCO_* (это гарантирует, что мы берем только реальные HARD OCO ордера)
             List<Order> hardOcoOrders = orderRepository.findAll().stream()
-                    .filter(order -> order.getMessage() != null && order.getMessage().contains("OCO_GROUP:"))
-                    .filter(order -> order.getOrderType() != null && 
-                            (order.getOrderType().startsWith("HARD_OCO_") || 
-                             order.getOrderType().equals("STOP_LOSS") || 
-                             order.getOrderType().equals("ORDER_TYPE_LIMIT")))
                     .filter(order -> {
+                        // Проверяем тип ордера - должен начинаться с HARD_OCO_
+                        if (order.getOrderType() != null && order.getOrderType().startsWith("HARD_OCO_")) {
+                            return true;
+                        }
+                        return false;
+                    })
+                    .filter(order -> {
+                        // Исключаем уже исполненные или отмененные ордера
                         String status = order.getStatus();
                         return status != null && 
                                !status.equals("FILLED") && 
                                !status.equals("EXECUTED") && 
                                !status.equals("CANCELLED") && 
-                               !status.equals("CANCELLED_BY_OCO");
+                               !status.equals("CANCELLED_BY_OCO") &&
+                               !status.equals("REJECTED");
                     })
                     .collect(Collectors.toList());
 
