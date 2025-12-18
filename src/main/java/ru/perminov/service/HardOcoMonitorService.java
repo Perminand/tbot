@@ -33,6 +33,8 @@ public class HardOcoMonitorService {
     private final InvestApiManager investApiManager;
     private final RiskRuleService riskRuleService;
     private final LotSizeService lotSizeService;
+    private final BotLogService botLogService;
+    private final InstrumentNameService instrumentNameService;
 
     /**
      * Мониторинг HARD OCO ордеров каждые 30 секунд
@@ -221,29 +223,59 @@ public class HardOcoMonitorService {
             }
 
             log.info("🔍 Проверка позиций на наличие жестких стоп-ордеров...");
+            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "🔍 Проверка позиций на наличие жестких стоп-ордеров", "Начало проверки всех позиций");
 
             List<String> accountIds = accountService.getAccounts().stream()
                     .map(acc -> acc.getId())
                     .collect(Collectors.toList());
 
+            int totalPositionsChecked = 0;
+            int positionsWithStops = 0;
+            int stopsInstalled = 0;
+
             for (String accountId : accountIds) {
                 try {
-                    checkAndSetupHardStopsForAccount(accountId);
+                    var result = checkAndSetupHardStopsForAccount(accountId);
+                    totalPositionsChecked += result.checked;
+                    positionsWithStops += result.withStops;
+                    stopsInstalled += result.installed;
                     Thread.sleep(200); // Небольшая задержка между аккаунтами
                 } catch (Exception e) {
                     log.error("Ошибка проверки жестких стоп-ордеров для аккаунта {}: {}", accountId, e.getMessage());
+                    botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.RISK_MANAGEMENT,
+                            "❌ Ошибка проверки жестких стоп-ордеров",
+                            String.format("Account: %s, Ошибка: %s", accountId, e.getMessage()));
                 }
             }
 
+            // Логируем итоги проверки
+            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "✅ Проверка позиций завершена",
+                    String.format("Проверено: %d, Со стоп-ордерами: %d, Установлено новых: %d",
+                            totalPositionsChecked, positionsWithStops, stopsInstalled));
+
         } catch (Exception e) {
             log.error("Ошибка проверки и установки жестких стоп-ордеров для позиций: {}", e.getMessage());
+            botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "❌ Критическая ошибка проверки жестких стоп-ордеров", e.getMessage());
         }
+    }
+
+    /**
+     * Результат проверки позиций аккаунта
+     */
+    private static class CheckResult {
+        int checked = 0;
+        int withStops = 0;
+        int installed = 0;
     }
 
     /**
      * Проверка и установка жестких стоп-ордеров для позиций конкретного аккаунта
      */
-    private void checkAndSetupHardStopsForAccount(String accountId) {
+    private CheckResult checkAndSetupHardStopsForAccount(String accountId) {
+        CheckResult result = new CheckResult();
         try {
             Portfolio portfolio = portfolioService.getPortfolio(accountId);
             
@@ -254,22 +286,30 @@ public class HardOcoMonitorService {
                     continue;
                 }
 
+                result.checked++;
                 String figi = position.getFigi();
                 
                 // Проверяем наличие активных жестких стоп-ордеров для этой позиции
                 if (hasActiveHardOcoOrders(figi, accountId)) {
+                    result.withStops++;
                     log.debug("Позиция {} уже имеет активные жесткие стоп-ордера, пропускаем", figi);
                     continue;
                 }
 
                 // Устанавливаем жесткие стоп-ордера для позиции
-                setupHardStopsForPosition(position, accountId);
-                Thread.sleep(500); // Задержка между установкой ордеров для разных позиций
+                try {
+                    setupHardStopsForPosition(position, accountId);
+                    result.installed++;
+                    Thread.sleep(500); // Задержка между установкой ордеров для разных позиций
+                } catch (Exception e) {
+                    log.error("Ошибка установки жестких стоп-ордеров для позиции {}: {}", figi, e.getMessage());
+                }
             }
 
         } catch (Exception e) {
             log.error("Ошибка проверки жестких стоп-ордеров для аккаунта {}: {}", accountId, e.getMessage());
         }
+        return result;
     }
 
     /**
@@ -346,14 +386,38 @@ public class HardOcoMonitorService {
                     .map(rule -> rule.getTakeProfitPct())
                     .orElse(riskRuleService.getDefaultTakeProfitPct());
 
+            // Получаем название инструмента для логирования
+            String instrumentName = getInstrumentDisplayName(figi, instrumentType);
+            
             log.info("📊 Установка жестких стоп-ордеров для позиции {}: lots={}, avgPrice={}, SL={}%, TP={}%", 
                     figi, lots, avgPrice, stopLossPct * 100, takeProfitPct * 100);
 
-            // Устанавливаем жесткие OCO ордера
-            orderService.placeHardOCO(figi, lots, positionDirection, accountId, 
-                    avgPrice, takeProfitPct, stopLossPct);
+            // Логируем начало установки жестких стоп-ордеров
+            botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "🛡️ Установка жестких стоп-ордеров для позиции",
+                    String.format("%s (%s), Лотов: %d, Цена входа: %.2f, SL: %.2f%%, TP: %.2f%%, Тип: %s",
+                            instrumentName, figi, lots, avgPrice, stopLossPct * 100, takeProfitPct * 100,
+                            positionDirection == OrderDirection.ORDER_DIRECTION_BUY ? "LONG" : "SHORT"));
 
-            log.info("✅ Жесткие стоп-ордера успешно установлены для позиции {}", figi);
+            // Устанавливаем жесткие OCO ордера
+            try {
+                orderService.placeHardOCO(figi, lots, positionDirection, accountId, 
+                        avgPrice, takeProfitPct, stopLossPct);
+
+                // Логируем успешную установку
+                botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "✅ Жесткие стоп-ордера установлены",
+                        String.format("%s (%s), Лотов: %d, SL: %.2f%%, TP: %.2f%%",
+                                instrumentName, figi, lots, stopLossPct * 100, takeProfitPct * 100));
+
+                log.info("✅ Жесткие стоп-ордера успешно установлены для позиции {}", figi);
+            } catch (Exception e) {
+                // Логируем ошибку установки
+                botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "❌ Ошибка установки жестких стоп-ордеров",
+                        String.format("%s (%s), Ошибка: %s", instrumentName, figi, e.getMessage()));
+                throw e; // Пробрасываем исключение дальше
+            }
 
         } catch (Exception e) {
             log.error("Ошибка установки жестких стоп-ордеров для позиции {}: {}", position.getFigi(), e.getMessage(), e);
@@ -423,6 +487,36 @@ public class HardOcoMonitorService {
         } catch (Exception e) {
             log.warn("Не удалось прочитать настройку hard_stops.enabled: {}", e.getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Получение отображаемого названия инструмента
+     */
+    private String getInstrumentDisplayName(String figi, String instrumentType) {
+        try {
+            // Пробуем получить тикер
+            String ticker = instrumentNameService.getTicker(figi, instrumentType);
+            if (ticker != null && !ticker.isEmpty()) {
+                // Пробуем получить полное название
+                String name = instrumentNameService.getInstrumentName(figi, instrumentType);
+                if (name != null && !name.isEmpty()) {
+                    return name + " (" + ticker + ")";
+                }
+                return ticker;
+            }
+            
+            // Если тикер не найден, пробуем только название
+            String name = instrumentNameService.getInstrumentName(figi, instrumentType);
+            if (name != null && !name.isEmpty()) {
+                return name;
+            }
+            
+            // Фоллбек на FIGI
+            return figi;
+        } catch (Exception e) {
+            log.debug("Ошибка получения названия инструмента {}: {}", figi, e.getMessage());
+            return figi;
         }
     }
 }
