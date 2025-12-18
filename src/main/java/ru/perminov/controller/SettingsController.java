@@ -34,18 +34,61 @@ public class SettingsController {
                                  @RequestParam(required = false) String description) {
         try {
             String trimmedValue = value != null ? value.trim() : "";
-            log.info("SET setting: key={}, value={} (trimmed: {}), description={}", key, value, trimmedValue, description);
+            log.info("🔵 SET setting START: key={}, value={} (trimmed: '{}'), description={}", key, value, trimmedValue, description);
+            
+            // Сохраняем значение
             settingsService.upsert(key, trimmedValue, description != null ? description : "");
-            // Проверяем, что значение сохранилось
-            String savedValue = settingsService.getString(key, "");
-            log.info("SET setting confirmed: key={}, savedValue={}, matches={}", key, savedValue, savedValue.equals(trimmedValue));
+            
+            // Небольшая задержка для гарантии сохранения в БД
+            Thread.sleep(100);
+            
+            // Проверяем, что значение сохранилось - читаем напрямую из репозитория
+            String savedValue = settingsService.getString(key, "NOT_FOUND");
+            log.info("🔵 SET setting CONFIRMED: key={}, savedValue='{}', requestedValue='{}', matches={}", 
+                key, savedValue, trimmedValue, savedValue.equals(trimmedValue));
+            
             if (!savedValue.equals(trimmedValue)) {
-                log.warn("⚠️ WARNING: Saved value '{}' does not match requested value '{}' for key '{}'", savedValue, trimmedValue, key);
+                log.error("❌ CRITICAL ERROR: Saved value '{}' does not match requested value '{}' for key '{}'", 
+                    savedValue, trimmedValue, key);
+                // Возвращаем ошибку, чтобы клиент знал о проблеме
+                return ResponseEntity.status(500).body("Failed to save setting: value mismatch");
             }
-            return ResponseEntity.noContent().build();
+            
+            // Возвращаем успешный ответ с сохраненным значением для подтверждения
+            return ResponseEntity.ok(trimmedValue);
         } catch (Exception e) {
-            log.error("Error setting {}={}: {}", key, value, e.getMessage(), e);
-            return ResponseEntity.status(500).build();
+            log.error("❌ Error setting {}={}: {}", key, value, e.getMessage(), e);
+            return ResponseEntity.status(500).body("Error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Тестовый endpoint для проверки значения напрямую из БД
+     */
+    @GetMapping(value = "/debug", produces = "application/json")
+    public ResponseEntity<?> debug(@RequestParam String key) {
+        try {
+            // Читаем напрямую из репозитория через сервис
+            var opt = settingsService.getSetting(key);
+            if (opt.isPresent()) {
+                var setting = opt.get();
+                return ResponseEntity.ok(java.util.Map.of(
+                    "key", key,
+                    "found", true,
+                    "id", setting.getId(),
+                    "value", setting.getValue() != null ? setting.getValue() : "NULL",
+                    "valueLength", setting.getValue() != null ? setting.getValue().length() : 0,
+                    "description", setting.getDescription() != null ? setting.getDescription() : ""
+                ));
+            } else {
+                return ResponseEntity.ok(java.util.Map.of(
+                    "key", key,
+                    "found", false
+                ));
+            }
+        } catch (Exception e) {
+            log.error("Debug error for key {}: {}", key, e.getMessage(), e);
+            return ResponseEntity.status(500).body(java.util.Map.of("error", e.getMessage()));
         }
     }
 

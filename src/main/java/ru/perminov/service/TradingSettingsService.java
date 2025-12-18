@@ -17,19 +17,29 @@ public class TradingSettingsService {
     private final TradingSettingsRepository repository;
 
     public String getString(String key, String defaultValue) {
-        Optional<TradingSettings> opt = repository.findByKey(key);
-        if (opt.isPresent()) {
-            TradingSettings setting = opt.get();
-            String value = setting.getValue();
-            log.info("getString: key={}, found in DB: id={}, value={}, valueLength={}, defaultValue={}", 
-                key, setting.getId(), value, value != null ? value.length() : 0, defaultValue);
-            if (value == null || value.trim().isEmpty()) {
-                log.warn("⚠️ getString: key={} has null or empty value, returning defaultValue={}", key, defaultValue);
+        try {
+            Optional<TradingSettings> opt = repository.findByKey(key);
+            if (opt.isPresent()) {
+                TradingSettings setting = opt.get();
+                String value = setting.getValue();
+                log.info("getString: key={}, found in DB: id={}, value='{}', valueLength={}, valueIsEmpty={}, defaultValue='{}'", 
+                    key, setting.getId(), value, value != null ? value.length() : 0, 
+                    value == null || value.trim().isEmpty(), defaultValue);
+                
+                // Если значение null или пустое, возвращаем defaultValue
+                if (value == null || value.trim().isEmpty()) {
+                    log.warn("⚠️ getString: key={} has null or empty value in DB, returning defaultValue='{}'", key, defaultValue);
+                    return defaultValue;
+                }
+                
+                // Возвращаем значение как есть (без trim, чтобы сохранить оригинал)
+                return value;
+            } else {
+                log.info("getString: key={}, NOT FOUND in DB, using defaultValue='{}'", key, defaultValue);
                 return defaultValue;
             }
-            return value;
-        } else {
-            log.info("getString: key={}, NOT FOUND in DB, using defaultValue={}", key, defaultValue);
+        } catch (Exception e) {
+            log.error("❌ getString ERROR: key={}, error={}", key, e.getMessage(), e);
             return defaultValue;
         }
     }
@@ -56,6 +66,13 @@ public class TradingSettingsService {
         } catch (Exception e) {
             return defaultValue;
         }
+    }
+
+    /**
+     * Получение настройки напрямую из репозитория (для отладки)
+     */
+    public Optional<TradingSettings> getSetting(String key) {
+        return repository.findByKey(key);
     }
 
     @Transactional
