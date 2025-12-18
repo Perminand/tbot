@@ -45,3 +45,4 @@ WHERE order_type LIKE 'HARD_OCO_%';
 COMMENT ON COLUMN orders.message IS 'Сообщение/метаданные ордера, используется для OCO групп (формат: OCO_GROUP:{groupId} | ...)';
 COMMENT ON COLUMN orders.order_type IS 'Тип ордера: HARD_OCO_TAKE_PROFIT, HARD_OCO_STOP_LOSS, VIRTUAL_STOP_LOSS, VIRTUAL_TAKE_PROFIT и т.д.';
 
+
