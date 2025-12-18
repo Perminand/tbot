@@ -533,6 +533,28 @@ public class OrderService {
             String ocoGroupId = "HARD_OCO_" + System.currentTimeMillis();
             String ocoMessage = "OCO_GROUP:" + ocoGroupId + " | Entry: " + entryPrice + " | " + positionType;
 
+            // Проверяем текущую рыночную цену перед размещением take-profit ордера
+            try {
+                MarketAnalysisService.BidAskPrices bidAsk = marketAnalysisService.getBidAskPrices(figi);
+                if (bidAsk != null) {
+                    BigDecimal currentPrice = bidAsk.getMid();
+                    BigDecimal tpDiff = takeProfitPrice.subtract(currentPrice).abs();
+                    BigDecimal tpDiffPct = tpDiff.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
+                    
+                    log.info("📊 HARD OCO для {}: текущая цена={}, TP цена={}, отклонение={} ({:.2f}%)", 
+                            figi, currentPrice, takeProfitPrice, tpDiff, tpDiffPct.doubleValue());
+                    
+                    // Если цена take-profit слишком далеко от текущей (более 20%), предупреждаем
+                    if (tpDiffPct.compareTo(BigDecimal.valueOf(20)) > 0) {
+                        log.warn("⚠️ HARD OCO: цена take-profit {} слишком далеко от текущей {} (отклонение {:.2f}%). " +
+                                "API может отклонить ордер. Рекомендуется использовать более близкую цену.", 
+                                takeProfitPrice, currentPrice, tpDiffPct.doubleValue());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Не удалось проверить текущую цену перед размещением HARD OCO для {}: {}", figi, e.getMessage());
+            }
+
             // Размещаем тейк-профит как лимитный ордер с информацией об OCO группе
             PostOrderResponse tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString(), ocoMessage);
             log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
@@ -587,7 +609,52 @@ public class OrderService {
         try {
             // Корректируем лоты до размещения лимитного ордера
             lots = clampLotsByHoldings(figi, accountId, direction, lots);
+            
+            // Проверка количества лотов после коррекции
+            if (lots <= 0) {
+                String errorMsg = String.format("Невозможно разместить лимитный ордер: после коррекции количество лотов = %d (должно быть > 0)", lots);
+                log.error("❌ {}", errorMsg);
+                throw new IllegalStateException(errorMsg);
+            }
+            
             String orderId = UUID.randomUUID().toString();
+            BigDecimal limitPrice = new BigDecimal(price);
+            
+            // Проверяем текущую рыночную цену для валидации лимитного ордера
+            try {
+                MarketAnalysisService.BidAskPrices bidAsk = marketAnalysisService.getBidAskPrices(figi);
+                if (bidAsk != null) {
+                    BigDecimal currentPrice = bidAsk.getMid();
+                    BigDecimal priceDiff = limitPrice.subtract(currentPrice).abs();
+                    BigDecimal priceDiffPct = priceDiff.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
+                    
+                    log.info("📊 Проверка лимитного ордера для {}: текущая цена={}, лимитная цена={}, отклонение={} ({:.2f}%)", 
+                            figi, currentPrice, limitPrice, priceDiff, priceDiffPct.doubleValue());
+                    
+                    // Предупреждение, если цена слишком далеко (более 20%)
+                    if (priceDiffPct.compareTo(BigDecimal.valueOf(20)) > 0) {
+                        log.warn("⚠️ Лимитная цена {} слишком далеко от текущей {} (отклонение {:.2f}%). API может отклонить ордер.", 
+                                limitPrice, currentPrice, priceDiffPct.doubleValue());
+                    }
+                    
+                    // Для SELL ордеров проверяем, что цена не ниже текущей bid
+                    if (direction == OrderDirection.ORDER_DIRECTION_SELL && limitPrice.compareTo(bidAsk.getBid()) < 0) {
+                        log.warn("⚠️ Лимитная цена SELL {} ниже текущей bid {}. Используем bid цену.", limitPrice, bidAsk.getBid());
+                        limitPrice = bidAsk.getBid();
+                        price = limitPrice.toPlainString();
+                    }
+                    
+                    // Для BUY ордеров проверяем, что цена не выше текущей ask
+                    if (direction == OrderDirection.ORDER_DIRECTION_BUY && limitPrice.compareTo(bidAsk.getAsk()) > 0) {
+                        log.warn("⚠️ Лимитная цена BUY {} выше текущей ask {}. Используем ask цену.", limitPrice, bidAsk.getAsk());
+                        limitPrice = bidAsk.getAsk();
+                        price = limitPrice.toPlainString();
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Не удалось проверить текущую рыночную цену для {}: {}. Продолжаем с указанной ценой.", figi, e.getMessage());
+            }
+            
             log.info("Размещение лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ID {}", 
                     lots, direction, accountId, price, orderId);
             
@@ -625,6 +692,17 @@ public class OrderService {
             );
             
             PostOrderResponse response = future.get();
+            
+            // Проверяем статус ответа
+            if (response.getExecutionReportStatus() != null && 
+                (response.getExecutionReportStatus().name().contains("REJECT") || 
+                 response.getExecutionReportStatus().name().contains("CANCELLED"))) {
+                String errorMsg = String.format("Ордер отклонен брокером: status=%s, message=%s", 
+                        response.getExecutionReportStatus(), response.getMessage());
+                log.error("❌ {}", errorMsg);
+                throw new RuntimeException(errorMsg);
+            }
+            
             log.info("Лимитный ордер успешно размещен: orderId={}, status={}", 
                     response.getOrderId(), response.getExecutionReportStatus());
             try {
@@ -662,9 +740,23 @@ public class OrderService {
             }
             return response;
         } catch (InterruptedException | ExecutionException e) {
+            String errorMsg = e.getMessage();
             log.error("Ошибка при размещении лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ошибка {}", 
-                    lots, direction, accountId, price, e.getMessage(), e);
-            throw new RuntimeException("Ошибка при размещении лимитного ордера: " + e.getMessage(), e);
+                    lots, direction, accountId, price, errorMsg, e);
+            
+            // Детальный анализ ошибки 30049
+            if (errorMsg != null && errorMsg.contains("30049")) {
+                String detailedError = String.format(
+                    "Ошибка 30049 при размещении лимитного ордера для %s: " +
+                    "Лотов: %d, Направление: %s, Цена: %s. " +
+                    "Возможные причины: цена слишком далеко от рыночной, недостаточно лотов для продажи, или неправильные параметры ордера.",
+                    figi, lots, direction, price
+                );
+                log.error("❌ {}", detailedError);
+                throw new RuntimeException("Ошибка при размещении лимитного ордера (30049): " + detailedError, e);
+            }
+            
+            throw new RuntimeException("Ошибка при размещении лимитного ордера: " + errorMsg, e);
         }
     }
 
