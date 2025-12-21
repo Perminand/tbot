@@ -27,6 +27,8 @@ public class PositionWatcherService {
     private final TradingSettingsService tradingSettingsService;
     private final PositionRiskStateService positionRiskStateService;
     private final LotSizeService lotSizeService;
+    private final PortfolioManagementService portfolioManagementService;
+    private final InstrumentNameService instrumentNameService;
 
     // Периодический контроль позиций: SL/TP/трейлинг
     @Scheduled(fixedRate = 15000) // каждые 15 секунд
@@ -98,6 +100,12 @@ public class PositionWatcherService {
                             }
                             
                             if (slTriggered) {
+                                // 🚫 ПРОВЕРКА БЛОКИРОВКИ ПО ЛИКВИДНОСТИ
+                                if (isLiquidityBlocked(figi)) {
+                                    log.warn("⏳ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: SL для {} заблокирован", getInstrumentDisplayName(figi));
+                                    continue;
+                                }
+                                
                                 int lots = quantity.intValue();
                                 if (side == PositionRiskState.PositionSide.LONG) {
                                     log.warn("Срабатывание SL (лонг): price={} <= SL={} — продаем {} лотов", 
@@ -124,6 +132,12 @@ public class PositionWatcherService {
                             }
                             
                             if (tpTriggered) {
+                                // 🚫 ПРОВЕРКА БЛОКИРОВКИ ПО ЛИКВИДНОСТИ
+                                if (isLiquidityBlocked(figi)) {
+                                    log.warn("⏳ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: TP для {} заблокирован", getInstrumentDisplayName(figi));
+                                    continue;
+                                }
+                                
                                 int lots = quantity.intValue();
                                 String key = "tp.stage." + accountId + "." + figi;
                                 int stage = tradingSettingsService.getInt(key, 0);
@@ -184,6 +198,44 @@ public class PositionWatcherService {
         } catch (Exception ignore) {
         }
         return null;
+    }
+    
+    /**
+     * Проверка блокировки по ликвидности
+     */
+    private boolean isLiquidityBlocked(String figi) {
+        if (portfolioManagementService == null) return false;
+        return portfolioManagementService.isLiquidityBlocked(figi);
+    }
+    
+    /**
+     * Получение читаемого имени инструмента
+     */
+    private String getInstrumentDisplayName(String figi) {
+        try {
+            if (instrumentNameService != null) {
+                String[] instrumentTypes = {"share", "bond", "etf", "currency"};
+                for (String type : instrumentTypes) {
+                    try {
+                        String name = instrumentNameService.getInstrumentName(figi, type);
+                        String ticker = instrumentNameService.getTicker(figi, type);
+                        if (name != null && ticker != null) {
+                            return name + " (" + ticker + ")";
+                        }
+                        if (name != null) {
+                            return name;
+                        }
+                        if (ticker != null) {
+                            return ticker;
+                        }
+                    } catch (Exception ignore) {
+                        // Пробуем следующий тип
+                    }
+                }
+            }
+        } catch (Exception ignore) {
+        }
+        return figi;
     }
 }
 

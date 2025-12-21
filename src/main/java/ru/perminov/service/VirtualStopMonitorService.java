@@ -30,6 +30,7 @@ public class VirtualStopMonitorService {
     private final BotLogService botLogService;
     private final InstrumentNameService instrumentNameService;
     private final TradingSettingsService tradingSettingsService;
+    private final PortfolioManagementService portfolioManagementService;
 
     // Анти-ложные срабатывания: счетчики подтверждений
     private final Map<String, Integer> touchCounters = new ConcurrentHashMap<>();
@@ -180,6 +181,17 @@ public class VirtualStopMonitorService {
             String figi = virtualOrder.getFigi();
             int lots = virtualOrder.getRequestedLots().intValue();
             String accountId = virtualOrder.getAccountId();
+            
+            // 🚫 ПРОВЕРКА БЛОКИРОВКИ ПО ЛИКВИДНОСТИ: блокируем исполнение виртуальных стопов для инструментов с провалом ликвидности
+            if (portfolioManagementService != null && portfolioManagementService.isLiquidityBlocked(figi)) {
+                long minutesLeft = portfolioManagementService.getLiquidityBlockRemainingMinutes(figi);
+                log.warn("⏳ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: {} для {} заблокирован. Осталось ~{} мин", 
+                    triggerType, displayOf(figi), minutesLeft);
+                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "🚫 " + triggerType + " заблокирован по ликвидности", 
+                    String.format("%s, осталось ~%d мин", displayOf(figi), minutesLeft));
+                return;
+            }
             
             log.info("🚨 ИСПОЛНЯЕМ {}: {} {} лотов по цене {}", 
                 triggerType, displayOf(figi), lots, currentPrice);

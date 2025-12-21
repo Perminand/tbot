@@ -191,7 +191,11 @@ public class PortfolioManagementService {
     /**
      * Проверка активна ли суточная блокировка по ликвидности
      */
-    private boolean isLiquidityBlocked(String figi) {
+    /**
+     * Публичный метод для проверки блокировки по ликвидности
+     * Используется другими сервисами для проверки перед размещением ордеров
+     */
+    public boolean isLiquidityBlocked(String figi) {
         Long until = liquidityBlockUntil.get(figi);
         if (until == null) return false;
         long now = System.currentTimeMillis();
@@ -254,8 +258,9 @@ public class PortfolioManagementService {
 
     /**
      * Остаток блокировки по ликвидности в минутах
+     * Публичный метод для использования другими сервисами
      */
-    private long getLiquidityBlockRemainingMinutes(String figi) {
+    public long getLiquidityBlockRemainingMinutes(String figi) {
         Long until = liquidityBlockUntil.get(figi);
         if (until == null) return 0;
         long diff = until - System.currentTimeMillis();

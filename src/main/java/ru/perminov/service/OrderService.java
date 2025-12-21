@@ -32,6 +32,8 @@ public class OrderService {
     private final PortfolioService portfolioService;
     private final LotSizeService lotSizeService;
     private final MarketAnalysisService marketAnalysisService;
+    private final PortfolioManagementService portfolioManagementService;
+    private final InstrumentNameService instrumentNameService;
 
     public List<OrderState> getOrders(String accountId) {
         try {
@@ -168,6 +170,14 @@ public class OrderService {
      * 🚀 ИСПРАВЛЕННЫЙ МЕТОД: Умный лимитный ордер с правильным использованием bid/ask цен
      */
     public PostOrderResponse placeSmartLimitOrder(String figi, int lots, OrderDirection direction, String accountId, BigDecimal marketPrice) {
+        // 🚫 ПРОВЕРКА БЛОКИРОВКИ ПО ЛИКВИДНОСТИ: блокируем все ордера для инструментов с провалом ликвидности
+        if (portfolioManagementService != null && portfolioManagementService.isLiquidityBlocked(figi)) {
+            long minutesLeft = portfolioManagementService.getLiquidityBlockRemainingMinutes(figi);
+            String instrumentName = getInstrumentDisplayName(figi);
+            log.warn("⏳ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: Ордер по {} заблокирован. Осталось ~{} мин", instrumentName, minutesLeft);
+            throw new IllegalStateException(String.format("Инструмент %s заблокирован по ликвидности. Осталось ~%d мин", instrumentName, minutesLeft));
+        }
+        
         int originalLots = lots; // Сохраняем оригинальное значение для fallback
         try {
             // Корректируем лоты до размещения лимитного ордера
@@ -907,6 +917,36 @@ public class OrderService {
         }
     }
 
+    /**
+     * Получение читаемого имени инструмента
+     */
+    private String getInstrumentDisplayName(String figi) {
+        try {
+            if (instrumentNameService != null) {
+                String[] instrumentTypes = {"share", "bond", "etf", "currency"};
+                for (String type : instrumentTypes) {
+                    try {
+                        String name = instrumentNameService.getInstrumentName(figi, type);
+                        String ticker = instrumentNameService.getTicker(figi, type);
+                        if (name != null && ticker != null) {
+                            return name + " (" + ticker + ")";
+                        }
+                        if (name != null) {
+                            return name;
+                        }
+                        if (ticker != null) {
+                            return ticker;
+                        }
+                    } catch (Exception ignore) {
+                        // Пробуем следующий тип
+                    }
+                }
+            }
+        } catch (Exception ignore) {
+        }
+        return figi;
+    }
+    
     /**
      * Определяет фактическое количество лотов в портфеле.
      * Приоритетно используем поле quantityLots, при его отсутствии делим quantity на размер лота.
