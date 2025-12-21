@@ -1,0 +1,114 @@
+databaseChangeLog:
+  - changeSet:
+      id: 0
+      author: system
+      changes:
+        - sqlFile:
+            path: changes/V000_cleanup-failed-changesets.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            comments: "cleanup failed changesets from databasechangelog"
+  
+  - changeSet:
+      id: 1
+      author: system
+      changes:
+        - sqlFile:
+            path: changes/V001_create-extension.sql
+            relativeToChangelogFile: true
+            comments: "create extension uuid-ossp"
+  
+  - changeSet:
+      id: 2
+      author: system
+      runOnChange: true
+      changes:
+        - sqlFile:
+            path: changes/V002_create-risk-tables.sql
+            relativeToChangelogFile: true
+            comments: "create tables position_risk_state, risk_events, and risk_rules"
+  
+  - changeSet:
+      id: 3
+      author: system
+      changes:
+        - sqlFile:
+            path: changes/V003_create-order-log-table.sql
+            relativeToChangelogFile: true
+            comments: "create table order_log"
+  
+  - changeSet:
+      id: 4
+      author: system
+      changes:
+        - sqlFile:
+            path: changes/V004_create-performance-metrics-table.sql
+            relativeToChangelogFile: true
+            comments: "create table performance_metrics"
+  
+  - changeSet:
+      id: 4.1
+      author: system
+      changes:
+        - sqlFile:
+            path: changes/V011_create-core-tables.sql
+            relativeToChangelogFile: true
+            comments: "create core tables: instruments, orders, positions, trading_settings, account_balance_snapshots"
+  
+  - changeSet:
+      id: 5.1
+      author: system
+      runOnChange: true
+      changes:
+        - sqlFile:
+            path: changes/V005_create-indexes.sql
+            relativeToChangelogFile: true
+            comments: "create indexes for instruments, orders, positions, trading_settings"
+  
+  - changeSet:
+      id: 6
+      author: system
+      changes:
+        - sqlFile:
+            path: changes/V006_create-views.sql
+            relativeToChangelogFile: true
+            comments: "create views portfolio_summary and active_orders"
+  
+  - changeSet:
+      id: 7
+      author: system
+      changes:
+        - sqlFile:
+            path: changes/V007_create-functions.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            comments: "create PostgreSQL functions"
+  
+  - changeSet:
+      id: 8
+      author: system
+      changes:
+        - sqlFile:
+            path: changes/V008_create-triggers.sql
+            relativeToChangelogFile: true
+            comments: "create triggers for order logging"
+  
+  - changeSet:
+      id: 9
+      author: system
+      changes:
+        - sqlFile:
+            path: changes/V009_insert-initial-data.sql
+            relativeToChangelogFile: true
+            comments: "insert initial trading settings"
+  
+  - changeSet:
+      id: 10
+      author: system
+      changes:
+        - sqlFile:
+            path: changes/V010_add-hard-oco-columns.sql
+            relativeToChangelogFile: true
+            splitStatements: false
+            comments: "add message and order_type columns for HARD OCO orders"
+

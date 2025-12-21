@@ -17,7 +17,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ./init_trading_settings.sql:/docker-entrypoint-initdb.d/02-init_trading_settings.sql
     networks:
       - tbot_network
     restart: unless-stopped
