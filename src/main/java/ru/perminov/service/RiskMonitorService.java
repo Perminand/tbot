@@ -23,6 +23,7 @@ public class RiskMonitorService {
     private final LotSizeService lotSizeService;
     private final RiskRuleService riskRuleService;
     private final BotControlService botControlService;
+    private final PortfolioManagementService portfolioManagementService;
 
     private static final String INSTRUMENT_TYPE_CURRENCY = "currency";
 
@@ -94,11 +95,37 @@ public class RiskMonitorService {
             if (lots <= 0) return;
 
             if (current.compareTo(slLevel) <= 0) {
+                // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Блокировка по ликвидности
+                if (portfolioManagementService.isLiquidityBlocked(figi)) {
+                    log.warn("⛔ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: SL для {} заблокирован (осталось ~{} мин). Ордер не размещен.", 
+                        figi, portfolioManagementService.getLiquidityBlockRemainingMinutes(figi));
+                    return;
+                }
+                
+                // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Динамические фильтры ликвидности
+                if (!portfolioManagementService.passesDynamicLiquidityFilters(figi, accountId)) {
+                    log.warn("⛔ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: SL для {} не проходит динамические фильтры ликвидности. Ордер не размещен.", figi);
+                    return;
+                }
+                
                 log.warn("SL сработал: текущая={} ≤ SL={} (acc={}) — отправляем MARKET SELL {} лотов", current, slLevel, accountId, lots);
                 orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, current);
                 return;
             }
             if (current.compareTo(tpLevel) >= 0) {
+                // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Блокировка по ликвидности
+                if (portfolioManagementService.isLiquidityBlocked(figi)) {
+                    log.warn("⛔ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: TP для {} заблокирован (осталось ~{} мин). Ордер не размещен.", 
+                        figi, portfolioManagementService.getLiquidityBlockRemainingMinutes(figi));
+                    return;
+                }
+                
+                // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Динамические фильтры ликвидности
+                if (!portfolioManagementService.passesDynamicLiquidityFilters(figi, accountId)) {
+                    log.warn("⛔ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: TP для {} не проходит динамические фильтры ликвидности. Ордер не размещен.", figi);
+                    return;
+                }
+                
                 log.info("TP сработал: текущая={} ≥ TP={} (acc={}) — отправляем MARKET SELL {} лотов", current, tpLevel, accountId, lots);
                 orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, current);
             }

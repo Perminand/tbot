@@ -191,10 +191,6 @@ public class PortfolioManagementService {
     /**
      * Проверка активна ли суточная блокировка по ликвидности
      */
-    /**
-     * Публичный метод для проверки блокировки по ликвидности
-     * Используется другими сервисами для проверки перед размещением ордеров
-     */
     public boolean isLiquidityBlocked(String figi) {
         Long until = liquidityBlockUntil.get(figi);
         if (until == null) return false;
@@ -258,7 +254,6 @@ public class PortfolioManagementService {
 
     /**
      * Остаток блокировки по ликвидности в минутах
-     * Публичный метод для использования другими сервисами
      */
     public long getLiquidityBlockRemainingMinutes(String figi) {
         Long until = liquidityBlockUntil.get(figi);
@@ -1964,7 +1959,7 @@ public class PortfolioManagementService {
     /**
      * Динамические фильтры ликвидности: максимальный спрэд и минимальный дневной объём
      */
-    private boolean passesDynamicLiquidityFilters(String figi, String accountId) {
+    public boolean passesDynamicLiquidityFilters(String figi, String accountId) {
         try {
             BigDecimal spread = marketAnalysisService.getSpreadPct(figi); // 0..1
             // Определяем уровень портфеля и горизонт для медианного объёма

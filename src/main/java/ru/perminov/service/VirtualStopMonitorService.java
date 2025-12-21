@@ -182,14 +182,24 @@ public class VirtualStopMonitorService {
             int lots = virtualOrder.getRequestedLots().intValue();
             String accountId = virtualOrder.getAccountId();
             
-            // 🚫 ПРОВЕРКА БЛОКИРОВКИ ПО ЛИКВИДНОСТИ: блокируем исполнение виртуальных стопов для инструментов с провалом ликвидности
-            if (portfolioManagementService != null && portfolioManagementService.isLiquidityBlocked(figi)) {
+            // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Блокировка по ликвидности
+            if (portfolioManagementService.isLiquidityBlocked(figi)) {
                 long minutesLeft = portfolioManagementService.getLiquidityBlockRemainingMinutes(figi);
-                log.warn("⏳ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: {} для {} заблокирован. Осталось ~{} мин", 
+                log.warn("⛔ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: {} заблокирован для {} (осталось ~{} мин). Ордер не размещен.", 
                     triggerType, displayOf(figi), minutesLeft);
                 botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
-                    "🚫 " + triggerType + " заблокирован по ликвидности", 
-                    String.format("%s, осталось ~%d мин", displayOf(figi), minutesLeft));
+                    "Блокировка " + triggerType + " по ликвидности", 
+                    String.format("%s заблокирован до %d мин", displayOf(figi), minutesLeft));
+                return;
+            }
+            
+            // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Динамические фильтры ликвидности
+            if (!portfolioManagementService.passesDynamicLiquidityFilters(figi, accountId)) {
+                log.warn("⛔ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: {} не проходит динамические фильтры ликвидности для {}. Ордер не размещен.", 
+                    triggerType, displayOf(figi));
+                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "Блокировка " + triggerType + " по ликвидности", 
+                    String.format("%s не проходит фильтры ликвидности", displayOf(figi)));
                 return;
             }
             
