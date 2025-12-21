@@ -530,74 +530,43 @@ public class OrderService {
                 log.info("📉 HARD OCO ШОРТ: TP={} (-{}%), SL={} (+{}%)", takeProfitPrice, takeProfitPct * 100, stopLossPrice, stopLossPct * 100);
             }
 
-            String ocoGroupId = "HARD_OCO_" + System.currentTimeMillis();
-            String ocoMessage = "OCO_GROUP:" + ocoGroupId + " | Entry: " + entryPrice + " | " + positionType;
-
-            // Проверяем текущую рыночную цену и корректируем take-profit цену при необходимости
-            BigDecimal adjustedTakeProfitPrice = takeProfitPrice;
+            // Проверяем текущую рыночную цену перед размещением жестких ордеров
+            // Если цены слишком далеко от текущей рыночной, используем виртуальные OCO
             try {
                 MarketAnalysisService.BidAskPrices bidAsk = marketAnalysisService.getBidAskPrices(figi);
                 if (bidAsk != null) {
                     BigDecimal currentPrice = bidAsk.getMid();
                     BigDecimal tpDiff = takeProfitPrice.subtract(currentPrice).abs();
+                    BigDecimal slDiff = stopLossPrice.subtract(currentPrice).abs();
                     BigDecimal tpDiffPct = tpDiff.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
+                    BigDecimal slDiffPct = slDiff.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
                     
-                    log.info("📊 HARD OCO для {}: текущая цена={}, TP цена={}, отклонение={} ({:.2f}%)", 
-                            figi, currentPrice, takeProfitPrice, tpDiff, tpDiffPct.doubleValue());
+                    log.info("📊 Проверка HARD OCO для {}: текущая цена={}, TP цена={} (отклонение {:.2f}%), SL цена={} (отклонение {:.2f}%)", 
+                            figi, currentPrice, takeProfitPrice, tpDiffPct.doubleValue(), stopLossPrice, slDiffPct.doubleValue());
                     
-                    // Если цена take-profit слишком далеко от текущей (более 10%), корректируем
-                    // Используем более консервативный порог 10% вместо 15%
-                    if (tpDiffPct.compareTo(BigDecimal.valueOf(10)) > 0) {
-                        if (exitDirection == OrderDirection.ORDER_DIRECTION_SELL) {
-                            // Для SELL (take-profit для LONG): используем более консервативную цену
-                            // Берем текущую ask цену + разумный отступ (3-5%), но не выше исходной take-profit цены
-                            BigDecimal conservativeOffset = BigDecimal.valueOf(0.05); // 5% отступ от ask
-                            adjustedTakeProfitPrice = bidAsk.getAsk().multiply(BigDecimal.ONE.add(conservativeOffset));
-                            
-                            // Если исходная take-profit цена ниже скорректированной, используем исходную
-                            // (это означает, что цена входа была ниже текущей цены)
-                            if (takeProfitPrice.compareTo(adjustedTakeProfitPrice) < 0 && takeProfitPrice.compareTo(currentPrice) > 0) {
-                                // Исходная цена разумна и выше текущей - используем её
-                                adjustedTakeProfitPrice = takeProfitPrice;
-                                log.info("ℹ️ HARD OCO: используем исходную take-profit цену {} (выше текущей {})", 
-                                        takeProfitPrice, currentPrice);
-                            } else {
-                                log.warn("⚠️ HARD OCO: цена take-profit {} слишком далеко от текущей {} (отклонение {:.2f}%). " +
-                                        "Используем скорректированную цену {} (ask + 5%)", 
-                                        takeProfitPrice, currentPrice, tpDiffPct.doubleValue(), adjustedTakeProfitPrice);
-                            }
-                        } else {
-                            // Для BUY (take-profit для SHORT): используем текущую bid цену - отступ
-                            BigDecimal conservativeOffset = BigDecimal.valueOf(0.05); // 5% отступ от bid
-                            adjustedTakeProfitPrice = bidAsk.getBid().multiply(BigDecimal.ONE.subtract(conservativeOffset));
-                            
-                            // Если исходная take-profit цена выше скорректированной, используем исходную
-                            if (takeProfitPrice.compareTo(adjustedTakeProfitPrice) > 0 && takeProfitPrice.compareTo(currentPrice) < 0) {
-                                adjustedTakeProfitPrice = takeProfitPrice;
-                                log.info("ℹ️ HARD OCO: используем исходную take-profit цену {} (ниже текущей {})", 
-                                        takeProfitPrice, currentPrice);
-                            } else {
-                                log.warn("⚠️ HARD OCO: цена take-profit {} слишком далеко от текущей {} (отклонение {:.2f}%). " +
-                                        "Используем скорректированную цену {} (bid - 5%)", 
-                                        takeProfitPrice, currentPrice, tpDiffPct.doubleValue(), adjustedTakeProfitPrice);
-                            }
-                        }
-                    } else if (tpDiffPct.compareTo(BigDecimal.valueOf(5)) > 0) {
-                        log.info("ℹ️ HARD OCO: цена take-profit {} умеренно далеко от текущей {} (отклонение {:.2f}%)", 
-                                takeProfitPrice, currentPrice, tpDiffPct.doubleValue());
+                    // Если цены слишком далеко от текущей (более 10%), используем виртуальные OCO
+                    BigDecimal maxDeviationPct = BigDecimal.valueOf(10); // 10% максимальное отклонение
+                    if (tpDiffPct.compareTo(maxDeviationPct) > 0 || slDiffPct.compareTo(maxDeviationPct) > 0) {
+                        log.warn("⚠️ HARD OCO: цены слишком далеко от текущей рыночной цены (TP: {:.2f}%, SL: {:.2f}%). " +
+                                "Используем виртуальные OCO вместо жестких ордеров", 
+                                tpDiffPct.doubleValue(), slDiffPct.doubleValue());
+                        
+                        // Используем виртуальные OCO вместо жестких
+                        placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
+                        log.info("✅ Виртуальные OCO установлены для {} вместо жестких (цены слишком далеко от рыночной)", figi);
+                        return; // Выходим, не размещая жесткие ордера
                     }
                 }
             } catch (Exception e) {
-                log.warn("Не удалось проверить текущую цену перед размещением HARD OCO для {}: {}", figi, e.getMessage());
+                log.warn("Не удалось проверить текущую цену перед размещением HARD OCO для {}: {}. Продолжаем с жесткими ордерами", 
+                        figi, e.getMessage());
             }
 
+            String ocoGroupId = "HARD_OCO_" + System.currentTimeMillis();
+            String ocoMessage = "OCO_GROUP:" + ocoGroupId + " | Entry: " + entryPrice + " | " + positionType;
+
             // Размещаем тейк-профит как лимитный ордер с информацией об OCO группе
-            // Используем скорректированную цену, если она была изменена
-            String tpMessage = ocoMessage;
-            if (!adjustedTakeProfitPrice.equals(takeProfitPrice)) {
-                tpMessage = ocoMessage + " | Adjusted TP: " + adjustedTakeProfitPrice + " (original: " + takeProfitPrice + ")";
-            }
-            PostOrderResponse tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, adjustedTakeProfitPrice.toPlainString(), tpMessage);
+            PostOrderResponse tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString(), ocoMessage);
             log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
 
             // Обновляем сохраненный ордер в БД с информацией об OCO группе
