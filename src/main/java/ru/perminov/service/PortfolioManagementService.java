@@ -1682,6 +1682,22 @@ public class PortfolioManagementService {
         try {
             log.debug("=== АНАЛИЗ ТОРГОВОЙ ВОЗМОЖНОСТИ ДЛЯ {} ===", displayOf(figi));
             
+            // КРИТИЧЕСКАЯ ПРОВЕРКА: Пропускаем уже заблокированные по ликвидности инструменты
+            if (isLiquidityBlocked(figi)) {
+                long minutesLeft = getLiquidityBlockRemainingMinutes(figi);
+                log.debug("Пропускаем анализ {} - уже заблокирован по ликвидности (осталось ~{} мин)", 
+                    displayOf(figi), minutesLeft);
+                return null;
+            }
+            
+            // КРИТИЧЕСКАЯ ПРОВЕРКА: Проверяем ликвидность ДО начала анализа
+            // Это предотвращает выполнение тяжелых операций анализа для инструментов с плохой ликвидностью
+            if (!passesDynamicLiquidityFilters(figi, accountId)) {
+                log.debug("Пропускаем анализ {} - не проходит проверку ликвидности (блокировка уже установлена)", 
+                    displayOf(figi));
+                return null;
+            }
+            
             // Получаем технический анализ
             MarketAnalysisService.TrendAnalysis trendAnalysis = 
                 marketAnalysisService.analyzeTrend(figi, ru.tinkoff.piapi.contract.v1.CandleInterval.CANDLE_INTERVAL_DAY);
@@ -1977,6 +1993,14 @@ public class PortfolioManagementService {
      */
     public boolean passesDynamicLiquidityFilters(String figi, String accountId) {
         try {
+            // КРИТИЧЕСКАЯ ПРОВЕРКА: Если инструмент уже заблокирован по ликвидности, сразу возвращаем false
+            if (isLiquidityBlocked(figi)) {
+                long minutesLeft = getLiquidityBlockRemainingMinutes(figi);
+                log.debug("Инструмент {} уже заблокирован по ликвидности (осталось ~{} мин), пропускаем проверку", 
+                    displayOf(figi), minutesLeft);
+                return false;
+            }
+            
             BigDecimal spread = marketAnalysisService.getSpreadPct(figi); // 0..1
             // Определяем уровень портфеля и горизонт для медианного объёма
             PortfolioAnalysis pa = analyzePortfolio(accountId);
