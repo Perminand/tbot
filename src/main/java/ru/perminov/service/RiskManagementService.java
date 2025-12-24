@@ -3,7 +3,6 @@ package ru.perminov.service;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import ru.perminov.dto.ShareDto;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -35,6 +34,31 @@ public class RiskManagementService {
      */
     public RiskAssessment assessPositionRisk(String figi, BigDecimal quantity, BigDecimal price, 
                                            BigDecimal portfolioValue, Map<String, BigDecimal> currentPositions) {
+        
+        // 🚨 ЗАЩИТА ОТ ДЕЛЕНИЯ НА НОЛЬ
+        if (portfolioValue == null || portfolioValue.compareTo(BigDecimal.ZERO) <= 0) {
+            RiskAssessment assessment = new RiskAssessment();
+            assessment.setPositionValue(BigDecimal.ZERO);
+            assessment.setPositionShare(BigDecimal.ZERO);
+            assessment.addRisk("INVALID_PORTFOLIO", "Значение портфеля равно нулю или отрицательно");
+            return assessment;
+        }
+        
+        if (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) {
+            RiskAssessment assessment = new RiskAssessment();
+            assessment.setPositionValue(BigDecimal.ZERO);
+            assessment.setPositionShare(BigDecimal.ZERO);
+            assessment.addRisk("INVALID_QUANTITY", "Количество равно нулю или отрицательно");
+            return assessment;
+        }
+        
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            RiskAssessment assessment = new RiskAssessment();
+            assessment.setPositionValue(BigDecimal.ZERO);
+            assessment.setPositionShare(BigDecimal.ZERO);
+            assessment.addRisk("INVALID_PRICE", "Цена равна нулю или отрицательна");
+            return assessment;
+        }
         
         BigDecimal positionValue = quantity.multiply(price);
         BigDecimal positionShare = positionValue.divide(portfolioValue, 4, RoundingMode.HALF_UP);
@@ -78,11 +102,31 @@ public class RiskManagementService {
     public BigDecimal calculateOptimalPositionSize(BigDecimal availableCash, BigDecimal price, 
                                                  BigDecimal portfolioValue, Map<String, BigDecimal> currentPositions) {
         
+        // 🚨 ЗАЩИТА ОТ ДЕЛЕНИЯ НА НОЛЬ
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Некорректная цена для расчета размера позиции: {}", price);
+            return BigDecimal.ONE; // Возвращаем минимальный размер
+        }
+        
+        if (portfolioValue == null || portfolioValue.compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Некорректное значение портфеля для расчета размера позиции: {}", portfolioValue);
+            // Используем только доступные средства
+            if (availableCash == null || availableCash.compareTo(BigDecimal.ZERO) <= 0) {
+                return BigDecimal.ONE;
+            }
+            BigDecimal maxByCash = availableCash.multiply(new BigDecimal("0.8"));
+            BigDecimal optimalSize = maxByCash.min(MAX_POSITION_VALUE);
+            BigDecimal lots = optimalSize.divide(price, 0, RoundingMode.DOWN);
+            return lots.compareTo(BigDecimal.ONE) < 0 ? BigDecimal.ONE : lots;
+        }
+        
         // Базовый размер - 2% от портфеля
         BigDecimal baseSize = portfolioValue.multiply(new BigDecimal("0.02"));
         
         // Ограничиваем доступными средствами
-        BigDecimal maxByCash = availableCash.multiply(new BigDecimal("0.8")); // Используем 80% доступных средств
+        BigDecimal maxByCash = (availableCash != null && availableCash.compareTo(BigDecimal.ZERO) > 0) 
+            ? availableCash.multiply(new BigDecimal("0.8")) // Используем 80% доступных средств
+            : baseSize;
         
         // Ограничиваем максимальным размером позиции
         BigDecimal maxByPosition = MAX_POSITION_VALUE;
@@ -105,6 +149,16 @@ public class RiskManagementService {
      * Проверка дневного лимита убытков
      */
     public boolean checkDailyLossLimit(BigDecimal dailyPnL, BigDecimal portfolioValue) {
+        // 🚨 ЗАЩИТА ОТ ДЕЛЕНИЯ НА НОЛЬ
+        if (portfolioValue == null || portfolioValue.compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Некорректное значение портфеля для проверки дневного лимита: {}", portfolioValue);
+            return false; // Блокируем торговлю при некорректных данных
+        }
+        
+        if (dailyPnL == null) {
+            return true; // Если PnL неизвестен, разрешаем торговлю
+        }
+        
         BigDecimal lossPercentage = dailyPnL.divide(portfolioValue, 4, RoundingMode.HALF_UP).abs();
         return lossPercentage.compareTo(MAX_DAILY_LOSS) < 0;
     }

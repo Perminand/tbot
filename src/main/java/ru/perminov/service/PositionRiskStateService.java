@@ -140,8 +140,15 @@ public class PositionRiskStateService {
     }
 
     private void recalculateRiskLevels(PositionRiskState riskState, BigDecimal currentPrice) {
+        // 🚨 ЗАЩИТА ОТ NULL И НУЛЕВЫХ ЗНАЧЕНИЙ
+        if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Некорректная текущая цена для пересчета уровней риска: {}", currentPrice);
+            return;
+        }
+        
         BigDecimal avgPrice = riskState.getAveragePriceSnapshot();
         if (avgPrice == null || avgPrice.compareTo(BigDecimal.ZERO) <= 0) {
+            log.warn("Некорректная средняя цена для пересчета уровней риска: {}", avgPrice);
             return;
         }
 

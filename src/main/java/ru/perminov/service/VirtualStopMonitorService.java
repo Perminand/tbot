@@ -31,6 +31,7 @@ public class VirtualStopMonitorService {
     private final InstrumentNameService instrumentNameService;
     private final TradingSettingsService tradingSettingsService;
     private final PortfolioManagementService portfolioManagementService;
+    private final TradingCooldownService tradingCooldownService;
 
     // Анти-ложные срабатывания: счетчики подтверждений
     private final Map<String, Integer> touchCounters = new ConcurrentHashMap<>();
@@ -200,6 +201,18 @@ public class VirtualStopMonitorService {
                 botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
                     "Блокировка " + triggerType + " по ликвидности", 
                     String.format("%s не проходит фильтры ликвидности", displayOf(figi)));
+                return;
+            }
+            
+            // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Cooldown (защита от переторговли)
+            String actionForCooldown = (direction == OrderDirection.ORDER_DIRECTION_BUY) ? "BUY" : "SELL";
+            TradingCooldownService.CooldownResult cooldownCheck = tradingCooldownService.canTrade(figi, actionForCooldown, accountId);
+            if (cooldownCheck.isBlocked()) {
+                log.warn("⛔ БЛОКИРОВКА COOLDOWN: {} для {} заблокирован. Причина: {}", 
+                    triggerType, displayOf(figi), cooldownCheck.getReason());
+                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "Блокировка " + triggerType + " по cooldown", 
+                    String.format("%s: %s", displayOf(figi), cooldownCheck.getReason()));
                 return;
             }
             

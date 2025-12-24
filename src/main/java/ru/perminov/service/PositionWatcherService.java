@@ -28,6 +28,7 @@ public class PositionWatcherService {
     private final PositionRiskStateService positionRiskStateService;
     private final LotSizeService lotSizeService;
     private final PortfolioManagementService portfolioManagementService;
+    private final TradingCooldownService tradingCooldownService;
 
     // Периодический контроль позиций: SL/TP/трейлинг
     @Scheduled(fixedRate = 15000) // каждые 15 секунд
@@ -114,6 +115,14 @@ public class PositionWatcherService {
                                     continue;
                                 }
                                 
+                                // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Cooldown (защита от переторговли)
+                                String actionForCooldown = (side == PositionRiskState.PositionSide.LONG) ? "SELL" : "BUY";
+                                TradingCooldownService.CooldownResult cooldownCheck = tradingCooldownService.canTrade(figi, actionForCooldown, accountId);
+                                if (cooldownCheck.isBlocked()) {
+                                    log.warn("⛔ БЛОКИРОВКА COOLDOWN: SL для {} заблокирован. Причина: {}", figi, cooldownCheck.getReason());
+                                    continue;
+                                }
+                                
                                 if (side == PositionRiskState.PositionSide.LONG) {
                                     log.warn("Срабатывание SL (лонг): price={} <= SL={} — продаем {} лотов", 
                                             currentPrice, riskState.getStopLossLevel(), lots);
@@ -151,6 +160,14 @@ public class PositionWatcherService {
                                 // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Динамические фильтры ликвидности
                                 if (!portfolioManagementService.passesDynamicLiquidityFilters(figi, accountId)) {
                                     log.warn("⛔ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: TP для {} не проходит динамические фильтры ликвидности. Ордер не размещен.", figi);
+                                    continue;
+                                }
+                                
+                                // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Cooldown (защита от переторговли)
+                                String actionForCooldown = (side == PositionRiskState.PositionSide.LONG) ? "SELL" : "BUY";
+                                TradingCooldownService.CooldownResult cooldownCheck = tradingCooldownService.canTrade(figi, actionForCooldown, accountId);
+                                if (cooldownCheck.isBlocked()) {
+                                    log.warn("⛔ БЛОКИРОВКА COOLDOWN: TP для {} заблокирован. Причина: {}", figi, cooldownCheck.getReason());
                                     continue;
                                 }
                                 

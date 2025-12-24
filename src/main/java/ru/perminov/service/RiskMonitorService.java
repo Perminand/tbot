@@ -24,6 +24,7 @@ public class RiskMonitorService {
     private final RiskRuleService riskRuleService;
     private final BotControlService botControlService;
     private final PortfolioManagementService portfolioManagementService;
+    private final TradingCooldownService tradingCooldownService;
 
     private static final String INSTRUMENT_TYPE_CURRENCY = "currency";
 
@@ -61,6 +62,12 @@ public class RiskMonitorService {
             BigDecimal qtyLots = p.getQuantity().divide(new BigDecimal(Math.max(1, lotSize)), 0, java.math.RoundingMode.DOWN);
 
             BigDecimal currentPrice = extractPrice(p.getCurrentPrice());
+            // 🚨 ЗАЩИТА: Проверка текущей цены
+            if (currentPrice == null || currentPrice.compareTo(BigDecimal.ZERO) <= 0) {
+                log.debug("Пропускаем {} - некорректная текущая цена: {}", figi, currentPrice);
+                continue;
+            }
+            
             BigDecimal avgPrice = BigDecimal.ZERO;
             // пытаемся взять среднюю цену по доступным полям
             avgPrice = maxBigDecimal(avgPrice, moneyToBigDecimalSafe(p.getAveragePositionPrice()));
@@ -68,6 +75,7 @@ public class RiskMonitorService {
             // В некоторых моделях поля NoNkd может не быть
             if (avgPrice.compareTo(BigDecimal.ZERO) <= 0) {
                 // если нет средней — пропускаем инструмент
+                log.debug("Пропускаем {} - некорректная средняя цена: {}", figi, avgPrice);
                 continue;
             }
 
@@ -108,6 +116,13 @@ public class RiskMonitorService {
                     return;
                 }
                 
+                // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Cooldown (защита от переторговли)
+                TradingCooldownService.CooldownResult cooldownCheck = tradingCooldownService.canTrade(figi, "SELL", accountId);
+                if (cooldownCheck.isBlocked()) {
+                    log.warn("⛔ БЛОКИРОВКА COOLDOWN: SL для {} заблокирован. Причина: {}", figi, cooldownCheck.getReason());
+                    return;
+                }
+                
                 log.warn("SL сработал: текущая={} ≤ SL={} (acc={}) — отправляем MARKET SELL {} лотов", current, slLevel, accountId, lots);
                 orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, current);
                 return;
@@ -123,6 +138,13 @@ public class RiskMonitorService {
                 // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Динамические фильтры ликвидности
                 if (!portfolioManagementService.passesDynamicLiquidityFilters(figi, accountId)) {
                     log.warn("⛔ БЛОКИРОВКА ПО ЛИКВИДНОСТИ: TP для {} не проходит динамические фильтры ликвидности. Ордер не размещен.", figi);
+                    return;
+                }
+                
+                // 🚨 КРИТИЧЕСКАЯ ПРОВЕРКА: Cooldown (защита от переторговли)
+                TradingCooldownService.CooldownResult cooldownCheck = tradingCooldownService.canTrade(figi, "SELL", accountId);
+                if (cooldownCheck.isBlocked()) {
+                    log.warn("⛔ БЛОКИРОВКА COOLDOWN: TP для {} заблокирован. Причина: {}", figi, cooldownCheck.getReason());
                     return;
                 }
                 
