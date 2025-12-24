@@ -63,6 +63,14 @@ public class TradingBotScheduler {
                     try {
                         String figi = instrument.getFigi();
                         
+                        // Пропускаем заблокированные по ликвидности инструменты
+                        if (portfolioManagementService.isLiquidityBlocked(figi)) {
+                            long minutesLeft = portfolioManagementService.getLiquidityBlockRemainingMinutes(figi);
+                            log.debug("Пропускаем {} из быстрого анализа - заблокирован по ликвидности (осталось ~{} мин)", 
+                                figi, minutesLeft);
+                            continue;
+                        }
+                        
                         // Быстрый анализ тренда (15-минутные свечи)
                         MarketAnalysisService.TrendAnalysis trend = 
                             marketAnalysisService.analyzeTrend(figi, CandleInterval.CANDLE_INTERVAL_15_MIN);
@@ -123,6 +131,14 @@ public class TradingBotScheduler {
                 for (ShareDto instrument : instrumentsToAnalyze) {
                     try {
                         String figi = instrument.getFigi();
+                        
+                        // Пропускаем заблокированные по ликвидности инструменты
+                        if (portfolioManagementService.isLiquidityBlocked(figi)) {
+                            long minutesLeft = portfolioManagementService.getLiquidityBlockRemainingMinutes(figi);
+                            log.debug("Пропускаем {} из полного анализа - заблокирован по ликвидности (осталось ~{} мин)", 
+                                figi, minutesLeft);
+                            continue;
+                        }
                         
                         // Полный анализ тренда (часовые свечи)
                         MarketAnalysisService.TrendAnalysis trend = 

@@ -59,13 +59,22 @@ public class SmartAnalysisService {
             // Обновляем индекс ротации
             updateRotationIndex();
             
-            // Убираем дубликаты
+            // Убираем дубликаты и фильтруем заблокированные по ликвидности
             instruments = instruments.stream()
                 .distinct()
+                .filter(instrument -> {
+                    if (portfolioManagementService.isLiquidityBlocked(instrument.getFigi())) {
+                        long minutesLeft = portfolioManagementService.getLiquidityBlockRemainingMinutes(instrument.getFigi());
+                        log.debug("Пропускаем {} из быстрого анализа - заблокирован по ликвидности (осталось ~{} мин)", 
+                            instrument.getFigi(), minutesLeft);
+                        return false;
+                    }
+                    return true;
+                })
                 .limit(QUICK_ANALYSIS_LIMIT)
                 .collect(Collectors.toList());
             
-            log.info("Итого для быстрого анализа: {} инструментов", instruments.size());
+            log.info("Итого для быстрого анализа: {} инструментов (заблокированные по ликвидности исключены)", instruments.size());
             
         } catch (Exception e) {
             log.error("Ошибка при получении инструментов для быстрого анализа: {}", e.getMessage());
@@ -98,13 +107,22 @@ public class SmartAnalysisService {
             instruments.addAll(rotationInstruments);
             log.info("Добавлено {} ротируемых инструментов для полного анализа", rotationInstruments.size());
             
-            // Убираем дубликаты
+            // Убираем дубликаты и фильтруем заблокированные по ликвидности
             instruments = instruments.stream()
                 .distinct()
+                .filter(instrument -> {
+                    if (portfolioManagementService.isLiquidityBlocked(instrument.getFigi())) {
+                        long minutesLeft = portfolioManagementService.getLiquidityBlockRemainingMinutes(instrument.getFigi());
+                        log.debug("Пропускаем {} из полного анализа - заблокирован по ликвидности (осталось ~{} мин)", 
+                            instrument.getFigi(), minutesLeft);
+                        return false;
+                    }
+                    return true;
+                })
                 .limit(FULL_ANALYSIS_LIMIT)
                 .collect(Collectors.toList());
             
-            log.info("Итого для полного анализа: {} инструментов", instruments.size());
+            log.info("Итого для полного анализа: {} инструментов (заблокированные по ликвидности исключены)", instruments.size());
             
         } catch (Exception e) {
             log.error("Ошибка при получении инструментов для полного анализа: {}", e.getMessage());
@@ -127,6 +145,14 @@ public class SmartAnalysisService {
             for (Position position : analysis.getPositions()) {
                 if (position.getQuantity().compareTo(BigDecimal.ZERO) != 0 && 
                     !"currency".equals(position.getInstrumentType())) {
+                    
+                    // Пропускаем заблокированные по ликвидности инструменты
+                    if (portfolioManagementService.isLiquidityBlocked(position.getFigi())) {
+                        long minutesLeft = portfolioManagementService.getLiquidityBlockRemainingMinutes(position.getFigi());
+                        log.debug("Пропускаем позицию {} - заблокирована по ликвидности (осталось ~{} мин)", 
+                            position.getFigi(), minutesLeft);
+                        continue;
+                    }
                     
                     boolean isShort = position.getQuantity().compareTo(BigDecimal.ZERO) < 0;
                     log.info("🔍 ПОЗИЦИЯ для анализа: FIGI={}, quantity={}, тип={}, шорт={}", 
@@ -161,9 +187,15 @@ public class SmartAnalysisService {
     private List<ShareDto> getPriorityInstruments(int count) {
         List<ShareDto> allInstruments = dynamicInstrumentService.getAvailableInstruments();
         
-        // Сортируем по приоритету
+        // Сортируем по приоритету и фильтруем заблокированные по ликвидности
         return allInstruments.stream()
             .filter(this::isHighPriority)
+            .filter(instrument -> {
+                if (portfolioManagementService.isLiquidityBlocked(instrument.getFigi())) {
+                    return false; // Пропускаем заблокированные
+                }
+                return true;
+            })
             .sorted((i1, i2) -> {
                 int priority1 = getInstrumentPriority(i1.getFigi());
                 int priority2 = getInstrumentPriority(i2.getFigi());
@@ -195,7 +227,15 @@ public class SmartAnalysisService {
             rotationGroup.addAll(allInstruments.subList(0, remaining));
         }
         
-        return rotationGroup;
+        // Фильтруем заблокированные по ликвидности
+        return rotationGroup.stream()
+            .filter(instrument -> {
+                if (portfolioManagementService.isLiquidityBlocked(instrument.getFigi())) {
+                    return false; // Пропускаем заблокированные
+                }
+                return true;
+            })
+            .collect(Collectors.toList());
     }
     
     /**

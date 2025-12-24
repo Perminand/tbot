@@ -1538,6 +1538,14 @@ public class PortfolioManagementService {
                     continue;
                 }
                 
+                // Пропускаем заблокированные по ликвидности инструменты
+                if (isLiquidityBlocked(share.getFigi())) {
+                    long minutesLeft = getLiquidityBlockRemainingMinutes(share.getFigi());
+                    log.debug("Пропускаем инструмент {} из поиска возможностей - заблокирован по ликвидности (осталось ~{} мин)", 
+                        displayOf(share.getFigi()), minutesLeft);
+                    continue;
+                }
+                
                 try {
                     TradingOpportunity opportunity = analyzeTradingOpportunity(share.getFigi(), accountId);
                     if (opportunity != null) {
@@ -1599,6 +1607,14 @@ public class PortfolioManagementService {
                 
                 // Анализируем позиции с количеством != 0 (включая шорты)
                 if (position.getQuantity().compareTo(BigDecimal.ZERO) != 0) {
+                    // Пропускаем заблокированные по ликвидности инструменты
+                    if (isLiquidityBlocked(position.getFigi())) {
+                        long minutesLeft = getLiquidityBlockRemainingMinutes(position.getFigi());
+                        log.debug("Пропускаем позицию {} из анализа - заблокирована по ликвидности (осталось ~{} мин)", 
+                            displayOf(position.getFigi()), minutesLeft);
+                        continue;
+                    }
+                    
                     try {
                         TradingOpportunity opportunity = analyzeTradingOpportunity(position.getFigi(), accountId);
                         
