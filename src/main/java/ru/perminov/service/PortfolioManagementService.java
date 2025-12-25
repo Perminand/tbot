@@ -1024,10 +1024,10 @@ public class PortfolioManagementService {
                                                 displayOf(figi), accountId, level, msg));
                                         return;
                                 } else {
-                                    log.info("✅ Адаптивный лимит класса активов соблюден: {} доля {:.2f}% < {:.2f}% ({})", 
+                                    log.info("✅ Адаптивный лимит класса активов соблюден: {} доля {}% < {}% ({})", 
                                         getAssetClassName(instrType), 
-                                        newClassShare.multiply(BigDecimal.valueOf(100)), 
-                                        adaptiveLimit.multiply(BigDecimal.valueOf(100)),
+                                        String.format("%.2f", newClassShare.multiply(BigDecimal.valueOf(100)).doubleValue()), 
+                                        String.format("%.2f", adaptiveLimit.multiply(BigDecimal.valueOf(100)).doubleValue()),
                                         adaptiveDiversificationService.getPortfolioLevel(portfolioAnalysis.getTotalValue()));
                                 }
                             }

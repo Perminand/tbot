@@ -300,8 +300,8 @@ public class MarketAnalysisService {
                 BigDecimal spread = askPrice.subtract(bidPrice);
                 BigDecimal spreadPct = spread.divide(midPrice, 6, RoundingMode.HALF_UP);
                 
-                log.debug("💰 BID/ASK для {}: bid={}, ask={}, spread={} ({:.2%})", 
-                    figi, bidPrice, askPrice, spread, spreadPct);
+                log.debug("💰 BID/ASK для {}: bid={}, ask={}, spread={} ({}%)", 
+                    figi, bidPrice, askPrice, spread, String.format("%.2f", spreadPct.multiply(BigDecimal.valueOf(100)).doubleValue()));
                 
                 return new BidAskPrices(bidPrice, askPrice, midPrice, spread, spreadPct);
             }

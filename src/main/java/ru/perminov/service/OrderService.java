@@ -769,6 +769,10 @@ public class OrderService {
     }
 
     public PostOrderResponse placeLimitOrder(String figi, int lots, OrderDirection direction, String accountId, String price, String message) {
+        // Объявляем переменные для использования в catch блоке
+        String normalizedPriceStr = price;
+        Quotation priceObj = null;
+        
         try {
             // Корректируем лоты до размещения лимитного ордера
             lots = clampLotsByHoldings(figi, accountId, direction, lots);
@@ -821,9 +825,12 @@ public class OrderService {
             log.info("Размещение лимитного ордера: {} лотов, направление {}, аккаунт {}, цена {}, ID {}", 
                     lots, direction, accountId, price, orderId);
             
+            // Нормализуем цену: округляем до 9 знаков после запятой (максимум для nano)
+            BigDecimal normalizedPrice = new BigDecimal(price).setScale(9, RoundingMode.HALF_UP);
+            normalizedPriceStr = normalizedPrice.toPlainString();
+            
             // Исправленная логика преобразования цены в Quotation
-            Quotation priceObj;
-            String[] priceParts = price.split("\\.");
+            String[] priceParts = normalizedPriceStr.split("\\.");
             long units = Long.parseLong(priceParts[0]);
             int nano = 0;
             
@@ -843,7 +850,16 @@ public class OrderService {
                 .setNano(nano)
                 .build();
             
+            // Логируем преобразованную цену для отладки
+            log.debug("🔍 Преобразование цены: исходная={}, нормализованная={}, units={}, nano={}", 
+                    price, normalizedPriceStr, units, nano);
+            
             apiRateLimiter.acquire();
+            
+            // Логируем все параметры перед отправкой для отладки
+            log.debug("📤 Отправка запроса на размещение лимитного ордера: figi={}, lots={}, priceObj=[units={}, nano={}], direction={}, accountId={}, orderType={}, orderId={}", 
+                    figi, lots, priceObj.getUnits(), priceObj.getNano(), direction, accountId, OrderType.ORDER_TYPE_LIMIT, orderId);
+            
             CompletableFuture<PostOrderResponse> future = investApiManager.getCurrentInvestApi().getOrdersService().postOrder(
                 figi,
                 lots,
@@ -855,6 +871,14 @@ public class OrderService {
             );
             
             PostOrderResponse response = future.get();
+            
+            // Логируем ответ для отладки
+            log.debug("📥 Ответ от API: orderId={}, status={}, message={}, lotsRequested={}, lotsExecuted={}", 
+                    response.getOrderId(), 
+                    response.getExecutionReportStatus(),
+                    response.getMessage(),
+                    response.getLotsRequested(),
+                    response.getLotsExecuted());
             
             // Проверяем статус ответа
             if (response.getExecutionReportStatus() != null && 
@@ -909,11 +933,21 @@ public class OrderService {
             
             // Детальный анализ ошибки 30049
             if (errorMsg != null && errorMsg.contains("30049")) {
+                // Извлекаем полное сообщение об ошибке из исключения
+                String fullErrorMessage = e.getMessage();
+                if (e.getCause() != null) {
+                    fullErrorMessage += " | Причина: " + e.getCause().getMessage();
+                }
+                
                 String detailedError = String.format(
                     "Ошибка 30049 при размещении лимитного ордера для %s: " +
-                    "Лотов: %d, Направление: %s, Цена: %s. " +
-                    "Возможные причины: цена слишком далеко от рыночной, недостаточно лотов для продажи, или неправильные параметры ордера.",
-                    figi, lots, direction, price
+                    "Лотов: %d, Направление: %s, Цена: %s (нормализованная: %s), units: %d, nano: %d. " +
+                    "Полное сообщение: %s. " +
+                    "Возможные причины: цена слишком далеко от рыночной, неправильный формат цены, недостаточно лотов для продажи, или неправильные параметры ордера.",
+                    figi, lots, direction, price, normalizedPriceStr, 
+                    priceObj != null ? priceObj.getUnits() : 0, 
+                    priceObj != null ? priceObj.getNano() : 0,
+                    fullErrorMessage
                 );
                 log.error("❌ {}", detailedError);
                 throw new RuntimeException("Ошибка при размещении лимитного ордера (30049): " + detailedError, e);
