@@ -92,7 +92,10 @@ public class TradingCooldownService {
         
         return orderRepository.findByFigi(figi).stream()
             .filter(order -> order.getAccountId().equals(accountId))
-            .filter(order -> order.getOrderDate().isAfter(cutoff))
+            .filter(order -> {
+                LocalDateTime orderDate = order.getOrderDate();
+                return orderDate != null && orderDate.isAfter(cutoff);
+            })
             // Учитываем несколько вариантов статусов из API
             .filter(order -> {
                 String s = order.getStatus() != null ? order.getStatus().toUpperCase() : "";

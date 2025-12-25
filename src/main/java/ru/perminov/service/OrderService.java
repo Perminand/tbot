@@ -353,10 +353,15 @@ public class OrderService {
                                 stopPrice, currentPrice, String.format("%.2f", priceDiffPct.doubleValue()));
                     }
                     
-                    // Для SELL ордеров проверяем, что цена не ниже текущей bid
+                    // Для SELL ордеров (SL для LONG позиций) проверяем стоп-цену
+                    // ИСПРАВЛЕНИЕ: Если стоп-цена ниже bid, не заменяем её на bid, так как это стоп-ордер
+                    // Стоп-ордер должен сработать, когда цена упадет ниже стоп-цены
+                    // Если стоп-цена ниже bid, лимитный ордер по bid сработает сразу, что неправильно
                     if (direction == OrderDirection.ORDER_DIRECTION_SELL && stopPrice.compareTo(bidAsk.getBid()) < 0) {
-                        log.warn("⚠️ Стоп-цена SELL {} ниже текущей bid {}. Используем bid цену.", stopPrice, bidAsk.getBid());
-                        stopPrice = bidAsk.getBid();
+                        log.warn("⚠️ Стоп-цена SELL {} ниже текущей bid {}. Это стоп-ордер для LONG позиции - не заменяем цену, размещаем как есть (может быть отклонен API).", 
+                                stopPrice, bidAsk.getBid());
+                        // НЕ заменяем стоп-цену на bid - это стоп-ордер, который должен сработать при падении цены
+                        // Если API отклонит ордер, система автоматически использует виртуальный стоп-ордер
                     }
                     
                     // Для BUY ордеров (SL для SHORT позиций) проверяем стоп-цену
