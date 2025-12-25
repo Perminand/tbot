@@ -322,6 +322,9 @@ public class HardOcoMonitorService {
     @Scheduled(fixedRate = 300000) // каждые 5 минут
     public void checkAndSetupHardStopsForPositions() {
         log.info("⏰ Запуск проверки жестких стоп-ордеров (каждые 5 минут)");
+        botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
+                "⏰ Запуск проверки жестких стоп-ордеров", 
+                "Планируемая проверка каждые 5 минут");
         
         try {
             // Проверяем, включена ли функция жестких ордеров
@@ -331,6 +334,9 @@ public class HardOcoMonitorService {
             
             log.info("🔧 Статус жестких стоп-ордеров: enabled={}, режим={}, настройка={}", 
                 enabled, mode, settingEnabled);
+            botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "🔧 Статус жестких стоп-ордеров", 
+                    String.format("enabled=%s, режим=%s, настройка=%s", enabled, mode, settingEnabled));
             
             if (!enabled) {
                 String reason = !"production".equalsIgnoreCase(mode) 
@@ -903,14 +909,26 @@ public class HardOcoMonitorService {
             String mode = investApiManager.getCurrentMode();
             if (!"production".equalsIgnoreCase(mode)) {
                 log.debug("Жесткие стоп-ордера недоступны: режим не production (текущий: {})", mode);
+                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "⏹️ Жесткие стоп-ордера недоступны", 
+                        String.format("Режим не production (текущий: %s)", mode));
                 return false;
             }
             if (!enabled) {
                 log.debug("Жесткие стоп-ордера отключены в настройках (hard_stops.enabled = false)");
+                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "⏹️ Жесткие стоп-ордера отключены", 
+                        "Настройка hard_stops.enabled = false");
+                return false;
             }
+            botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "✅ Жесткие стоп-ордера включены", 
+                    "enabled=true, mode=production");
             return enabled;
         } catch (Exception e) {
             log.warn("Не удалось прочитать настройку hard_stops.enabled: {}", e.getMessage());
+            botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.RISK_MANAGEMENT,
+                    "❌ Ошибка проверки жестких стоп-ордеров", e.getMessage());
             return false;
         }
     }

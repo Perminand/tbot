@@ -2567,16 +2567,16 @@ public class PortfolioManagementService {
             if (!opportunities.isEmpty()) {
                 TradingOpportunity bestOpportunity = opportunities.get(0);
                 log.info("Быстрый мониторинг: лучшая возможность - {} ({}), Score: {}", 
-                    bestOpportunity.getFigi(), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore());
+                    displayOf(bestOpportunity.getFigi()), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore());
                 
                 botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.MARKET_ANALYSIS, 
                     "Быстрый мониторинг", String.format("Лучшая возможность: %s (%s), Score: %.1f", 
-                        bestOpportunity.getFigi(), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore()));
+                        displayOf(bestOpportunity.getFigi()), bestOpportunity.getRecommendedAction(), bestOpportunity.getScore()));
                 
                 // Выполняем торговлю если есть хорошая возможность для торговли
                 if (bestTradingOpportunity != null && bestTradingOpportunity.getScore().compareTo(BigDecimal.valueOf(60)) > 0) {
                     log.info("Выполняем торговую операцию для {} ({}), Score: {}", 
-                        bestTradingOpportunity.getFigi(), bestTradingOpportunity.getRecommendedAction(), bestTradingOpportunity.getScore());
+                        displayOf(bestTradingOpportunity.getFigi()), bestTradingOpportunity.getRecommendedAction(), bestTradingOpportunity.getScore());
                     
                     botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.AUTOMATIC_TRADING, 
                         "Выполнение торговой операции", String.format("%s, Действие: %s, Score: %.1f", 

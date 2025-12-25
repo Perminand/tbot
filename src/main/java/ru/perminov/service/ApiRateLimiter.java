@@ -23,7 +23,7 @@ public class ApiRateLimiter {
         throttleWindow();
         int limit = getPerMinuteLimit();
         int backoffMs = getBackoffMs();
-        log.debug("ApiRateLimiter.acquire(): лимит={}, текущее использование={}", limit, usedInWindow.get());
+        // log.debug("ApiRateLimiter.acquire(): лимит={}, текущее использование={}", limit, usedInWindow.get());
         while (true) {
             throttleWindow();
             int current = usedInWindow.get();
@@ -31,13 +31,13 @@ public class ApiRateLimiter {
                 if (usedInWindow.compareAndSet(current, current + 1)) {
                     // Мягкая пауза для равномерности
                     int delay = getSpreadDelayMs(limit);
-                    log.debug("ApiRateLimiter: разрешено, задержка {}ms", delay);
+                    // log.debug("ApiRateLimiter: разрешено, задержка {}ms", delay);
                     sleepQuiet(delay);
                     return;
                 }
             } else {
                 // Достигнут лимит окна - ждём начала следующей минуты
-                log.debug("ApiRateLimiter: достигнут лимит, ожидание {}ms", backoffMs);
+                // log.debug("ApiRateLimiter: достигнут лимит, ожидание {}ms", backoffMs);
                 sleepQuiet(backoffMs);
             }
         }
@@ -48,7 +48,7 @@ public class ApiRateLimiter {
         if (nowMin != windowStartMin) {
             synchronized (this) {
                 if (nowMin != windowStartMin) {
-                    log.debug("ApiRateLimiter: сброс окна {} -> {}", windowStartMin, nowMin);
+                    // log.debug("ApiRateLimiter: сброс окна {} -> {}", windowStartMin, nowMin);
                     windowStartMin = nowMin;
                     usedInWindow.set(0);
                 }
@@ -59,13 +59,13 @@ public class ApiRateLimiter {
     private int getPerMinuteLimit() {
         // Значение по умолчанию консервативное; можно поднять при необходимости
         int limit = settingsService.getInt("api.limit.per_minute", 50);
-        log.debug("ApiRateLimiter: лимит в минуту = {}", limit);
+        // log.debug("ApiRateLimiter: лимит в минуту = {}", limit);
         return limit;
     }
 
     private int getBackoffMs() {
         int backoff = settingsService.getInt("api.limit.backoff_ms", 500);
-        log.debug("ApiRateLimiter: задержка при превышении лимита = {}ms", backoff);
+        // log.debug("ApiRateLimiter: задержка при превышении лимита = {}ms", backoff);
         return backoff;
     }
 
@@ -73,16 +73,16 @@ public class ApiRateLimiter {
         // Распределяем запросы равномерно на окно (60 000 мс / limit)
         if (limit <= 0) return 1000;
         int delay = Math.max(10, 60000 / limit);
-        log.debug("ApiRateLimiter: задержка распределения для лимита {} = {}ms", limit, delay);
+        // log.debug("ApiRateLimiter: задержка распределения для лимита {} = {}ms", limit, delay);
         return delay;
     }
 
     private void sleepQuiet(int ms) {
         try {
-            log.debug("ApiRateLimiter: ожидание {}ms", ms);
+            // log.debug("ApiRateLimiter: ожидание {}ms", ms);
             TimeUnit.MILLISECONDS.sleep(ms);
         } catch (InterruptedException ignored) {
-            log.debug("ApiRateLimiter: прервано ожидание {}ms", ms);
+            // log.debug("ApiRateLimiter: прервано ожидание {}ms", ms);
             Thread.currentThread().interrupt();
         }
     }
