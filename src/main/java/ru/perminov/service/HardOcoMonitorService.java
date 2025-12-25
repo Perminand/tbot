@@ -408,15 +408,28 @@ public class HardOcoMonitorService {
         try {
             Portfolio portfolio = portfolioService.getPortfolio(accountId);
             
+            log.debug("🔍 Проверка портфеля для аккаунта {}: найдено {} позиций", accountId, portfolio.getPositions().size());
+            
             for (Position position : portfolio.getPositions()) {
+                String figi = position.getFigi();
+                String instrumentType = position.getInstrumentType();
+                BigDecimal quantity = position.getQuantity();
+                
+                log.debug("🔍 Анализ позиции: figi={}, type={}, quantity={}", figi, instrumentType, quantity);
+                
                 // Пропускаем валюту и нулевые позиции
-                if ("currency".equals(position.getInstrumentType())) continue;
-                if (position.getQuantity() == null || position.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                if ("currency".equals(instrumentType)) {
+                    log.debug("⏭️ Пропущена позиция {} - тип currency", figi);
+                    continue;
+                }
+                // ИСПРАВЛЕНИЕ: Для SHORT позиций quantity < 0, поэтому используем абсолютное значение
+                if (quantity == null || quantity.abs().compareTo(BigDecimal.ZERO) <= 0) {
+                    log.debug("⏭️ Пропущена позиция {} - quantity={} (null или |quantity| <= 0)", figi, quantity);
                     continue;
                 }
 
                 result.checked++;
-                String figi = position.getFigi();
+                log.debug("✅ Позиция {} прошла проверку, начинаем установку стоп-ордеров", figi);
                 
                 // Проверяем наличие активных жестких стоп-ордеров для этой позиции
                 if (hasActiveHardOcoOrders(figi, accountId)) {
@@ -732,8 +745,12 @@ public class HardOcoMonitorService {
 
             // Определяем направление позиции и цену входа
             BigDecimal avgPrice = extractAveragePrice(position);
+            log.debug("🔍 Извлеченная средняя цена для позиции {}: {}", figi, avgPrice);
             if (avgPrice.compareTo(BigDecimal.ZERO) <= 0) {
-                log.warn("Не удалось определить среднюю цену для позиции {}", figi);
+                log.warn("⚠️ Не удалось определить среднюю цену для позиции {} (avgPrice={}). Пропускаем установку стоп-ордеров", figi, avgPrice);
+                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "⚠️ Не удалось установить стоп-ордера",
+                        String.format("Позиция %s: не удалось определить среднюю цену (avgPrice=%s)", figi, avgPrice));
                 return;
             }
 

@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.apache.catalina.connector.ClientAbortException;
 
 @RestController
 @RequestMapping("/api/logs")
@@ -46,7 +47,12 @@ public class LogStreamController {
                     .data(recentLogs));
                     
         } catch (IOException e) {
-            log.error("Ошибка при отправке начальных данных", e);
+            // Broken pipe - нормальная ситуация, когда клиент закрыл соединение
+            if (isClientDisconnected(e)) {
+                log.debug("Клиент закрыл соединение при отправке начальных данных");
+            } else {
+                log.error("Ошибка при отправке начальных данных", e);
+            }
         }
         
         // Обработка завершения соединения
@@ -62,7 +68,12 @@ public class LogStreamController {
         
         emitter.onError((ex) -> {
             emitters.remove(emitter);
-            log.error("Ошибка SSE соединения", ex);
+            // Broken pipe - нормальная ситуация, когда клиент закрыл соединение
+            if (isClientDisconnected(ex)) {
+                log.debug("SSE соединение закрыто клиентом");
+            } else {
+                log.error("Ошибка SSE соединения", ex);
+            }
         });
         
         log.info("Новое SSE соединение установлено. Всего соединений: {}", emitters.size());
@@ -86,7 +97,12 @@ public class LogStreamController {
                             .data(event.getLogEntry()));
                     return false;
                 } catch (IOException e) {
-                    log.debug("Ошибка отправки лога клиенту", e);
+                    // Broken pipe - нормальная ситуация, когда клиент закрыл соединение
+                    if (isClientDisconnected(e)) {
+                        log.debug("Клиент закрыл соединение при отправке лога");
+                    } else {
+                        log.debug("Ошибка отправки лога клиенту", e);
+                    }
                     return true;
                 }
             });
@@ -110,11 +126,44 @@ public class LogStreamController {
                             .data(event.getStatistics()));
                     return false;
                 } catch (IOException e) {
-                    log.debug("Ошибка отправки статистики клиенту", e);
+                    // Broken pipe - нормальная ситуация, когда клиент закрыл соединение
+                    if (isClientDisconnected(e)) {
+                        log.debug("Клиент закрыл соединение при отправке статистики");
+                    } else {
+                        log.debug("Ошибка отправки статистики клиенту", e);
+                    }
                     return true;
                 }
             });
         });
+    }
+    
+    /**
+     * Проверка, является ли исключение следствием закрытия соединения клиентом
+     * (Broken pipe, ClientAbortException и т.д.)
+     */
+    private boolean isClientDisconnected(Throwable e) {
+        if (e == null) {
+            return false;
+        }
+        
+        String message = e.getMessage();
+        if (message != null) {
+            String lowerMessage = message.toLowerCase();
+            if (lowerMessage.contains("broken pipe") || 
+                lowerMessage.contains("connection reset") ||
+                lowerMessage.contains("connection aborted")) {
+                return true;
+            }
+        }
+        
+        // Проверяем тип исключения
+        if (e instanceof ClientAbortException) {
+            return true;
+        }
+        
+        // Проверяем причину (cause)
+        return isClientDisconnected(e.getCause());
     }
     
     /**
