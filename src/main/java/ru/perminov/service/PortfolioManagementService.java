@@ -848,11 +848,13 @@ public class PortfolioManagementService {
                         BigDecimal requiredAmount = trend.getCurrentPrice().multiply(BigDecimal.valueOf(lots));
                         
                         // Для маржинальной торговли используем buyingPower вместо realAvailableCash
-                        BigDecimal availableForTrade = (allowNegativeCash && realAvailableCash.compareTo(BigDecimal.ZERO) < 0) 
+                        // Используем buyingPower всегда, когда маржинальная торговля включена
+                        BigDecimal availableForTrade = allowNegativeCash 
                             ? buyingPower : realAvailableCash;
                         
                         // Дополнительные проверки для маржинальной торговли
-                        if (allowNegativeCash && realAvailableCash.compareTo(BigDecimal.ZERO) < 0) {
+                        // Выполняем проверки всегда, когда маржинальная торговля включена
+                        if (allowNegativeCash) {
                             // Получаем текущие маржинальные атрибуты для проверки лимитов
                             try {
                                 var marginAttributes = marginService.getAccountMarginAttributes(accountId);
