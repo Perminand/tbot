@@ -6,18 +6,18 @@
         http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
 
     <!-- Расширения PostgreSQL -->
-    <include file="changelog/changes/V001__extensions.sql" relativeToChangelogFile="true"/>
+    <include file="db/changelog/changes/V001__extensions.sql"/>
 
     <!-- Базовые таблицы -->
-    <include file="changelog/changes/V002__base-tables.sql" relativeToChangelogFile="true"/>
+    <include file="db/changelog/changes/V002__base-tables.sql"/>
 
     <!-- Таблицы рисков -->
-    <include file="changelog/changes/V003__risk-tables.sql" relativeToChangelogFile="true"/>
+    <include file="db/changelog/changes/V003__risk-tables.sql"/>
 
     <!-- Индексы, представления и функции -->
-    <include file="changelog/changes/V004__indexes-views-functions.sql" relativeToChangelogFile="true"/>
+    <include file="db/changelog/changes/V004__indexes-views-functions.sql"/>
 
     <!-- Начальные данные -->
-    <include file="changelog/changes/V005__initial-data.sql" relativeToChangelogFile="true"/>
+    <include file="db/changelog/changes/V005__initial-data.sql"/>
 
 </databaseChangeLog>

@@ -74,7 +74,7 @@ SELECT
 FROM orders o
 WHERE o.status IN ('New', 'PartiallyFill', 'PendingNew', 'PendingReplace');
 
---changeset system:004-09-function-get-instrument-stats
+--changeset system:004-09-function-get-instrument-stats splitStatements:false stripComments:false
 --comment: Создание функции get_instrument_stats
 
 CREATE OR REPLACE FUNCTION get_instrument_stats()
@@ -82,7 +82,7 @@ RETURNS TABLE(
     instrument_type VARCHAR,
     count BIGINT,
     currencies TEXT[]
-) AS $$
+) AS $function$
 BEGIN
     RETURN QUERY
     SELECT 
@@ -92,9 +92,9 @@ BEGIN
     FROM instruments i
     GROUP BY i.instrument_type;
 END;
-$$ LANGUAGE plpgsql;
+$function$ LANGUAGE plpgsql;
 
---changeset system:004-10-function-get-order-history
+--changeset system:004-10-function-get-order-history splitStatements:false stripComments:false
 --comment: Создание функции get_order_history
 
 CREATE OR REPLACE FUNCTION get_order_history(
@@ -113,7 +113,7 @@ RETURNS TABLE(
     currency VARCHAR,
     order_date TIMESTAMP,
     order_type VARCHAR
-) AS $$
+) AS $function$
 BEGIN
     RETURN QUERY
     SELECT 
@@ -132,13 +132,13 @@ BEGIN
       AND o.order_date BETWEEN p_start_date AND p_end_date
     ORDER BY o.order_date DESC;
 END;
-$$ LANGUAGE plpgsql;
+$function$ LANGUAGE plpgsql;
 
---changeset system:004-11-trigger-order-log
+--changeset system:004-11-trigger-order-log splitStatements:false stripComments:false
 --comment: Создание функции и триггера для логирования изменений ордеров
 
 CREATE OR REPLACE FUNCTION log_order_changes()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER AS $function$
 BEGIN
     IF TG_OP = 'INSERT' THEN
         INSERT INTO order_log (order_id, action, old_status, new_status, changed_at)
@@ -155,7 +155,10 @@ BEGIN
     END IF;
     RETURN NULL;
 END;
-$$ LANGUAGE plpgsql;
+$function$ LANGUAGE plpgsql;
+
+--changeset system:004-11b-trigger-create splitStatements:false stripComments:false
+--comment: Создание триггера для логирования изменений ордеров
 
 DROP TRIGGER IF EXISTS trigger_order_log ON orders;
 CREATE TRIGGER trigger_order_log
