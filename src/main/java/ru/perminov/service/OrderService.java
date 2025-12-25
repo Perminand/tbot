@@ -344,13 +344,13 @@ public class OrderService {
                     BigDecimal priceDiff = stopPrice.subtract(currentPrice).abs();
                     BigDecimal priceDiffPct = priceDiff.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
                     
-                    log.info("📊 Проверка стоп-ордера для {}: текущая цена={}, стоп-цена={}, отклонение={} ({:.2f}%)", 
-                            figi, currentPrice, stopPrice, priceDiff, priceDiffPct.doubleValue());
+                    log.info("📊 Проверка стоп-ордера для {}: текущая цена={}, стоп-цена={}, отклонение={} ({}%)", 
+                            figi, currentPrice, stopPrice, priceDiff, String.format("%.2f", priceDiffPct.doubleValue()));
                     
                     // Предупреждение, если цена слишком далеко (более 20%)
                     if (priceDiffPct.compareTo(BigDecimal.valueOf(20)) > 0) {
-                        log.warn("⚠️ Стоп-цена {} слишком далеко от текущей {} (отклонение {:.2f}%). API может отклонить ордер.", 
-                                stopPrice, currentPrice, priceDiffPct.doubleValue());
+                        log.warn("⚠️ Стоп-цена {} слишком далеко от текущей {} (отклонение {}%). API может отклонить ордер.", 
+                                stopPrice, currentPrice, String.format("%.2f", priceDiffPct.doubleValue()));
                     }
                     
                     // Для SELL ордеров проверяем, что цена не ниже текущей bid
@@ -601,8 +601,9 @@ public class OrderService {
                 log.info("📉 HARD OCO ШОРТ: TP={} (-{}%), SL={} (+{}%)", takeProfitPrice, takeProfitPct * 100, stopLossPrice, stopLossPct * 100);
             }
 
-            // Проверяем текущую рыночную цену перед размещением жестких ордеров
-            // Если цены слишком далеко от текущей рыночной, используем виртуальные OCO
+            // Проверяем текущую рыночную цену для информационных логов
+            // НЕ блокируем размещение жестких ордеров заранее - пусть API сам решит
+            // Если API отклонит ордер с ошибкой 30049, автоматически переключимся на виртуальные OCO
             try {
                 MarketAnalysisService.BidAskPrices bidAsk = marketAnalysisService.getBidAskPrices(figi);
                 if (bidAsk != null) {
@@ -612,20 +613,18 @@ public class OrderService {
                     BigDecimal tpDiffPct = tpDiff.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
                     BigDecimal slDiffPct = slDiff.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
                     
-                    log.info("📊 Проверка HARD OCO для {}: текущая цена={}, TP цена={} (отклонение {:.2f}%), SL цена={} (отклонение {:.2f}%)", 
-                            figi, currentPrice, takeProfitPrice, tpDiffPct.doubleValue(), stopLossPrice, slDiffPct.doubleValue());
+                    log.info("📊 Проверка HARD OCO для {}: текущая цена={}, TP цена={} (отклонение {}%), SL цена={} (отклонение {}%)", 
+                            figi, currentPrice, takeProfitPrice, String.format("%.2f", tpDiffPct.doubleValue()), 
+                            stopLossPrice, String.format("%.2f", slDiffPct.doubleValue()));
                     
-                    // Если цены слишком далеко от текущей (более 10%), используем виртуальные OCO
-                    BigDecimal maxDeviationPct = BigDecimal.valueOf(10); // 10% максимальное отклонение
-                    if (tpDiffPct.compareTo(maxDeviationPct) > 0 || slDiffPct.compareTo(maxDeviationPct) > 0) {
-                        log.warn("⚠️ HARD OCO: цены слишком далеко от текущей рыночной цены (TP: {:.2f}%, SL: {:.2f}%). " +
-                                "Используем виртуальные OCO вместо жестких ордеров", 
-                                tpDiffPct.doubleValue(), slDiffPct.doubleValue());
-                        
-                        // Используем виртуальные OCO вместо жестких
-                        placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
-                        log.info("✅ Виртуальные OCO установлены для {} вместо жестких (цены слишком далеко от рыночной)", figi);
-                        return; // Выходим, не размещая жесткие ордера
+                    // Информационное предупреждение при большом отклонении (но НЕ блокируем размещение)
+                    // Позволяем API самому решить - если отклонит с ошибкой 30049, автоматически переключимся на виртуальные OCO
+                    BigDecimal warningThreshold = BigDecimal.valueOf(5); // Предупреждение при отклонении > 5%
+                    if (tpDiffPct.compareTo(warningThreshold) > 0 || slDiffPct.compareTo(warningThreshold) > 0) {
+                        log.info("ℹ️ HARD OCO: большое отклонение от текущей цены (TP: {}%, SL: {}%). " +
+                                "Попробуем разместить жесткие ордера - если API отклонит, автоматически используем виртуальные OCO", 
+                                String.format("%.2f", tpDiffPct.doubleValue()), 
+                                String.format("%.2f", slDiffPct.doubleValue()));
                     }
                 }
             } catch (Exception e) {
@@ -654,20 +653,20 @@ public class OrderService {
                     throw new RuntimeException("TP ордер отклонен брокером");
                 }
                 
-                log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
+            log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
                 tpSuccess = true;
 
-                // Обновляем сохраненный ордер в БД с информацией об OCO группе
-                try {
-                    Order tpOrder = orderRepository.findById(tpResp.getOrderId()).orElse(null);
-                    if (tpOrder != null) {
-                        tpOrder.setMessage(ocoMessage + " | TP: " + takeProfitPct * 100 + "%");
-                        tpOrder.setOrderType("HARD_OCO_TAKE_PROFIT");
-                        orderRepository.save(tpOrder);
-                        log.info("💾 HARD OCO TP ордер обновлен в БД: orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
-                    }
-                } catch (Exception e) {
-                    log.warn("Не удалось обновить TP ордер в БД: {}", e.getMessage());
+            // Обновляем сохраненный ордер в БД с информацией об OCO группе
+            try {
+                Order tpOrder = orderRepository.findById(tpResp.getOrderId()).orElse(null);
+                if (tpOrder != null) {
+                    tpOrder.setMessage(ocoMessage + " | TP: " + takeProfitPct * 100 + "%");
+                    tpOrder.setOrderType("HARD_OCO_TAKE_PROFIT");
+                    orderRepository.save(tpOrder);
+                    log.info("💾 HARD OCO TP ордер обновлен в БД: orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
+                }
+            } catch (Exception e) {
+                log.warn("Не удалось обновить TP ордер в БД: {}", e.getMessage());
                 }
             } catch (Exception e) {
                 log.error("❌ Ошибка размещения HARD OCO TP ордера для {}: {}. Используем виртуальные OCO", figi, e.getMessage());
@@ -699,21 +698,21 @@ public class OrderService {
                     throw new RuntimeException("SL ордер отклонен брокером");
                 }
                 
-                log.info("🛑 HARD OCO: SL ордер создан, orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
+            log.info("🛑 HARD OCO: SL ордер создан, orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
                 slSuccess = true;
 
-                // Обновляем сохраненный ордер в БД с информацией об OCO группе
-                try {
-                    Order slOrder = orderRepository.findById(slResp.getOrderId()).orElse(null);
-                    if (slOrder != null) {
-                        slOrder.setMessage(ocoMessage + " | SL: " + stopLossPct * 100 + "%");
-                        slOrder.setOrderType("HARD_OCO_STOP_LOSS");
-                        orderRepository.save(slOrder);
-                        log.info("💾 HARD OCO SL ордер обновлен в БД: orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
-                    }
-                } catch (Exception e) {
-                    log.warn("Не удалось обновить SL ордер в БД: {}", e.getMessage());
+            // Обновляем сохраненный ордер в БД с информацией об OCO группе
+            try {
+                Order slOrder = orderRepository.findById(slResp.getOrderId()).orElse(null);
+                if (slOrder != null) {
+                    slOrder.setMessage(ocoMessage + " | SL: " + stopLossPct * 100 + "%");
+                    slOrder.setOrderType("HARD_OCO_STOP_LOSS");
+                    orderRepository.save(slOrder);
+                    log.info("💾 HARD OCO SL ордер обновлен в БД: orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
                 }
+            } catch (Exception e) {
+                log.warn("Не удалось обновить SL ордер в БД: {}", e.getMessage());
+            }
             } catch (Exception e) {
                 log.error("❌ Ошибка размещения HARD OCO SL ордера для {}: {}. Используем виртуальные OCO", figi, e.getMessage());
                 // Если SL не установился, отменяем уже установленный TP и переходим на виртуальные
@@ -732,8 +731,8 @@ public class OrderService {
 
             // Проверяем, что оба ордера успешно установлены
             if (tpSuccess && slSuccess) {
-                log.info("✅ HARD OCO группа создана: {} | TP orderId={}, SL orderId={}, group={}", 
-                    figi, tpResp.getOrderId(), slResp.getOrderId(), ocoGroupId);
+            log.info("✅ HARD OCO группа создана: {} | TP orderId={}, SL orderId={}, group={}", 
+                figi, tpResp.getOrderId(), slResp.getOrderId(), ocoGroupId);
             } else {
                 // Если что-то пошло не так, используем виртуальные OCO
                 log.warn("⚠️ HARD OCO группа не полностью установлена (TP: {}, SL: {}). Используем виртуальные OCO", 
@@ -792,13 +791,13 @@ public class OrderService {
                     BigDecimal priceDiff = limitPrice.subtract(currentPrice).abs();
                     BigDecimal priceDiffPct = priceDiff.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
                     
-                    log.info("📊 Проверка лимитного ордера для {}: текущая цена={}, лимитная цена={}, отклонение={} ({:.2f}%)", 
-                            figi, currentPrice, limitPrice, priceDiff, priceDiffPct.doubleValue());
+                    log.info("📊 Проверка лимитного ордера для {}: текущая цена={}, лимитная цена={}, отклонение={} ({}%)", 
+                            figi, currentPrice, limitPrice, priceDiff, String.format("%.2f", priceDiffPct.doubleValue()));
                     
                     // Предупреждение, если цена слишком далеко (более 20%)
                     if (priceDiffPct.compareTo(BigDecimal.valueOf(20)) > 0) {
-                        log.warn("⚠️ Лимитная цена {} слишком далеко от текущей {} (отклонение {:.2f}%). API может отклонить ордер.", 
-                                limitPrice, currentPrice, priceDiffPct.doubleValue());
+                        log.warn("⚠️ Лимитная цена {} слишком далеко от текущей {} (отклонение {}%). API может отклонить ордер.", 
+                                limitPrice, currentPrice, String.format("%.2f", priceDiffPct.doubleValue()));
                     }
                     
                     // Для SELL ордеров проверяем, что цена не ниже текущей bid

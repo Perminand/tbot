@@ -129,7 +129,7 @@ public class PositionWatcherService {
                                         hardOcoMonitorService.cancelAllOrdersForPosition(figi, accountId);
                                     } catch (Exception e) {
                                         log.warn("Не удалось отменить ордера для {} при SL: {}", figi, e.getMessage());
-                                    }
+                                }
                                 
                                 if (side == PositionRiskState.PositionSide.LONG) {
                                     log.warn("Срабатывание SL (лонг): price={} <= SL={} — продаем {} лотов", 

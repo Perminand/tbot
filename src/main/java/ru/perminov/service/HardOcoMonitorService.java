@@ -791,10 +791,10 @@ public class HardOcoMonitorService {
                 
                 if (hasHardOco) {
                     // Логируем успешную установку жестких ордеров
-                    botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.RISK_MANAGEMENT,
+                botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.RISK_MANAGEMENT,
                             "✅ Жесткие стоп-ордера установлены",
-                            String.format("%s (%s), Лотов: %d, SL: %.2f%%, TP: %.2f%%",
-                                    instrumentName, figi, lots, stopLossPct * 100, takeProfitPct * 100));
+                        String.format("%s (%s), Лотов: %d, SL: %.2f%%, TP: %.2f%%",
+                                instrumentName, figi, lots, stopLossPct * 100, takeProfitPct * 100));
                     log.info("✅ Жесткие стоп-ордера успешно установлены для позиции {}", figi);
                 } else if (hasVirtualOco) {
                     // Логируем установку виртуальных ордеров (подстраховка сработала)
