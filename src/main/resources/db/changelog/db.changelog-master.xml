@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <!-- Расширения PostgreSQL -->
+    <include file="changelog/changes/V001__extensions.sql" relativeToChangelogFile="true"/>
+
+    <!-- Базовые таблицы -->
+    <include file="changelog/changes/V002__base-tables.sql" relativeToChangelogFile="true"/>
+
+    <!-- Таблицы рисков -->
+    <include file="changelog/changes/V003__risk-tables.sql" relativeToChangelogFile="true"/>
+
+    <!-- Индексы, представления и функции -->
+    <include file="changelog/changes/V004__indexes-views-functions.sql" relativeToChangelogFile="true"/>
+
+    <!-- Начальные данные -->
+    <include file="changelog/changes/V005__initial-data.sql" relativeToChangelogFile="true"/>
+
+</databaseChangeLog>

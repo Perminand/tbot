@@ -16,8 +16,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-your_secure_password_here}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql
-      - ./init_trading_settings.sql:/docker-entrypoint-initdb.d/02-init_trading_settings.sql
+      # SQL скрипты больше не нужны - Liquibase управляет схемой БД
     networks:
       - tbot_network
     restart: unless-stopped
