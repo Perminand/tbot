@@ -322,7 +322,20 @@ public class SmartAnalysisService {
         addFallbackInstrument(instruments, "BBG00QPYJ5Y0", "USD000UTSTOM", "Доллар США", "currency");
         addFallbackInstrument(instruments, "BBG00QPYJ5Y1", "EUR_RUB__TOM", "Евро", "currency");
         
-        log.info("Используется улучшенный резервный список из {} инструментов", instruments.size());
+        // Фильтруем заблокированные по ликвидности инструменты (как в быстром и полном анализе)
+        instruments = instruments.stream()
+            .filter(instrument -> {
+                if (portfolioManagementService.isLiquidityBlocked(instrument.getFigi())) {
+                    long minutesLeft = portfolioManagementService.getLiquidityBlockRemainingMinutes(instrument.getFigi());
+                    log.debug("Пропускаем {} из резервного списка - заблокирован по ликвидности (осталось ~{} мин)", 
+                        instrument.getFigi(), minutesLeft);
+                    return false;
+                }
+                return true;
+            })
+            .collect(Collectors.toList());
+        
+        log.info("Используется улучшенный резервный список из {} инструментов (заблокированные по ликвидности исключены)", instruments.size());
         log.warn("⚠️ Резервный список активирован! Проверьте подключение к API Tinkoff");
         
         return instruments;
