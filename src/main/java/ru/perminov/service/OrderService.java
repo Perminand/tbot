@@ -322,14 +322,74 @@ public class OrderService {
      */
     public PostOrderResponse placeStopOrder(String figi, int lots, OrderDirection direction, String accountId, BigDecimal stopPrice, String message) {
         try {
+            // Корректируем лоты до размещения стоп-ордера
+            lots = clampLotsByHoldings(figi, accountId, direction, lots);
+            
+            // Проверка количества лотов после коррекции
+            if (lots <= 0) {
+                String errorMsg = String.format("Невозможно разместить стоп-ордер: после коррекции количество лотов = %d (должно быть > 0)", lots);
+                log.error("❌ {}", errorMsg);
+                throw new IllegalStateException(errorMsg);
+            }
+            
             String orderId = UUID.randomUUID().toString();
             log.info("🛑 Размещение стоп-ордера: {} лотов, направление {}, стоп-цена {}, аккаунт {}, ID {}", 
                     lots, direction, stopPrice, accountId, orderId);
             
-            // Создаем стоп-цену
-            Quotation stopPriceObj = Quotation.newBuilder()
-                .setUnits(stopPrice.longValue())
-                .setNano((int)((stopPrice.remainder(BigDecimal.ONE)).multiply(BigDecimal.valueOf(1_000_000_000)).longValue()))
+            // Проверяем текущую рыночную цену для валидации стоп-ордера
+            try {
+                MarketAnalysisService.BidAskPrices bidAsk = marketAnalysisService.getBidAskPrices(figi);
+                if (bidAsk != null) {
+                    BigDecimal currentPrice = bidAsk.getMid();
+                    BigDecimal priceDiff = stopPrice.subtract(currentPrice).abs();
+                    BigDecimal priceDiffPct = priceDiff.divide(currentPrice, 4, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100));
+                    
+                    log.info("📊 Проверка стоп-ордера для {}: текущая цена={}, стоп-цена={}, отклонение={} ({:.2f}%)", 
+                            figi, currentPrice, stopPrice, priceDiff, priceDiffPct.doubleValue());
+                    
+                    // Предупреждение, если цена слишком далеко (более 20%)
+                    if (priceDiffPct.compareTo(BigDecimal.valueOf(20)) > 0) {
+                        log.warn("⚠️ Стоп-цена {} слишком далеко от текущей {} (отклонение {:.2f}%). API может отклонить ордер.", 
+                                stopPrice, currentPrice, priceDiffPct.doubleValue());
+                    }
+                    
+                    // Для SELL ордеров проверяем, что цена не ниже текущей bid
+                    if (direction == OrderDirection.ORDER_DIRECTION_SELL && stopPrice.compareTo(bidAsk.getBid()) < 0) {
+                        log.warn("⚠️ Стоп-цена SELL {} ниже текущей bid {}. Используем bid цену.", stopPrice, bidAsk.getBid());
+                        stopPrice = bidAsk.getBid();
+                    }
+                    
+                    // Для BUY ордеров проверяем, что цена не выше текущей ask
+                    if (direction == OrderDirection.ORDER_DIRECTION_BUY && stopPrice.compareTo(bidAsk.getAsk()) > 0) {
+                        log.warn("⚠️ Стоп-цена BUY {} выше текущей ask {}. Используем ask цену.", stopPrice, bidAsk.getAsk());
+                        stopPrice = bidAsk.getAsk();
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Не удалось проверить текущую рыночную цену для {}: {}. Продолжаем с указанной ценой.", figi, e.getMessage());
+            }
+            
+            // Исправленная логика преобразования цены в Quotation (как в placeLimitOrder)
+            Quotation stopPriceObj;
+            String priceStr = stopPrice.setScale(9, RoundingMode.HALF_UP).toPlainString();
+            String[] priceParts = priceStr.split("\\.");
+            long units = Long.parseLong(priceParts[0]);
+            int nano = 0;
+            
+            if (priceParts.length > 1 && !priceParts[1].isEmpty()) {
+                String fractionalPart = priceParts[1];
+                // Ограничиваем дробную часть до 9 символов (максимум для nano)
+                if (fractionalPart.length() > 9) {
+                    fractionalPart = fractionalPart.substring(0, 9);
+                }
+                // Дополняем нулями справа до 9 символов
+                String nanoStr = fractionalPart + "000000000";
+                nano = Integer.parseInt(nanoStr.substring(0, 9));
+            }
+            
+            stopPriceObj = Quotation.newBuilder()
+                .setUnits(units)
+                .setNano(nano)
                 .build();
             
             // Пока используем лимитный ордер вместо стоп-ордера (API ограничения)
@@ -344,10 +404,21 @@ public class OrderService {
                 direction,
                 accountId,
                 OrderType.ORDER_TYPE_LIMIT,
-                UUID.randomUUID().toString()
+                orderId  // Используем тот же orderId, который был создан выше
             );
             
             PostOrderResponse response = future.get();
+            
+            // Проверяем статус ответа
+            if (response.getExecutionReportStatus() != null && 
+                (response.getExecutionReportStatus().name().contains("REJECT") || 
+                 response.getExecutionReportStatus().name().contains("CANCELLED"))) {
+                String errorMsg = String.format("Стоп-ордер отклонен брокером: status=%s, message=%s", 
+                        response.getExecutionReportStatus(), response.getMessage());
+                log.error("❌ {}", errorMsg);
+                throw new RuntimeException(errorMsg);
+            }
+            
             log.info("🛑 Стоп-ордер успешно размещен: orderId={}, status={}", 
                     response.getOrderId(), response.getExecutionReportStatus());
             
@@ -565,46 +636,129 @@ public class OrderService {
             String ocoGroupId = "HARD_OCO_" + System.currentTimeMillis();
             String ocoMessage = "OCO_GROUP:" + ocoGroupId + " | Entry: " + entryPrice + " | " + positionType;
 
-            // Размещаем тейк-профит как лимитный ордер с информацией об OCO группе
-            PostOrderResponse tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString(), ocoMessage);
-            log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
+            boolean tpSuccess = false;
+            boolean slSuccess = false;
+            PostOrderResponse tpResp = null;
+            PostOrderResponse slResp = null;
 
-            // Обновляем сохраненный ордер в БД с информацией об OCO группе
+            // Размещаем тейк-профит как лимитный ордер с информацией об OCO группе
             try {
-                Order tpOrder = orderRepository.findById(tpResp.getOrderId()).orElse(null);
-                if (tpOrder != null) {
-                    tpOrder.setMessage(ocoMessage + " | TP: " + takeProfitPct * 100 + "%");
-                    tpOrder.setOrderType("HARD_OCO_TAKE_PROFIT");
-                    orderRepository.save(tpOrder);
-                    log.info("💾 HARD OCO TP ордер обновлен в БД: orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
+                tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString(), ocoMessage);
+                
+                // Проверяем статус ответа - если ордер отклонен, используем виртуальный
+                if (tpResp.getExecutionReportStatus() != null && 
+                    (tpResp.getExecutionReportStatus().name().contains("REJECT") || 
+                     tpResp.getExecutionReportStatus().name().contains("CANCELLED"))) {
+                    log.warn("⚠️ HARD OCO TP ордер отклонен брокером (статус: {}). Используем виртуальные OCO", 
+                            tpResp.getExecutionReportStatus());
+                    throw new RuntimeException("TP ордер отклонен брокером");
+                }
+                
+                log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
+                tpSuccess = true;
+
+                // Обновляем сохраненный ордер в БД с информацией об OCO группе
+                try {
+                    Order tpOrder = orderRepository.findById(tpResp.getOrderId()).orElse(null);
+                    if (tpOrder != null) {
+                        tpOrder.setMessage(ocoMessage + " | TP: " + takeProfitPct * 100 + "%");
+                        tpOrder.setOrderType("HARD_OCO_TAKE_PROFIT");
+                        orderRepository.save(tpOrder);
+                        log.info("💾 HARD OCO TP ордер обновлен в БД: orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
+                    }
+                } catch (Exception e) {
+                    log.warn("Не удалось обновить TP ордер в БД: {}", e.getMessage());
                 }
             } catch (Exception e) {
-                log.warn("Не удалось обновить TP ордер в БД: {}", e.getMessage());
+                log.error("❌ Ошибка размещения HARD OCO TP ордера для {}: {}. Используем виртуальные OCO", figi, e.getMessage());
+                // Если TP не установился, отменяем попытку установки SL и переходим на виртуальные
+                placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
+                log.info("✅ Виртуальные OCO установлены для {} вместо жестких (TP ордер не установился)", figi);
+                return;
             }
 
             // Размещаем стоп как стоп-ордер с информацией об OCO группе
-            PostOrderResponse slResp = placeStopOrder(figi, lots, exitDirection, accountId, stopLossPrice, ocoMessage + " | SL: " + stopLossPct * 100 + "%");
-            log.info("🛑 HARD OCO: SL ордер создан, orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
-
-            // Обновляем сохраненный ордер в БД с информацией об OCO группе
             try {
-                Order slOrder = orderRepository.findById(slResp.getOrderId()).orElse(null);
-                if (slOrder != null) {
-                    slOrder.setMessage(ocoMessage + " | SL: " + stopLossPct * 100 + "%");
-                    slOrder.setOrderType("HARD_OCO_STOP_LOSS");
-                    orderRepository.save(slOrder);
-                    log.info("💾 HARD OCO SL ордер обновлен в БД: orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
+                slResp = placeStopOrder(figi, lots, exitDirection, accountId, stopLossPrice, ocoMessage + " | SL: " + stopLossPct * 100 + "%");
+                
+                // Проверяем статус ответа - если ордер отклонен, используем виртуальный
+                if (slResp.getExecutionReportStatus() != null && 
+                    (slResp.getExecutionReportStatus().name().contains("REJECT") || 
+                     slResp.getExecutionReportStatus().name().contains("CANCELLED"))) {
+                    log.warn("⚠️ HARD OCO SL ордер отклонен брокером (статус: {}). Используем виртуальные OCO", 
+                            slResp.getExecutionReportStatus());
+                    // Отменяем уже установленный TP ордер
+                    if (tpSuccess && tpResp != null) {
+                        try {
+                            cancelOrder(accountId, tpResp.getOrderId());
+                            log.info("🚫 Отменен TP ордер {} из-за отклонения SL ордера", tpResp.getOrderId());
+                        } catch (Exception cancelEx) {
+                            log.warn("Не удалось отменить TP ордер {}: {}", tpResp.getOrderId(), cancelEx.getMessage());
+                        }
+                    }
+                    throw new RuntimeException("SL ордер отклонен брокером");
+                }
+                
+                log.info("🛑 HARD OCO: SL ордер создан, orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
+                slSuccess = true;
+
+                // Обновляем сохраненный ордер в БД с информацией об OCO группе
+                try {
+                    Order slOrder = orderRepository.findById(slResp.getOrderId()).orElse(null);
+                    if (slOrder != null) {
+                        slOrder.setMessage(ocoMessage + " | SL: " + stopLossPct * 100 + "%");
+                        slOrder.setOrderType("HARD_OCO_STOP_LOSS");
+                        orderRepository.save(slOrder);
+                        log.info("💾 HARD OCO SL ордер обновлен в БД: orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
+                    }
+                } catch (Exception e) {
+                    log.warn("Не удалось обновить SL ордер в БД: {}", e.getMessage());
                 }
             } catch (Exception e) {
-                log.warn("Не удалось обновить SL ордер в БД: {}", e.getMessage());
+                log.error("❌ Ошибка размещения HARD OCO SL ордера для {}: {}. Используем виртуальные OCO", figi, e.getMessage());
+                // Если SL не установился, отменяем уже установленный TP и переходим на виртуальные
+                if (tpSuccess && tpResp != null) {
+                    try {
+                        cancelOrder(accountId, tpResp.getOrderId());
+                        log.info("🚫 Отменен TP ордер {} из-за ошибки установки SL ордера", tpResp.getOrderId());
+                    } catch (Exception cancelEx) {
+                        log.warn("Не удалось отменить TP ордер {}: {}", tpResp.getOrderId(), cancelEx.getMessage());
+                    }
+                }
+                placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
+                log.info("✅ Виртуальные OCO установлены для {} вместо жестких (SL ордер не установился)", figi);
+                return;
             }
 
-            log.info("✅ HARD OCO группа создана: {} | TP orderId={}, SL orderId={}, group={}", 
-                figi, tpResp.getOrderId(), slResp.getOrderId(), ocoGroupId);
+            // Проверяем, что оба ордера успешно установлены
+            if (tpSuccess && slSuccess) {
+                log.info("✅ HARD OCO группа создана: {} | TP orderId={}, SL orderId={}, group={}", 
+                    figi, tpResp.getOrderId(), slResp.getOrderId(), ocoGroupId);
+            } else {
+                // Если что-то пошло не так, используем виртуальные OCO
+                log.warn("⚠️ HARD OCO группа не полностью установлена (TP: {}, SL: {}). Используем виртуальные OCO", 
+                        tpSuccess, slSuccess);
+                if (tpSuccess && tpResp != null) {
+                    try {
+                        cancelOrder(accountId, tpResp.getOrderId());
+                    } catch (Exception cancelEx) {
+                        log.warn("Не удалось отменить TP ордер: {}", cancelEx.getMessage());
+                    }
+                }
+                placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
+                log.info("✅ Виртуальные OCO установлены для {} вместо жестких (неполная установка)", figi);
+            }
 
         } catch (Exception e) {
-            log.error("Ошибка создания HARD OCO для {}: {}", figi, e.getMessage(), e);
-            throw new RuntimeException("Не удалось создать HARD OCO: " + e.getMessage(), e);
+            log.error("Ошибка создания HARD OCO для {}: {}. Используем виртуальные OCO как подстраховку", figi, e.getMessage(), e);
+            // Подстраховка: если жесткие ордера не установились, используем виртуальные
+            try {
+                placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
+                log.info("✅ Виртуальные OCO установлены для {} вместо жестких (fallback после ошибки)", figi);
+            } catch (Exception virtualEx) {
+                log.error("❌ Критическая ошибка: не удалось установить даже виртуальные OCO для {}: {}", figi, virtualEx.getMessage());
+                throw new RuntimeException("Не удалось создать ни жесткие, ни виртуальные OCO: " + e.getMessage(), e);
+            }
         }
     }
 

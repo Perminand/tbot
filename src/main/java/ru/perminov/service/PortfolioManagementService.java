@@ -47,6 +47,7 @@ public class PortfolioManagementService {
     private final TradingCooldownService tradingCooldownService;
     private final PositionHoldTimeService positionHoldTimeService;
     private final CommissionAwareTradingService commissionAwareTradingService;
+    private final HardOcoMonitorService hardOcoMonitorService;
 
     // Защита: одна торговая операция на FIGI в короткое окно (например, один цикл/60 сек)
     private final java.util.concurrent.ConcurrentHashMap<String, Long> recentOperationsWindow = new java.util.concurrent.ConcurrentHashMap<>();
@@ -674,6 +675,13 @@ public class PortfolioManagementService {
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                 "💰 Размещение ордера на закрытие шорта", String.format("%s, Лотов: %d, Цена: %.2f",
                                         displayOf(figi), lotsToClose, trend.getCurrentPrice()));
+                        // 🚀 Отменяем жесткие OCO ордера перед закрытием шорта
+                        try {
+                            hardOcoMonitorService.cancelHardOcoOrdersForPosition(figi, accountId);
+                        } catch (Exception e) {
+                            log.warn("Не удалось отменить жесткие OCO ордера для {}: {}", displayOf(figi), e.getMessage());
+                        }
+                        
                         try {
                             PostOrderResponse response = orderService.placeSmartLimitOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId, trend.getCurrentPrice());
                             log.info("✅ Умный лимитный ордер на закрытие шорта размещен успешно: orderId={}, status={}", 
@@ -710,6 +718,13 @@ public class PortfolioManagementService {
                             botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                     "Закрытие шорта (приоритет)", String.format("%s, Лотов: %d, Цена: %.4f",
                                             displayOf(figi), lotsToClose, trend.getCurrentPrice()));
+                            // 🚀 Отменяем жесткие OCO ордера перед закрытием шорта
+                            try {
+                                hardOcoMonitorService.cancelHardOcoOrdersForPosition(figi, accountId);
+                            } catch (Exception e) {
+                                log.warn("Не удалось отменить жесткие OCO ордера для {}: {}", displayOf(figi), e.getMessage());
+                            }
+                            
                             try {
                                 log.info("🎯 Размещаем умный лимитный ордер на закрытие шорта: {} лотов BUY по цене {}", lotsToClose, trend.getCurrentPrice());
                                 PostOrderResponse response = orderService.placeSmartLimitOrder(figi, lotsToClose, OrderDirection.ORDER_DIRECTION_BUY, accountId, trend.getCurrentPrice());
@@ -1204,6 +1219,13 @@ public class PortfolioManagementService {
                         }
                         log.info("✅ Проверка прибыльности пройдена для {}: {}", displayOf(figi), commissionCheck.getReason());
 
+                        // 🚀 Отменяем жесткие OCO ордера перед закрытием позиции
+                        try {
+                            hardOcoMonitorService.cancelHardOcoOrdersForPosition(figi, accountId);
+                        } catch (Exception e) {
+                            log.warn("Не удалось отменить жесткие OCO ордера для {}: {}", displayOf(figi), e.getMessage());
+                        }
+                        
                         // 🚀 ИСПОЛЬЗУЕМ УМНЫЙ ЛИМИТНЫЙ ОРДЕР вместо рыночного
                         try {
                             orderService.placeSmartLimitOrder(figi, lots, OrderDirection.ORDER_DIRECTION_SELL, accountId, trend.getCurrentPrice());

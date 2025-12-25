@@ -29,6 +29,7 @@ public class PositionWatcherService {
     private final LotSizeService lotSizeService;
     private final PortfolioManagementService portfolioManagementService;
     private final TradingCooldownService tradingCooldownService;
+    private final HardOcoMonitorService hardOcoMonitorService;
 
     // Периодический контроль позиций: SL/TP/трейлинг
     @Scheduled(fixedRate = 15000) // каждые 15 секунд
@@ -123,6 +124,13 @@ public class PositionWatcherService {
                                     continue;
                                 }
                                 
+                                // 🚀 Отменяем жесткие OCO ордера перед закрытием позиции по SL
+                                try {
+                                    hardOcoMonitorService.cancelHardOcoOrdersForPosition(figi, accountId);
+                                } catch (Exception e) {
+                                    log.warn("Не удалось отменить жесткие OCO ордера для {} при SL: {}", figi, e.getMessage());
+                                }
+                                
                                 if (side == PositionRiskState.PositionSide.LONG) {
                                     log.warn("Срабатывание SL (лонг): price={} <= SL={} — продаем {} лотов", 
                                             currentPrice, riskState.getStopLossLevel(), lots);
@@ -186,6 +194,13 @@ public class PositionWatcherService {
                                     tradingSettingsService.upsert(key, "1", "TP1 hit (" + side.toString().toLowerCase() + ")");
                                     continue;
                                 } else {
+                                    // 🚀 Отменяем жесткие OCO ордера перед закрытием позиции по TP
+                                    try {
+                                        hardOcoMonitorService.cancelHardOcoOrdersForPosition(figi, accountId);
+                                    } catch (Exception e) {
+                                        log.warn("Не удалось отменить жесткие OCO ордера для {} при TP: {}", figi, e.getMessage());
+                                    }
+                                    
                                     if (side == PositionRiskState.PositionSide.LONG) {
                                         log.info("TP2 (лонг): продаем остаток {} лотов", lots);
                                         orderService.placeSmartLimitOrder(figi, lots, ru.tinkoff.piapi.contract.v1.OrderDirection.ORDER_DIRECTION_SELL, accountId, currentPrice);

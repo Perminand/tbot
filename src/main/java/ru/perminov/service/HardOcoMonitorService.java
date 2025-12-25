@@ -2,6 +2,8 @@ package ru.perminov.service;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import ru.perminov.model.Order;
@@ -35,6 +37,35 @@ public class HardOcoMonitorService {
     private final LotSizeService lotSizeService;
     private final BotLogService botLogService;
     private final InstrumentNameService instrumentNameService;
+
+    /**
+     * Восстановление жестких ордеров при старте системы
+     * Выполняется один раз при запуске приложения
+     */
+    @Bean
+    public ApplicationRunner restoreHardStopsOnStartup() {
+        return args -> {
+            try {
+                // Небольшая задержка для инициализации всех сервисов
+                Thread.sleep(5000);
+                
+                log.info("🔄 Восстановление жестких стоп-ордеров при старте системы...");
+                
+                // Проверяем, включена ли функция жестких ордеров
+                if (!isHardStopsEnabled()) {
+                    log.info("⏹️ Жесткие стоп-ордера отключены, пропускаем восстановление при старте");
+                    return;
+                }
+                
+                // Выполняем проверку и установку жестких стоп-ордеров для всех позиций
+                checkAndSetupHardStopsForPositions();
+                
+                log.info("✅ Восстановление жестких стоп-ордеров при старте завершено");
+            } catch (Exception e) {
+                log.error("❌ Ошибка восстановления жестких стоп-ордеров при старте: {}", e.getMessage(), e);
+            }
+        };
+    }
 
     /**
      * Мониторинг HARD OCO ордеров каждые 30 секунд
@@ -100,7 +131,46 @@ public class HardOcoMonitorService {
                     .orElse(null);
 
             if (brokerOrder == null) {
-                // Ордер не найден у брокера - возможно уже исполнен или отменен
+                // Ордер не найден у брокера - возможно уже исполнен или отменен брокером (в конце торгового дня)
+                String figi = order.getFigi();
+                String status = order.getStatus();
+                
+                // Проверяем, не был ли ордер отменен брокером, но позиция еще активна
+                if (status != null && (status.equals("CANCELLED") || status.equals("NEW") || status.equals("PENDING"))) {
+                    // Проверяем, есть ли еще активная позиция
+                    try {
+                        Portfolio portfolio = portfolioService.getPortfolio(accountId);
+                        Position position = portfolio.getPositions().stream()
+                                .filter(p -> figi.equals(p.getFigi()))
+                                .filter(p -> p.getQuantity() != null && p.getQuantity().compareTo(BigDecimal.ZERO) != 0)
+                                .findFirst()
+                                .orElse(null);
+                        
+                        if (position != null) {
+                            // Позиция активна, но ордер отменен брокером - нужно восстановить
+                            log.warn("🔄 HARD OCO ордер {} отменен брокером, но позиция {} еще активна. Восстанавливаем жесткие ордера...", 
+                                    orderId, figi);
+                            
+                            // Обновляем статус в БД
+                            order.setStatus("CANCELLED_BY_BROKER");
+                            order.setMessage(order.getMessage() != null ? 
+                                    order.getMessage() + " | Cancelled by broker, will restore" : 
+                                    "Cancelled by broker, will restore");
+                            orderRepository.save(order);
+                            
+                            // Восстанавливаем жесткие ордера для позиции
+                            restoreHardStopsForPosition(position, accountId);
+                            return;
+                        } else {
+                            // Позиция закрыта - ордер больше не нужен
+                            log.debug("HARD OCO ордер {} не найден у брокера, позиция закрыта - это нормально", orderId);
+                            return;
+                        }
+                    } catch (Exception e) {
+                        log.warn("Ошибка проверки позиции для отмененного ордера {}: {}", orderId, e.getMessage());
+                    }
+                }
+                
                 log.debug("HARD OCO ордер {} не найден у брокера, возможно уже исполнен", orderId);
                 return;
             }
@@ -122,6 +192,40 @@ public class HardOcoMonitorService {
                     String ocoGroupId = extractOcoGroupId(message);
                     cancelPairedOcoOrder(ocoGroupId, orderId, accountId);
                 }
+            } else if ("CANCELLED".equals(normalizedStatus) || "CANCELLED_BY_BROKER".equals(normalizedStatus)) {
+                // Ордер отменен брокером - проверяем, нужно ли восстановить
+                String figi = order.getFigi();
+                try {
+                    Portfolio portfolio = portfolioService.getPortfolio(accountId);
+                    Position position = portfolio.getPositions().stream()
+                            .filter(p -> figi.equals(p.getFigi()))
+                            .filter(p -> p.getQuantity() != null && p.getQuantity().compareTo(BigDecimal.ZERO) != 0)
+                            .findFirst()
+                            .orElse(null);
+                    
+                    if (position != null) {
+                        // Позиция активна, но ордер отменен - восстанавливаем
+                        log.warn("🔄 HARD OCO ордер {} отменен брокером (статус: {}), но позиция {} еще активна. Восстанавливаем жесткие ордера...", 
+                                orderId, brokerStatus, figi);
+                        
+                        // Обновляем статус в БД
+                        order.setStatus("CANCELLED_BY_BROKER");
+                        order.setMessage(order.getMessage() != null ? 
+                                order.getMessage() + " | Cancelled by broker, will restore" : 
+                                "Cancelled by broker, will restore");
+                        orderRepository.save(order);
+                        
+                        // Восстанавливаем жесткие ордера для позиции
+                        restoreHardStopsForPosition(position, accountId);
+                        return;
+                    }
+                } catch (Exception e) {
+                    log.warn("Ошибка проверки позиции для отмененного ордера {}: {}", orderId, e.getMessage());
+                }
+                
+                // Обновляем статус в БД
+                order.setStatus(normalizedStatus);
+                orderRepository.save(order);
             } else if (!normalizedStatus.equals(order.getStatus())) {
                 // Обновляем статус в БД если он изменился
                 order.setStatus(normalizedStatus);
@@ -293,6 +397,33 @@ public class HardOcoMonitorService {
                 if (hasActiveHardOcoOrders(figi, accountId)) {
                     result.withStops++;
                     log.debug("Позиция {} уже имеет активные жесткие стоп-ордера, пропускаем", figi);
+                    
+                    // Дополнительная проверка: если ордера есть в БД, но отменены брокером - восстанавливаем
+                    List<Order> cancelledHardOcoOrders = orderRepository.findByFigiAndAccountIdOrderByOrderDateDesc(figi, accountId)
+                            .stream()
+                            .filter(order -> {
+                                String orderType = order.getOrderType();
+                                if (orderType == null) return false;
+                                return orderType.equals("HARD_OCO_STOP_LOSS") || orderType.equals("HARD_OCO_TAKE_PROFIT");
+                            })
+                            .filter(order -> {
+                                String status = order.getStatus();
+                                return status != null && 
+                                       (status.equals("CANCELLED") || 
+                                        status.equals("CANCELLED_BY_BROKER"));
+                            })
+                            .collect(Collectors.toList());
+                    
+                    if (!cancelledHardOcoOrders.isEmpty()) {
+                        log.warn("🔄 Найдены отмененные брокером жесткие ордера для позиции {}. Восстанавливаем...", figi);
+                        try {
+                            restoreHardStopsForPosition(position, accountId);
+                            result.installed++;
+                        } catch (Exception e) {
+                            log.error("Ошибка восстановления жестких стоп-ордеров для позиции {}: {}", figi, e.getMessage());
+                        }
+                    }
+                    
                     continue;
                 }
 
@@ -310,6 +441,64 @@ public class HardOcoMonitorService {
             log.error("Ошибка проверки жестких стоп-ордеров для аккаунта {}: {}", accountId, e.getMessage());
         }
         return result;
+    }
+
+    /**
+     * Отмена всех активных жестких OCO ордеров для позиции
+     * Вызывается при закрытии позиции (SELL, CLOSE_SHORT, закрытие по SL/TP)
+     */
+    public void cancelHardOcoOrdersForPosition(String figi, String accountId) {
+        try {
+            log.info("🚫 Отмена жестких OCO ордеров для позиции {} (аккаунт {})", figi, accountId);
+            
+            // Находим все активные жесткие OCO ордера для этой позиции
+            List<Order> activeHardOcoOrders = orderRepository.findByFigiAndAccountIdOrderByOrderDateDesc(figi, accountId)
+                    .stream()
+                    .filter(order -> {
+                        String orderType = order.getOrderType();
+                        if (orderType == null) return false;
+                        return orderType.equals("HARD_OCO_STOP_LOSS") || orderType.equals("HARD_OCO_TAKE_PROFIT");
+                    })
+                    .filter(order -> {
+                        String status = order.getStatus();
+                        return status != null && 
+                               !status.equals("FILLED") && 
+                               !status.equals("EXECUTED") && 
+                               !status.equals("CANCELLED") && 
+                               !status.equals("CANCELLED_BY_OCO") &&
+                               !status.equals("REJECTED");
+                    })
+                    .collect(Collectors.toList());
+            
+            if (activeHardOcoOrders.isEmpty()) {
+                log.debug("Нет активных жестких OCO ордеров для отмены по позиции {}", figi);
+                return;
+            }
+            
+            log.info("Найдено {} активных жестких OCO ордеров для отмены по позиции {}", activeHardOcoOrders.size(), figi);
+            
+            // Отменяем все найденные ордера
+            for (Order order : activeHardOcoOrders) {
+                try {
+                    // Отменяем ордер у брокера
+                    orderService.cancelOrder(accountId, order.getOrderId());
+                    log.info("🚫 Отменен жесткий OCO ордер {} у брокера (позиция закрыта)", order.getOrderId());
+                } catch (Exception e) {
+                    log.warn("Не удалось отменить жесткий OCO ордер {} у брокера: {}", order.getOrderId(), e.getMessage());
+                }
+                
+                // Обновляем статус в БД
+                order.setStatus("CANCELLED");
+                order.setMessage(order.getMessage() != null ? order.getMessage() + " | Cancelled: position closed" : "Cancelled: position closed");
+                orderRepository.save(order);
+                log.info("💾 Жесткий OCO ордер {} отмечен как отмененный в БД (позиция закрыта)", order.getOrderId());
+            }
+            
+            log.info("✅ Отмена жестких OCO ордеров для позиции {} завершена (отменено {})", figi, activeHardOcoOrders.size());
+            
+        } catch (Exception e) {
+            log.error("Ошибка отмены жестких OCO ордеров для позиции {}: {}", figi, e.getMessage(), e);
+        }
     }
 
     /**
@@ -343,6 +532,48 @@ public class HardOcoMonitorService {
                 .anyMatch(order -> "HARD_OCO_TAKE_PROFIT".equals(order.getOrderType()));
 
         return hasStopLoss && hasTakeProfit;
+    }
+
+    /**
+     * Восстановление жестких стоп-ордеров для позиции
+     * Вызывается когда ордера были отменены брокером, но позиция еще активна
+     */
+    private void restoreHardStopsForPosition(Position position, String accountId) {
+        try {
+            String figi = position.getFigi();
+            log.info("🔄 Восстановление жестких стоп-ордеров для позиции {} (аккаунт {})", figi, accountId);
+            
+            // Сначала отменяем старые отмененные ордера в БД (помечаем их как восстановленные)
+            List<Order> cancelledOrders = orderRepository.findByFigiAndAccountIdOrderByOrderDateDesc(figi, accountId)
+                    .stream()
+                    .filter(order -> {
+                        String orderType = order.getOrderType();
+                        if (orderType == null) return false;
+                        return orderType.equals("HARD_OCO_STOP_LOSS") || orderType.equals("HARD_OCO_TAKE_PROFIT");
+                    })
+                    .filter(order -> {
+                        String status = order.getStatus();
+                        return status != null && 
+                               (status.equals("CANCELLED") || 
+                                status.equals("CANCELLED_BY_BROKER") ||
+                                status.equals("CANCELLED_BY_OCO"));
+                    })
+                    .collect(Collectors.toList());
+            
+            for (Order cancelledOrder : cancelledOrders) {
+                cancelledOrder.setStatus("RESTORED");
+                cancelledOrder.setMessage(cancelledOrder.getMessage() != null ? 
+                        cancelledOrder.getMessage() + " | Replaced by restored order" : 
+                        "Replaced by restored order");
+                orderRepository.save(cancelledOrder);
+            }
+            
+            // Устанавливаем новые жесткие ордера
+            setupHardStopsForPosition(position, accountId);
+            
+        } catch (Exception e) {
+            log.error("Ошибка восстановления жестких стоп-ордеров для позиции {}: {}", position.getFigi(), e.getMessage(), e);
+        }
     }
 
     /**
@@ -403,24 +634,81 @@ public class HardOcoMonitorService {
 
             // Устанавливаем жесткие OCO ордера
             // Если цены слишком далеко от текущей рыночной, placeHardOCO автоматически использует виртуальные OCO
+            // Если жесткие ордера не установились (ошибка API, отклонение брокером), также используется виртуальный OCO
             try {
                 orderService.placeHardOCO(figi, lots, positionDirection, accountId, 
                         avgPrice, takeProfitPct, stopLossPct);
 
-                // Логируем успешную установку (может быть жесткие или виртуальные, в зависимости от цен)
-                botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.RISK_MANAGEMENT,
-                        "✅ Стоп-ордера установлены",
-                        String.format("%s (%s), Лотов: %d, SL: %.2f%%, TP: %.2f%%",
-                                instrumentName, figi, lots, stopLossPct * 100, takeProfitPct * 100));
-
-                log.info("✅ Стоп-ордера успешно установлены для позиции {} (жесткие или виртуальные в зависимости от цен)", figi);
+                // Проверяем, что ордера действительно установились (жесткие или виртуальные)
+                // Проверяем через небольшую задержку, чтобы БД успела обновиться
+                Thread.sleep(500);
+                
+                boolean hasHardOco = hasActiveHardOcoOrders(figi, accountId);
+                boolean hasVirtualOco = orderRepository.findByFigiAndAccountIdOrderByOrderDateDesc(figi, accountId)
+                        .stream()
+                        .anyMatch(order -> {
+                            String orderType = order.getOrderType();
+                            String status = order.getStatus();
+                            return (orderType != null && 
+                                   (orderType.equals("VIRTUAL_STOP_LOSS") || orderType.equals("VIRTUAL_TAKE_PROFIT"))) &&
+                                   (status != null && status.equals("MONITORING"));
+                        });
+                
+                if (hasHardOco) {
+                    // Логируем успешную установку жестких ордеров
+                    botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.RISK_MANAGEMENT,
+                            "✅ Жесткие стоп-ордера установлены",
+                            String.format("%s (%s), Лотов: %d, SL: %.2f%%, TP: %.2f%%",
+                                    instrumentName, figi, lots, stopLossPct * 100, takeProfitPct * 100));
+                    log.info("✅ Жесткие стоп-ордера успешно установлены для позиции {}", figi);
+                } else if (hasVirtualOco) {
+                    // Логируем установку виртуальных ордеров (подстраховка сработала)
+                    botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.RISK_MANAGEMENT,
+                            "✅ Виртуальные стоп-ордера установлены (подстраховка)",
+                            String.format("%s (%s), Лотов: %d, SL: %.2f%%, TP: %.2f%% (жесткие не установились)",
+                                    instrumentName, figi, lots, stopLossPct * 100, takeProfitPct * 100));
+                    log.info("✅ Виртуальные стоп-ордера установлены для позиции {} (подстраховка: жесткие не установились)", figi);
+                } else {
+                    // Ни жесткие, ни виртуальные не установились - критическая ошибка
+                    log.error("❌ КРИТИЧЕСКАЯ ОШИБКА: Ни жесткие, ни виртуальные ордера не установились для позиции {}", figi);
+                    botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.RISK_MANAGEMENT,
+                            "❌ Критическая ошибка установки стоп-ордеров",
+                            String.format("%s (%s), Лотов: %d - ни жесткие, ни виртуальные ордера не установились",
+                                    instrumentName, figi, lots));
+                    
+                    // Последняя попытка: устанавливаем виртуальные OCO напрямую
+                    try {
+                        orderService.placeVirtualOCO(figi, lots, positionDirection, accountId, 
+                                avgPrice, takeProfitPct, stopLossPct);
+                        log.info("✅ Виртуальные OCO установлены вручную для позиции {} (последняя попытка)", figi);
+                    } catch (Exception virtualEx) {
+                        log.error("❌ Не удалось установить даже виртуальные OCO для {}: {}", figi, virtualEx.getMessage());
+                    }
+                }
             } catch (Exception e) {
                 // Логируем ошибку установки
-                botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.RISK_MANAGEMENT,
-                        "❌ Ошибка установки стоп-ордеров",
-                        String.format("%s (%s), Ошибка: %s", instrumentName, figi, e.getMessage()));
-                // Не пробрасываем исключение, чтобы не прерывать проверку других позиций
                 log.error("Ошибка установки стоп-ордеров для позиции {}: {}", figi, e.getMessage());
+                
+                // Подстраховка: если жесткие ордера не установились, пробуем виртуальные
+                try {
+                    log.warn("🔄 Подстраховка: устанавливаем виртуальные OCO для позиции {} после ошибки жестких", figi);
+                    orderService.placeVirtualOCO(figi, lots, positionDirection, accountId, 
+                            avgPrice, takeProfitPct, stopLossPct);
+                    
+                    botLogService.addLogEntry(BotLogService.LogLevel.SUCCESS, BotLogService.LogCategory.RISK_MANAGEMENT,
+                            "✅ Виртуальные стоп-ордера установлены (подстраховка после ошибки)",
+                            String.format("%s (%s), Лотов: %d, SL: %.2f%%, TP: %.2f%%",
+                                    instrumentName, figi, lots, stopLossPct * 100, takeProfitPct * 100));
+                    log.info("✅ Виртуальные OCO установлены для позиции {} (подстраховка после ошибки жестких)", figi);
+                } catch (Exception virtualEx) {
+                    // Логируем критическую ошибку
+                    botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.RISK_MANAGEMENT,
+                            "❌ Критическая ошибка установки стоп-ордеров",
+                            String.format("%s (%s), Ошибка: %s (жесткие и виртуальные не установились)",
+                                    instrumentName, figi, e.getMessage()));
+                    log.error("❌ Критическая ошибка: не удалось установить ни жесткие, ни виртуальные OCO для {}: {}", 
+                            figi, virtualEx.getMessage());
+                }
             }
 
         } catch (Exception e) {
