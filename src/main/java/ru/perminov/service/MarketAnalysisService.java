@@ -41,10 +41,49 @@ public class MarketAnalysisService {
             
             try {
                 apiRateLimiter.acquire();
-                return investApiManager.getCurrentInvestApi().getMarketDataService()
+                List<HistoricCandle> candles = investApiManager.getCurrentInvestApi().getMarketDataService()
                     .getCandlesSync(figi, from, to, interval);
+                
+                // Если получили свечи успешно, возвращаем их
+                if (candles != null && !candles.isEmpty()) {
+                    return candles;
+                }
+                
+                // Если свечей нет, возвращаем пустой список
+                return List.of();
             } catch (Exception e) {
-                log.error("Ошибка при получении свечей: {}", e.getMessage());
+                String errorMsg = e.getMessage();
+                log.error("Ошибка при получении свечей: {}", errorMsg);
+                
+                // Если ошибка связана с превышением периода (30014), очищаем кэш для этого ключа
+                // и пробуем с меньшим периодом
+                if (errorMsg != null && (errorMsg.contains("30014") || errorMsg.contains("Превышен максимальный период"))) {
+                    log.warn("⚠️ Превышен максимальный период для интервала {}. Очищаем кэш и пробуем с меньшим периодом", interval);
+                    candleCache.remove(cacheKey);
+                    
+                    // Пробуем с минимальным периодом для данного интервала
+                    int minDays = getMinDaysForInterval(interval);
+                    if (safeDays > minDays) {
+                        log.info("🔄 Повторная попытка получения свечей для {} с периодом {} дней (вместо {})", 
+                                figi, minDays, safeDays);
+                        try {
+                            Instant retryTo = Instant.now();
+                            Instant retryFrom = retryTo.minus(minDays, ChronoUnit.DAYS);
+                            apiRateLimiter.acquire();
+                            List<HistoricCandle> retryCandles = investApiManager.getCurrentInvestApi().getMarketDataService()
+                                .getCandlesSync(figi, retryFrom, retryTo, interval);
+                            if (retryCandles != null && !retryCandles.isEmpty()) {
+                                // Сохраняем в кэш с новым ключом
+                                String newCacheKey = figi + "_" + interval + "_" + minDays;
+                                candleCache.put(newCacheKey, retryCandles);
+                                return retryCandles;
+                            }
+                        } catch (Exception retryEx) {
+                            log.warn("Повторная попытка также не удалась для {}: {}", figi, retryEx.getMessage());
+                        }
+                    }
+                }
+                
                 return List.of();
             }
         });
@@ -71,14 +110,22 @@ public class MarketAnalysisService {
      * Возвращает абсолютное значение ATR в тех же единицах, что и цена
      */
     public BigDecimal calculateATR(String figi, CandleInterval interval, int period) {
-        // Берем запас свечей для корректного TR (нужен prevClose)
-        List<HistoricCandle> candles = getCandles(figi, interval, Math.max(period + 5, period * 2));
-        if (candles.size() < period + 1) {
+        // Для минутных интервалов ограничиваем период запроса (максимум 1 день)
+        int maxDays = getMaxDaysForInterval(interval);
+        // Для минутных интервалов используем только доступные свечи (не более 1 дня)
+        // Для других интервалов берем запас свечей для корректного TR (нужен prevClose)
+        int requestDays = (maxDays == 1) ? 1 : Math.min(Math.max(period + 5, period * 2), maxDays);
+        
+        List<HistoricCandle> candles = getCandles(figi, interval, requestDays);
+        
+        // Используем доступное количество свечей
+        int actualPeriod = Math.min(period, candles.size() - 1);
+        if (actualPeriod <= 0 || candles.size() < 2) {
             return BigDecimal.ZERO;
         }
 
         BigDecimal trSum = BigDecimal.ZERO;
-        for (int i = 1; i <= period; i++) {
+        for (int i = 1; i <= actualPeriod && i < candles.size(); i++) {
             HistoricCandle cur = candles.get(i);
             HistoricCandle prev = candles.get(i - 1);
 
@@ -94,16 +141,17 @@ public class MarketAnalysisService {
             trSum = trSum.add(tr);
         }
 
-        return trSum.divide(BigDecimal.valueOf(period), 6, RoundingMode.HALF_UP);
+        return trSum.divide(BigDecimal.valueOf(actualPeriod), 6, RoundingMode.HALF_UP);
     }
 
     // Максимально допустимая глубина периода в днях для каждого интервала (по ограничениям Tinkoff Invest API)
+    // ВАЖНО: Согласно документации Tinkoff API, минутные интервалы (1_MIN, 5_MIN, 15_MIN) имеют лимит 1 день
     private int getMaxDaysForInterval(CandleInterval interval) {
         switch (interval) {
             case CANDLE_INTERVAL_1_MIN:
             case CANDLE_INTERVAL_5_MIN:
             case CANDLE_INTERVAL_15_MIN:
-                return 7;   // для минутных обычно до 7 дней
+                return 1;   // для минутных максимум 1 день (по документации Tinkoff API)
             case CANDLE_INTERVAL_HOUR:
                 return 365; // до 1 года
             case CANDLE_INTERVAL_DAY:
@@ -113,32 +161,66 @@ public class MarketAnalysisService {
         }
     }
     
+    // Минимальный период для повторной попытки при ошибке
+    private int getMinDaysForInterval(CandleInterval interval) {
+        switch (interval) {
+            case CANDLE_INTERVAL_1_MIN:
+            case CANDLE_INTERVAL_5_MIN:
+            case CANDLE_INTERVAL_15_MIN:
+                return 1;   // минимум 1 день для минутных
+            case CANDLE_INTERVAL_HOUR:
+                return 1;   // минимум 1 день для часовых
+            case CANDLE_INTERVAL_DAY:
+                return 1;   // минимум 1 день для дневных
+            default:
+                return 1;
+        }
+    }
+    
     /**
      * Расчет простой скользящей средней (SMA)
      */
     public BigDecimal calculateSMA(String figi, CandleInterval interval, int period) {
-        List<HistoricCandle> candles = getCandles(figi, interval, period + 10);
+        // Для минутных интервалов ограничиваем период запроса (максимум 1 день)
+        int maxDays = getMaxDaysForInterval(interval);
+        // Для минутных интервалов используем только доступные свечи (не более 1 дня)
+        // Для других интервалов берем период + небольшой запас
+        int requestDays = (maxDays == 1) ? 1 : Math.min(period + 10, maxDays);
         
-        if (candles.size() < period) {
+        List<HistoricCandle> candles = getCandles(figi, interval, requestDays);
+        
+        if (candles.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        
+        // Используем доступное количество свечей (но не более запрошенного периода)
+        int actualPeriod = Math.min(period, candles.size());
+        if (actualPeriod == 0) {
             return BigDecimal.ZERO;
         }
         
         BigDecimal sum = candles.stream()
-            .limit(period)
+            .limit(actualPeriod)
             .map(candle -> new BigDecimal(candle.getClose().getUnits() + "." + 
                 String.format("%09d", candle.getClose().getNano())))
             .reduce(BigDecimal.ZERO, BigDecimal::add);
             
-        return sum.divide(BigDecimal.valueOf(period), 4, RoundingMode.HALF_UP);
+        return sum.divide(BigDecimal.valueOf(actualPeriod), 4, RoundingMode.HALF_UP);
     }
     
     /**
      * Расчет относительной силы (RSI)
      */
     public BigDecimal calculateRSI(String figi, CandleInterval interval, int period) {
-        List<HistoricCandle> candles = getCandles(figi, interval, period * 2);
+        // Для минутных интервалов ограничиваем период запроса (максимум 1 день)
+        int maxDays = getMaxDaysForInterval(interval);
+        // Для минутных интервалов используем только доступные свечи (не более 1 дня)
+        // Для других интервалов берем период * 2
+        int requestDays = (maxDays == 1) ? 1 : Math.min(period * 2, maxDays);
         
-        if (candles.size() < period + 1) {
+        List<HistoricCandle> candles = getCandles(figi, interval, requestDays);
+        
+        if (candles.size() < Math.min(period + 1, candles.size())) {
             return BigDecimal.ZERO;
         }
         
