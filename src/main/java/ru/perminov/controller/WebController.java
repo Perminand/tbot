@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
@@ -20,6 +21,16 @@ public class WebController {
     @GetMapping
     public String index() {
         return "forward:/index.html";
+    }
+    
+    /**
+     * Обработка POST запросов на главную страницу (перенаправление на GET)
+     * Исправляет проблему с некорректными multipart запросами
+     */
+    @PostMapping
+    public String indexPost() {
+        log.debug("Получен POST запрос на главную страницу, перенаправляем на GET");
+        return "redirect:/";
     }
     
     /**

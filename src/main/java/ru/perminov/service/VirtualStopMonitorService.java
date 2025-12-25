@@ -325,7 +325,7 @@ public class VirtualStopMonitorService {
             virtualOrder.setMessage(newMessage);
             
             try {
-                orderRepository.save(virtualOrder);
+            orderRepository.save(virtualOrder);
             } catch (Exception saveEx) {
                 log.error("Не удалось сохранить статус ошибки для ордера {}: {}", virtualOrder.getOrderId(), saveEx.getMessage());
             }
