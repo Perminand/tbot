@@ -16,7 +16,9 @@ import ru.tinkoff.piapi.core.models.Position;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -443,6 +445,116 @@ public class HardOcoMonitorService {
         return result;
     }
 
+    /**
+     * Отмена всех активных ордеров для позиции (жесткие OCO + обычные лимитные)
+     * Вызывается при закрытии позиции (SELL, CLOSE_SHORT, закрытие по SL/TP)
+     */
+    public void cancelAllOrdersForPosition(String figi, String accountId) {
+        // Отменяем жесткие OCO ордера
+        cancelHardOcoOrdersForPosition(figi, accountId);
+        
+        // Отменяем обычные лимитные ордера (отложенные ордера на покупку/продажу)
+        cancelLimitOrdersForPosition(figi, accountId);
+    }
+    
+    /**
+     * Отмена всех активных лимитных ордеров (отложенных ордеров) для позиции
+     */
+    public void cancelLimitOrdersForPosition(String figi, String accountId) {
+        try {
+            log.info("🚫 Отмена лимитных ордеров для позиции {} (аккаунт {})", figi, accountId);
+            
+            // Получаем активные ордера через API для проверки реального статуса
+            Set<String> activeOrderIdsFromApi = new HashSet<>();
+            try {
+                List<ru.tinkoff.piapi.contract.v1.OrderState> apiOrders = orderService.getOrders(accountId);
+                for (ru.tinkoff.piapi.contract.v1.OrderState apiOrder : apiOrders) {
+                    if (apiOrder.getFigi().equals(figi)) {
+                        String status = apiOrder.getExecutionReportStatus().name();
+                        // Проверяем, что ордер активен (NEW или PARTIALLY_FILLED)
+                        if (status.contains("NEW") || status.contains("PARTIALLY_FILLED")) {
+                            activeOrderIdsFromApi.add(apiOrder.getOrderId());
+                        }
+                    }
+                }
+                log.debug("Найдено {} активных ордеров через API для {}", activeOrderIdsFromApi.size(), figi);
+            } catch (Exception e) {
+                log.warn("Не удалось получить активные ордера через API: {}. Используем только БД.", e.getMessage());
+            }
+            
+            // Находим все активные лимитные ордера для этой позиции из БД
+            List<Order> activeLimitOrders = orderRepository.findByFigiAndAccountIdOrderByOrderDateDesc(figi, accountId)
+                    .stream()
+                    .filter(order -> {
+                        // Только лимитные ордера, НО НЕ HARD_OCO и НЕ VIRTUAL (они управляются отдельно)
+                        String orderType = order.getOrderType();
+                        if (orderType == null) return false;
+                        return (orderType.equals("LIMIT") || 
+                               orderType.equals("ORDER_TYPE_LIMIT") ||
+                               orderType.equals("STOP_LOSS")) &&
+                               !orderType.startsWith("HARD_OCO_") &&
+                               !orderType.startsWith("VIRTUAL_");
+                    })
+                    .filter(order -> {
+                        // Проверяем статус в БД
+                        String status = order.getStatus();
+                        boolean isActiveInDb = status != null && 
+                               !status.equals("FILLED") && 
+                               !status.equals("EXECUTED") && 
+                               !status.equals("CANCELLED") && 
+                               !status.equals("CANCELLED_BY_OCO") &&
+                               !status.equals("REJECTED") &&
+                               !status.equals("ERROR");
+                        
+                        // Если есть данные из API, проверяем и там
+                        if (!activeOrderIdsFromApi.isEmpty()) {
+                            return isActiveInDb && activeOrderIdsFromApi.contains(order.getOrderId());
+                        }
+                        
+                        return isActiveInDb;
+                    })
+                    .collect(Collectors.toList());
+            
+            if (activeLimitOrders.isEmpty()) {
+                log.debug("Нет активных лимитных ордеров для отмены по позиции {}", figi);
+                return;
+            }
+            
+            log.info("Найдено {} активных лимитных ордеров для отмены по позиции {}", activeLimitOrders.size(), figi);
+            
+            // Отменяем все найденные ордера
+            int successfullyCancelled = 0;
+            for (Order order : activeLimitOrders) {
+                try {
+                    // Отменяем ордер у брокера
+                    orderService.cancelOrder(accountId, order.getOrderId());
+                    log.info("🚫 Отменен лимитный ордер {} у брокера (позиция закрыта)", order.getOrderId());
+                    successfullyCancelled++;
+                } catch (Exception e) {
+                    log.warn("Не удалось отменить лимитный ордер {} у брокера: {}", order.getOrderId(), e.getMessage());
+                    // Возможно, ордер уже был отменен или исполнен - обновляем статус в БД
+                }
+                
+                // Обновляем статус в БД
+                order.setStatus("CANCELLED");
+                String existingMsg = order.getMessage() != null ? order.getMessage() : "";
+                String newMessage = existingMsg + " | Cancelled: position closed";
+                if (newMessage.length() > 200) {
+                    newMessage = newMessage.substring(0, 197) + "...";
+                }
+                order.setMessage(newMessage);
+                orderRepository.save(order);
+                log.info("💾 Лимитный ордер {} отмечен как отмененный в БД (позиция закрыта)", order.getOrderId());
+            }
+            
+            log.info("✅ Отмена лимитных ордеров для позиции {} завершена (отменено {}/{})", 
+                figi, successfullyCancelled, activeLimitOrders.size());
+            
+        } catch (Exception e) {
+            log.error("Ошибка отмены лимитных ордеров для позиции {}: {}", figi, e.getMessage(), e);
+        }
+    }
+    
     /**
      * Отмена всех активных жестких OCO ордеров для позиции
      * Вызывается при закрытии позиции (SELL, CLOSE_SHORT, закрытие по SL/TP)

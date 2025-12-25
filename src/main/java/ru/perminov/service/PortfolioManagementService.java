@@ -675,11 +675,11 @@ public class PortfolioManagementService {
                         botLogService.addLogEntry(BotLogService.LogLevel.TRADE, BotLogService.LogCategory.AUTOMATIC_TRADING,
                                 "💰 Размещение ордера на закрытие шорта", String.format("%s, Лотов: %d, Цена: %.2f",
                                         displayOf(figi), lotsToClose, trend.getCurrentPrice()));
-                        // 🚀 Отменяем жесткие OCO ордера перед закрытием шорта
+                        // 🚀 Отменяем все активные ордера перед закрытием шорта (жесткие OCO + лимитные)
                         try {
-                            hardOcoMonitorService.cancelHardOcoOrdersForPosition(figi, accountId);
+                            hardOcoMonitorService.cancelAllOrdersForPosition(figi, accountId);
                         } catch (Exception e) {
-                            log.warn("Не удалось отменить жесткие OCO ордера для {}: {}", displayOf(figi), e.getMessage());
+                            log.warn("Не удалось отменить ордера для {}: {}", displayOf(figi), e.getMessage());
                         }
                         
                         try {
@@ -720,7 +720,7 @@ public class PortfolioManagementService {
                                             displayOf(figi), lotsToClose, trend.getCurrentPrice()));
                             // 🚀 Отменяем жесткие OCO ордера перед закрытием шорта
                             try {
-                                hardOcoMonitorService.cancelHardOcoOrdersForPosition(figi, accountId);
+                                hardOcoMonitorService.cancelAllOrdersForPosition(figi, accountId);
                             } catch (Exception e) {
                                 log.warn("Не удалось отменить жесткие OCO ордера для {}: {}", displayOf(figi), e.getMessage());
                             }
@@ -1219,11 +1219,11 @@ public class PortfolioManagementService {
                         }
                         log.info("✅ Проверка прибыльности пройдена для {}: {}", displayOf(figi), commissionCheck.getReason());
 
-                        // 🚀 Отменяем жесткие OCO ордера перед закрытием позиции
+                        // 🚀 Отменяем все активные ордера перед закрытием позиции (жесткие OCO + лимитные)
                         try {
-                            hardOcoMonitorService.cancelHardOcoOrdersForPosition(figi, accountId);
+                            hardOcoMonitorService.cancelAllOrdersForPosition(figi, accountId);
                         } catch (Exception e) {
-                            log.warn("Не удалось отменить жесткие OCO ордера для {}: {}", displayOf(figi), e.getMessage());
+                            log.warn("Не удалось отменить ордера для {}: {}", displayOf(figi), e.getMessage());
                         }
                         
                         // 🚀 ИСПОЛЬЗУЕМ УМНЫЙ ЛИМИТНЫЙ ОРДЕР вместо рыночного

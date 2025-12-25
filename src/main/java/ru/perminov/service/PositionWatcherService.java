@@ -124,12 +124,12 @@ public class PositionWatcherService {
                                     continue;
                                 }
                                 
-                                // 🚀 Отменяем жесткие OCO ордера перед закрытием позиции по SL
-                                try {
-                                    hardOcoMonitorService.cancelHardOcoOrdersForPosition(figi, accountId);
-                                } catch (Exception e) {
-                                    log.warn("Не удалось отменить жесткие OCO ордера для {} при SL: {}", figi, e.getMessage());
-                                }
+                                    // 🚀 Отменяем все активные ордера перед закрытием позиции по SL (жесткие OCO + лимитные)
+                                    try {
+                                        hardOcoMonitorService.cancelAllOrdersForPosition(figi, accountId);
+                                    } catch (Exception e) {
+                                        log.warn("Не удалось отменить ордера для {} при SL: {}", figi, e.getMessage());
+                                    }
                                 
                                 if (side == PositionRiskState.PositionSide.LONG) {
                                     log.warn("Срабатывание SL (лонг): price={} <= SL={} — продаем {} лотов", 
@@ -194,11 +194,11 @@ public class PositionWatcherService {
                                     tradingSettingsService.upsert(key, "1", "TP1 hit (" + side.toString().toLowerCase() + ")");
                                     continue;
                                 } else {
-                                    // 🚀 Отменяем жесткие OCO ордера перед закрытием позиции по TP
+                                    // 🚀 Отменяем все активные ордера перед закрытием позиции по TP (жесткие OCO + лимитные)
                                     try {
-                                        hardOcoMonitorService.cancelHardOcoOrdersForPosition(figi, accountId);
+                                        hardOcoMonitorService.cancelAllOrdersForPosition(figi, accountId);
                                     } catch (Exception e) {
-                                        log.warn("Не удалось отменить жесткие OCO ордера для {} при TP: {}", figi, e.getMessage());
+                                        log.warn("Не удалось отменить ордера для {} при TP: {}", figi, e.getMessage());
                                     }
                                     
                                     if (side == PositionRiskState.PositionSide.LONG) {
