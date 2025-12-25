@@ -675,8 +675,9 @@ public class OrderService {
             }
 
             // Теперь пытаемся разместить тейк-профит как лимитный ордер с информацией об OCO группе
+            // ИСПРАВЛЕНИЕ: Пропускаем коррекцию лотов для TP, так как SL уже размещен и мог изменить состояние позиции
             try {
-                tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString(), ocoMessage);
+                tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString(), ocoMessage, true);
                 
                 // Проверяем статус ответа - если ордер отклонен, используем виртуальный
                 if (tpResp.getExecutionReportStatus() != null && 
@@ -789,13 +790,25 @@ public class OrderService {
     }
 
     public PostOrderResponse placeLimitOrder(String figi, int lots, OrderDirection direction, String accountId, String price, String message) {
+        return placeLimitOrder(figi, lots, direction, accountId, price, message, false);
+    }
+
+    /**
+     * Размещение лимитного ордера с возможностью пропуска коррекции лотов (для OCO ордеров)
+     * @param skipLotsCorrection если true, пропускает коррекцию лотов (используется для TP в OCO, когда SL уже размещен)
+     */
+    public PostOrderResponse placeLimitOrder(String figi, int lots, OrderDirection direction, String accountId, String price, String message, boolean skipLotsCorrection) {
         // Объявляем переменные для использования в catch блоке
         String normalizedPriceStr = price;
         Quotation priceObj = null;
         
         try {
-            // Корректируем лоты до размещения лимитного ордера
-            lots = clampLotsByHoldings(figi, accountId, direction, lots);
+            // Корректируем лоты до размещения лимитного ордера (если не пропущено)
+            if (!skipLotsCorrection) {
+                lots = clampLotsByHoldings(figi, accountId, direction, lots);
+            } else {
+                log.debug("⏭️ Пропущена коррекция лотов для OCO ордера: figi={}, lots={}, direction={}", figi, lots, direction);
+            }
             
             // Проверка количества лотов после коррекции
             if (lots <= 0) {
