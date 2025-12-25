@@ -321,10 +321,25 @@ public class HardOcoMonitorService {
      */
     @Scheduled(fixedRate = 300000) // каждые 5 минут
     public void checkAndSetupHardStopsForPositions() {
+        log.info("⏰ Запуск проверки жестких стоп-ордеров (каждые 5 минут)");
+        
         try {
             // Проверяем, включена ли функция жестких ордеров
-            if (!isHardStopsEnabled()) {
-                log.debug("Жесткие стоп-ордера отключены, пропускаем проверку позиций");
+            boolean enabled = isHardStopsEnabled();
+            String mode = investApiManager.getCurrentMode();
+            boolean settingEnabled = tradingSettingsService.getBoolean("hard_stops.enabled", false);
+            
+            log.info("🔧 Статус жестких стоп-ордеров: enabled={}, режим={}, настройка={}", 
+                enabled, mode, settingEnabled);
+            
+            if (!enabled) {
+                String reason = !"production".equalsIgnoreCase(mode) 
+                    ? String.format("режим не production (текущий: %s)", mode)
+                    : "настройка hard_stops.enabled = false";
+                log.warn("⚠️ Жесткие стоп-ордера отключены: {}. Пропускаем проверку позиций", reason);
+                botLogService.addLogEntry(BotLogService.LogLevel.WARNING, BotLogService.LogCategory.RISK_MANAGEMENT,
+                        "⚠️ Проверка жестких стоп-ордеров пропущена", 
+                        String.format("Причина: %s", reason));
                 return;
             }
 
@@ -356,13 +371,15 @@ public class HardOcoMonitorService {
             }
 
             // Логируем итоги проверки
+            log.info("✅ Проверка жестких стоп-ордеров завершена: проверено позиций={}, со стоп-ордерами={}, установлено новых={}", 
+                totalPositionsChecked, positionsWithStops, stopsInstalled);
             botLogService.addLogEntry(BotLogService.LogLevel.INFO, BotLogService.LogCategory.RISK_MANAGEMENT,
                     "✅ Проверка позиций завершена",
                     String.format("Проверено: %d, Со стоп-ордерами: %d, Установлено новых: %d",
                             totalPositionsChecked, positionsWithStops, stopsInstalled));
 
         } catch (Exception e) {
-            log.error("Ошибка проверки и установки жестких стоп-ордеров для позиций: {}", e.getMessage());
+            log.error("❌ Критическая ошибка проверки и установки жестких стоп-ордеров для позиций: {}", e.getMessage(), e);
             botLogService.addLogEntry(BotLogService.LogLevel.ERROR, BotLogService.LogCategory.RISK_MANAGEMENT,
                     "❌ Критическая ошибка проверки жестких стоп-ордеров", e.getMessage());
         }
@@ -885,7 +902,11 @@ public class HardOcoMonitorService {
             boolean enabled = tradingSettingsService.getBoolean("hard_stops.enabled", false);
             String mode = investApiManager.getCurrentMode();
             if (!"production".equalsIgnoreCase(mode)) {
+                log.debug("Жесткие стоп-ордера недоступны: режим не production (текущий: {})", mode);
                 return false;
+            }
+            if (!enabled) {
+                log.debug("Жесткие стоп-ордера отключены в настройках (hard_stops.enabled = false)");
             }
             return enabled;
         } catch (Exception e) {
