@@ -640,42 +640,7 @@ public class OrderService {
             PostOrderResponse tpResp = null;
             PostOrderResponse slResp = null;
 
-            // Размещаем тейк-профит как лимитный ордер с информацией об OCO группе
-            try {
-                tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString(), ocoMessage);
-                
-                // Проверяем статус ответа - если ордер отклонен, используем виртуальный
-                if (tpResp.getExecutionReportStatus() != null && 
-                    (tpResp.getExecutionReportStatus().name().contains("REJECT") || 
-                     tpResp.getExecutionReportStatus().name().contains("CANCELLED"))) {
-                    log.warn("⚠️ HARD OCO TP ордер отклонен брокером (статус: {}). Используем виртуальные OCO", 
-                            tpResp.getExecutionReportStatus());
-                    throw new RuntimeException("TP ордер отклонен брокером");
-                }
-                
-            log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
-                tpSuccess = true;
-
-            // Обновляем сохраненный ордер в БД с информацией об OCO группе
-            try {
-                Order tpOrder = orderRepository.findById(tpResp.getOrderId()).orElse(null);
-                if (tpOrder != null) {
-                    tpOrder.setMessage(ocoMessage + " | TP: " + takeProfitPct * 100 + "%");
-                    tpOrder.setOrderType("HARD_OCO_TAKE_PROFIT");
-                    orderRepository.save(tpOrder);
-                    log.info("💾 HARD OCO TP ордер обновлен в БД: orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
-                }
-            } catch (Exception e) {
-                log.warn("Не удалось обновить TP ордер в БД: {}", e.getMessage());
-                }
-            } catch (Exception e) {
-                log.error("❌ Ошибка размещения HARD OCO TP ордера для {}: {}. Используем виртуальные OCO", figi, e.getMessage());
-                // Если TP не установился, отменяем попытку установки SL и переходим на виртуальные
-                placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
-                log.info("✅ Виртуальные OCO установлены для {} вместо жестких (TP ордер не установился)", figi);
-                return;
-            }
-
+            // ИСПРАВЛЕНИЕ: Сначала пытаемся разместить SL (у него обычно меньше отклонение от текущей цены)
             // Размещаем стоп как стоп-ордер с информацией об OCO группе
             try {
                 slResp = placeStopOrder(figi, lots, exitDirection, accountId, stopLossPrice, ocoMessage + " | SL: " + stopLossPct * 100 + "%");
@@ -684,68 +649,123 @@ public class OrderService {
                 if (slResp.getExecutionReportStatus() != null && 
                     (slResp.getExecutionReportStatus().name().contains("REJECT") || 
                      slResp.getExecutionReportStatus().name().contains("CANCELLED"))) {
-                    log.warn("⚠️ HARD OCO SL ордер отклонен брокером (статус: {}). Используем виртуальные OCO", 
+                    log.warn("⚠️ HARD OCO SL ордер отклонен брокером (статус: {}). Продолжаем попытку разместить TP", 
                             slResp.getExecutionReportStatus());
-                    // Отменяем уже установленный TP ордер
-                    if (tpSuccess && tpResp != null) {
+                    slSuccess = false;
+                } else {
+                    log.info("🛑 HARD OCO: SL ордер создан, orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
+                    slSuccess = true;
+
+                    // Обновляем сохраненный ордер в БД с информацией об OCO группе
+                    try {
+                        Order slOrder = orderRepository.findById(slResp.getOrderId()).orElse(null);
+                        if (slOrder != null) {
+                            slOrder.setMessage(ocoMessage + " | SL: " + stopLossPct * 100 + "%");
+                            slOrder.setOrderType("HARD_OCO_STOP_LOSS");
+                            orderRepository.save(slOrder);
+                            log.info("💾 HARD OCO SL ордер обновлен в БД: orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
+                        }
+                    } catch (Exception e) {
+                        log.warn("Не удалось обновить SL ордер в БД: {}", e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("⚠️ Ошибка размещения HARD OCO SL ордера для {}: {}. Продолжаем попытку разместить TP", figi, e.getMessage());
+                slSuccess = false;
+            }
+
+            // Теперь пытаемся разместить тейк-профит как лимитный ордер с информацией об OCO группе
+            try {
+                tpResp = placeLimitOrder(figi, lots, exitDirection, accountId, takeProfitPrice.toPlainString(), ocoMessage);
+                
+                // Проверяем статус ответа - если ордер отклонен, используем виртуальный
+                if (tpResp.getExecutionReportStatus() != null && 
+                    (tpResp.getExecutionReportStatus().name().contains("REJECT") || 
+                     tpResp.getExecutionReportStatus().name().contains("CANCELLED"))) {
+                    log.warn("⚠️ HARD OCO TP ордер отклонен брокером (статус: {}). Используем гибридный подход", 
+                            tpResp.getExecutionReportStatus());
+                    tpSuccess = false;
+                } else {
+                    log.info("🎯 HARD OCO: TP ордер создан, orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
+                    tpSuccess = true;
+
+                    // Обновляем сохраненный ордер в БД с информацией об OCO группе
+                    try {
+                        Order tpOrder = orderRepository.findById(tpResp.getOrderId()).orElse(null);
+                        if (tpOrder != null) {
+                            tpOrder.setMessage(ocoMessage + " | TP: " + takeProfitPct * 100 + "%");
+                            tpOrder.setOrderType("HARD_OCO_TAKE_PROFIT");
+                            orderRepository.save(tpOrder);
+                            log.info("💾 HARD OCO TP ордер обновлен в БД: orderId={}, group={}", tpResp.getOrderId(), ocoGroupId);
+                        }
+                    } catch (Exception e) {
+                        log.warn("Не удалось обновить TP ордер в БД: {}", e.getMessage());
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("⚠️ Ошибка размещения HARD OCO TP ордера для {}: {}. Используем гибридный подход", figi, e.getMessage());
+                tpSuccess = false;
+            }
+
+            // Проверяем результаты размещения и используем оптимальную стратегию
+            if (tpSuccess && slSuccess) {
+                // Оба ордера установлены - идеальный случай
+                log.info("✅ HARD OCO группа создана: {} | TP orderId={}, SL orderId={}, group={}", 
+                    figi, tpResp.getOrderId(), slResp.getOrderId(), ocoGroupId);
+            } else if (slSuccess && !tpSuccess) {
+                // SL установился, но TP нет - используем гибридный подход: жесткий SL + виртуальный TP
+                log.info("🔀 Гибридный подход: жесткий SL установлен (orderId={}), TP будет виртуальным", slResp.getOrderId());
+                // Создаем виртуальный TP, который будет работать вместе с жестким SL
+                try {
+                    // Создаем виртуальный TP, который будет отслеживать цену
+                    Order virtualTP = new Order();
+                    virtualTP.setOrderId("VIRTUAL_TP_" + System.currentTimeMillis());
+                    virtualTP.setFigi(figi);
+                    virtualTP.setOperation(exitDirection.name());
+                    virtualTP.setStatus("NEW");
+                    virtualTP.setRequestedLots(BigDecimal.valueOf(lots));
+                    virtualTP.setPrice(takeProfitPrice);
+                    virtualTP.setOrderType("VIRTUAL_TAKE_PROFIT");
+                    virtualTP.setAccountId(accountId);
+                    virtualTP.setMessage("OCO_GROUP:" + ocoGroupId + " | Entry: " + entryPrice + ", TP: " + takeProfitPct * 100 + "% | Гибридный: SL жесткий");
+                    orderRepository.save(virtualTP);
+                    
+                    log.info("✅ Гибридный OCO установлен для {}: жесткий SL (orderId={}) + виртуальный TP (orderId={})", 
+                            figi, slResp.getOrderId(), virtualTP.getOrderId());
+                } catch (Exception e) {
+                    log.warn("Не удалось создать виртуальный TP для гибридного OCO: {}", e.getMessage());
+                    // Если не удалось создать виртуальный TP, отменяем SL и используем полностью виртуальные OCO
+                    if (slResp != null) {
                         try {
-                            cancelOrder(accountId, tpResp.getOrderId());
-                            log.info("🚫 Отменен TP ордер {} из-за отклонения SL ордера", tpResp.getOrderId());
+                            cancelOrder(accountId, slResp.getOrderId());
+                            log.info("🚫 Отменен SL ордер {} из-за ошибки создания виртуального TP", slResp.getOrderId());
                         } catch (Exception cancelEx) {
-                            log.warn("Не удалось отменить TP ордер {}: {}", tpResp.getOrderId(), cancelEx.getMessage());
+                            log.warn("Не удалось отменить SL ордер: {}", cancelEx.getMessage());
                         }
                     }
-                    throw new RuntimeException("SL ордер отклонен брокером");
+                    placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
+                    log.info("✅ Виртуальные OCO установлены для {} вместо гибридных (ошибка создания виртуального TP)", figi);
                 }
-                
-            log.info("🛑 HARD OCO: SL ордер создан, orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
-                slSuccess = true;
-
-            // Обновляем сохраненный ордер в БД с информацией об OCO группе
-            try {
-                Order slOrder = orderRepository.findById(slResp.getOrderId()).orElse(null);
-                if (slOrder != null) {
-                    slOrder.setMessage(ocoMessage + " | SL: " + stopLossPct * 100 + "%");
-                    slOrder.setOrderType("HARD_OCO_STOP_LOSS");
-                    orderRepository.save(slOrder);
-                    log.info("💾 HARD OCO SL ордер обновлен в БД: orderId={}, group={}", slResp.getOrderId(), ocoGroupId);
-                }
-            } catch (Exception e) {
-                log.warn("Не удалось обновить SL ордер в БД: {}", e.getMessage());
-            }
-            } catch (Exception e) {
-                log.error("❌ Ошибка размещения HARD OCO SL ордера для {}: {}. Используем виртуальные OCO", figi, e.getMessage());
-                // Если SL не установился, отменяем уже установленный TP и переходим на виртуальные
-                if (tpSuccess && tpResp != null) {
-                    try {
-                        cancelOrder(accountId, tpResp.getOrderId());
-                        log.info("🚫 Отменен TP ордер {} из-за ошибки установки SL ордера", tpResp.getOrderId());
-                    } catch (Exception cancelEx) {
-                        log.warn("Не удалось отменить TP ордер {}: {}", tpResp.getOrderId(), cancelEx.getMessage());
-                    }
-                }
-                placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
-                log.info("✅ Виртуальные OCO установлены для {} вместо жестких (SL ордер не установился)", figi);
-                return;
-            }
-
-            // Проверяем, что оба ордера успешно установлены
-            if (tpSuccess && slSuccess) {
-            log.info("✅ HARD OCO группа создана: {} | TP orderId={}, SL orderId={}, group={}", 
-                figi, tpResp.getOrderId(), slResp.getOrderId(), ocoGroupId);
-            } else {
-                // Если что-то пошло не так, используем виртуальные OCO
-                log.warn("⚠️ HARD OCO группа не полностью установлена (TP: {}, SL: {}). Используем виртуальные OCO", 
+            } else if (!slSuccess && !tpSuccess) {
+                // Оба ордера не установились - используем полностью виртуальные OCO
+                log.warn("⚠️ HARD OCO: оба ордера не установились (TP: {}, SL: {}). Используем виртуальные OCO", 
                         tpSuccess, slSuccess);
-                if (tpSuccess && tpResp != null) {
+                placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
+                log.info("✅ Виртуальные OCO установлены для {} вместо жестких (оба ордера не установились)", figi);
+            } else {
+                // TP установился, но SL нет - отменяем TP и используем виртуальные OCO
+                // (без SL это не полноценный OCO, лучше использовать виртуальные)
+                log.warn("⚠️ HARD OCO: TP установился, но SL нет. Отменяем TP и используем виртуальные OCO");
+                if (tpResp != null) {
                     try {
                         cancelOrder(accountId, tpResp.getOrderId());
+                        log.info("🚫 Отменен TP ордер {} из-за отсутствия SL", tpResp.getOrderId());
                     } catch (Exception cancelEx) {
                         log.warn("Не удалось отменить TP ордер: {}", cancelEx.getMessage());
                     }
                 }
                 placeVirtualOCO(figi, lots, originalDirection, accountId, entryPrice, takeProfitPct, stopLossPct);
-                log.info("✅ Виртуальные OCO установлены для {} вместо жестких (неполная установка)", figi);
+                log.info("✅ Виртуальные OCO установлены для {} вместо жестких (SL не установился)", figi);
             }
 
         } catch (Exception e) {
