@@ -23,7 +23,7 @@ tinkoff:
     # Токен для реальной торговли (продакшн)
     production-token: ${TINKOFF_PRODUCTION_TOKEN:t.0CTznpaRfqz_r6xbq0XY_sDcgYQVVMJ9ZAsEy4_i91P8IL2QIN5Jf0E8XDbx0gJcjpnNxXcuKuYWHxSEsl2zMw}
     # Режим по умолчанию (ВАЖНО: измените на sandbox для тестирования!)
-    default-mode: production  # sandbox или production
+    default-mode: sandbox  # sandbox или production
 
 # Application Configuration
 app:
@@ -58,10 +58,10 @@ position-management:
     add-buy-pct: 0.003             # Докупка: 0.3% от buyingPower (было 1%)
     min-position-value: 1000       # Минимальная стоимость позиции в рублях
 
-# Capital Management - ОПТИМИЗИРОВАННЫЕ НАСТРОЙКИ ДЛЯ ПРИБЫЛЬНОСТИ
+# Capital Management - КОНСЕРВАТИВНЫЕ НАСТРОЙКИ ДЛЯ БЕЗОПАСНОСТИ
 capital-management:
-  first-buy-pct: 0.02            # 2% от покупательной способности (было 0.5%)
-  add-buy-pct: 0.01              # 1% при докупке (было 0.3%)
+  first-buy-pct: 0.005           # 0.5% от покупательной способности (УМЕНЬШЕНО)
+  add-buy-pct: 0.003             # 0.3% при докупке (УМЕНЬШЕНО)
   min-position-value: 5000       # Минимальная стоимость позиции, RUB (было 1000)
   max-position-size-pct: 0.08    # Максимум на инструмент от портфеля (было 0.05)
   risk-per-trade-pct: 0.01       # Риск на сделку 1% от портфеля (было 0.005)
@@ -93,6 +93,18 @@ logging:
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE 
 server:
   port: 8081
+
+# Trading Cooldown Configuration - ЗАЩИТА ОТ OVERTRADING
+cooldown:
+  min:
+    minutes: 45      # Минимальный cooldown между сделками (УВЕЛИЧЕНО)
+  same:
+    minutes: 60      # Cooldown для повторных операций (УВЕЛИЧЕНО)
+  reverse:
+    minutes: 90      # Cooldown для обратных операций (BUY->SELL) (УВЕЛИЧЕНО)
+  protection:
+    enabled: true    # Включить защиту от частых сделок
+    window-seconds: 600  # Окно защиты в секундах (10 минут)
 
 tbank:
   api:
